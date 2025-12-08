@@ -1788,23 +1788,27 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   const businessStatus = getBusinessStatus();
   
+  // Получаем реальный URL сервера
+  const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+  
   console.log(`🚀 Altair Partners IVR Server running on port ${PORT}`);
   console.log(`⏰ Business Status: ${businessStatus.isOpen ? 'OPEN' : 'CLOSED'}`);
   console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
-  console.log(`✅ Health check: http://localhost:${PORT}/health`);
-  console.log(`✅ Debug: http://localhost:${PORT}/debug`);
-  console.log(`📊 Logs: http://localhost:${PORT}/logs`);
-  console.log(`📅 Appointments: http://localhost:${PORT}/appointments`);
-  console.log(`🤖 Conversations: http://localhost:${PORT}/conversations`);
-  console.log(`⏰ Reminders: http://localhost:${PORT}/reminders`);
-  console.log(`🏢 Business Status: http://localhost:${PORT}/business-status`);
+  console.log(`🌐 Server URL: ${serverUrl}`);
+  console.log(`✅ Health check: ${serverUrl}/health`);
+  console.log(`✅ Debug: ${serverUrl}/debug`);
+  console.log(`📊 Logs: ${serverUrl}/logs`);
+  console.log(`📅 Appointments: ${serverUrl}/appointments`);
+  console.log(`🤖 Conversations: ${serverUrl}/conversations`);
+  console.log(`⏰ Reminders: ${serverUrl}/reminders`);
+  console.log(`🏢 Business Status: ${serverUrl}/business-status`);
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
   console.log(`🤖 AI Representative is ready (fast mode)`);
   console.log(`📝 Logging enabled: call_logs.json, ai_conversations.json, reminders_log.json`);
   console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
   console.log(`🔄 Check interval: Every 5 minutes`);
-  console.log(`🔔 Test endpoint: POST http://localhost:${PORT}/test-reminder?phone=+1234567890`);
+  console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
   console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
   
   // Запускаем reminder scheduler
