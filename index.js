@@ -13,6 +13,35 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // ======================================================
+// SELF-PING SYSTEM (чтобы сервер не спал на Free плане)
+// ======================================================
+if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
+  const PING_INTERVAL = 4 * 60 * 1000; // 4 минуты
+  
+  console.log(`🔄 Self-ping system activated (every ${PING_INTERVAL/60000} minutes)`);
+  
+  setInterval(async () => {
+    try {
+      const response = await fetch('https://altair-ivr-render-1.onrender.com/health');
+      if (response.ok) {
+        console.log('✅ Self-ping successful - Server kept awake');
+      } else {
+        console.log('⚠️ Self-ping failed with status:', response.status);
+      }
+    } catch (error) {
+      console.log('❌ Self-ping error:', error.message);
+    }
+  }, PING_INTERVAL);
+  
+  // Первый ping сразу при старте
+  setTimeout(() => {
+    fetch('https://altair-ivr-render-1.onrender.com/health')
+      .then(() => console.log('✅ Initial self-ping successful'))
+      .catch(err => console.log('❌ Initial self-ping failed:', err.message));
+  }, 5000);
+}
+
+// ======================================================
 // WORKING HOURS CHECK FUNCTIONS
 // ======================================================
 
@@ -103,10 +132,133 @@ function getBusinessStatus() {
 }
 
 // ======================================================
-// REMINDER SYSTEM
+// JSON DATABASE & LOGGING С АРХИВАЦИЕЙ ПО ДНЯМ
 // ======================================================
 
-const REMINDERS_LOG = "./reminders_log.json";
+// Папки для логов
+const LOGS_DIR = "./logs";
+const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
+const DAILY_LOGS_DIR = `${LOGS_DIR}/daily`;
+
+// Создаем папки если их нет
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
+if (!fs.existsSync(CURRENT_LOGS_DIR)) fs.mkdirSync(CURRENT_LOGS_DIR);
+if (!fs.existsSync(DAILY_LOGS_DIR)) fs.mkdirSync(DAILY_LOGS_DIR);
+
+// Пути к текущим логам
+const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
+const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
+const AI_CONVERSATIONS_PATH = `${CURRENT_LOGS_DIR}/ai_conversations.json`;
+const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
+
+// ======================================================
+// ФУНКЦИИ АРХИВАЦИИ ПО ДНЯМ
+// ======================================================
+
+function getTodayDateString() {
+  const now = new Date();
+  return now.toISOString().split('T')[0]; // "2025-12-08"
+}
+
+function getFormattedDate() {
+  const now = new Date();
+  return now.toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'long'
+  }); // "Monday, December 8, 2025"
+}
+
+function archiveDailyLogs() {
+  try {
+    const today = getTodayDateString();
+    console.log(`📦 Архивация логов за ${today}...`);
+    
+    // 1. Архивируем звонки
+    if (fs.existsSync(CALL_LOGS_PATH)) {
+      const callsData = fs.readFileSync(CALL_LOGS_PATH, "utf8");
+      const calls = JSON.parse(callsData || '[]');
+      if (calls.length > 0) {
+        fs.writeFileSync(
+          `${DAILY_LOGS_DIR}/calls-${today}.json`,
+          JSON.stringify(calls, null, 2)
+        );
+        console.log(`📞 Звонки за ${today} сохранены: ${calls.length} записей`);
+      }
+    }
+    
+    // 2. Архивируем appointments
+    if (fs.existsSync(DB_PATH)) {
+      const appointmentsData = fs.readFileSync(DB_PATH, "utf8");
+      const appointments = JSON.parse(appointmentsData || '[]');
+      if (appointments.length > 0) {
+        fs.writeFileSync(
+          `${DAILY_LOGS_DIR}/appointments-${today}.json`,
+          JSON.stringify(appointments, null, 2)
+        );
+        console.log(`📅 Appointments за ${today} сохранены: ${appointments.length} записей`);
+      }
+    }
+    
+    // 3. Архивируем AI разговоры
+    if (fs.existsSync(AI_CONVERSATIONS_PATH)) {
+      const aiData = fs.readFileSync(AI_CONVERSATIONS_PATH, "utf8");
+      const conversations = JSON.parse(aiData || '[]');
+      if (conversations.length > 0) {
+        fs.writeFileSync(
+          `${DAILY_LOGS_DIR}/ai-${today}.json`,
+          JSON.stringify(conversations, null, 2)
+        );
+        console.log(`🤖 AI разговоры за ${today} сохранены: ${conversations.length} записей`);
+      }
+    }
+    
+    // 4. Архивируем reminders
+    if (fs.existsSync(REMINDERS_LOG)) {
+      const remindersData = fs.readFileSync(REMINDERS_LOG, "utf8");
+      const reminders = JSON.parse(remindersData || '[]');
+      if (reminders.length > 0) {
+        fs.writeFileSync(
+          `${DAILY_LOGS_DIR}/reminders-${today}.json`,
+          JSON.stringify(reminders, null, 2)
+        );
+        console.log(`⏰ Reminders за ${today} сохранены: ${reminders.length} записей`);
+      }
+    }
+    
+    console.log(`✅ Архивация за ${today} завершена`);
+    
+  } catch (error) {
+    console.error("❌ Ошибка при архивации логов:", error);
+  }
+}
+
+function startDailyArchiver() {
+  console.log("📦 Daily archiver started");
+  console.log("🔄 Will archive logs every day at 11:59 PM PST");
+  
+  // Архивируем при старте (на случай если сервер перезапустился)
+  archiveDailyLogs();
+  
+  // Архивируем каждый день в 23:59 PST
+  setInterval(() => {
+    const now = new Date();
+    const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    
+    const hour = pstTime.getHours();
+    const minute = pstTime.getMinutes();
+    
+    // Если 23:59 - архивируем
+    if (hour === 23 && minute === 59) {
+      archiveDailyLogs();
+    }
+  }, 60 * 1000); // Проверяем каждую минуту
+}
+
+// ======================================================
+// REMINDER SYSTEM
+// ======================================================
 
 function logReminder(phone, appointment, action) {
   try {
@@ -337,11 +489,8 @@ function isSeriousQuestion(question) {
 }
 
 // ======================================================
-// JSON DATABASE & LOGGING
+// LOGGING FUNCTIONS (обновленные для архивов)
 // ======================================================
-const DB_PATH = "./appointments.json";
-const CALL_LOGS_PATH = "./call_logs.json";
-const AI_CONVERSATIONS_PATH = "./ai_conversations.json";
 
 function logCall(phone, action, details = {}) {
   try {
@@ -1620,7 +1769,138 @@ app.get('/business-status', (req, res) => {
 });
 
 // ======================================================
-// DEBUG ENDPOINTS
+// ДНЕВНЫЕ АРХИВЫ - НОВЫЕ ENDPOINTS
+// ======================================================
+
+// Показать все доступные даты архивов
+app.get('/daily-archives', (req, res) => {
+  try {
+    const files = fs.readdirSync(DAILY_LOGS_DIR);
+    
+    // Группируем файлы по дате
+    const dates = {};
+    
+    files.forEach(file => {
+      if (file.includes('calls-') || file.includes('appointments-') || file.includes('ai-') || file.includes('reminders-')) {
+        const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
+        const type = file.split('-')[0];
+        
+        if (!dates[date]) {
+          dates[date] = {
+            calls: false,
+            appointments: false,
+            ai: false,
+            reminders: false
+          };
+        }
+        
+        if (type === 'calls') dates[date].calls = true;
+        if (type === 'appointments') dates[date].appointments = true;
+        if (type === 'ai') dates[date].ai = true;
+        if (type === 'reminders') dates[date].reminders = true;
+      }
+    });
+    
+    const sortedDates = Object.keys(dates).sort().reverse();
+    
+    res.json({
+      totalDates: sortedDates.length,
+      dates: sortedDates.map(date => ({
+        date,
+        formattedDate: new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }),
+        logsAvailable: dates[date],
+        endpoints: {
+          calls: `/daily-archives/${date}/calls`,
+          appointments: `/daily-archives/${date}/appointments`,
+          ai: `/daily-archives/${date}/ai`,
+          reminders: `/daily-archives/${date}/reminders`
+        }
+      })),
+      lastUpdated: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error("ERROR loading daily archives:", error);
+    res.status(500).json({ error: "Failed to load daily archives" });
+  }
+});
+
+// Получить логи за конкретную дату
+app.get('/daily-archives/:date/:type', (req, res) => {
+  const { date, type } = req.params;
+  
+  try {
+    const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ 
+        error: "Archive not found",
+        message: `No ${type} logs found for date ${date}` 
+      });
+    }
+    
+    const data = fs.readFileSync(filePath, "utf8");
+    const logs = JSON.parse(data || '[]');
+    
+    let totalItems = 0;
+    let uniquePhones = new Set();
+    let phoneDetails = [];
+    
+    // Анализируем данные
+    logs.forEach(log => {
+      if (log.phone) {
+        uniquePhones.add(log.phone);
+        phoneDetails.push({
+          phone: log.phone,
+          name: log.name || log.details?.name || 'N/A',
+          action: log.action || 'N/A',
+          time: log.time || log.timestamp || 'N/A'
+        });
+      }
+      totalItems++;
+    });
+    
+    res.json({
+      date,
+      type,
+      totalItems,
+      uniquePhones: uniquePhones.size,
+      phoneList: Array.from(uniquePhones),
+      phoneDetails: phoneDetails.slice(0, 100), // Первые 100 записей
+      logs: logs.slice(0, 50), // Первые 50 логов
+      fileInfo: {
+        size: fs.statSync(filePath).size,
+        created: fs.statSync(filePath).birthtime,
+        modified: fs.statSync(filePath).mtime
+      },
+      downloadUrl: `/daily-archives/${date}/${type}/download`
+    });
+    
+  } catch (error) {
+    console.error(`ERROR loading ${type} archive for ${date}:`, error);
+    res.status(500).json({ error: "Failed to load archive" });
+  }
+});
+
+// Скачать архив за дату
+app.get('/daily-archives/:date/:type/download', (req, res) => {
+  const { date, type } = req.params;
+  const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
+  
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("File not found");
+  }
+  
+  res.download(filePath, `${type}-${date}.json`);
+});
+
+// ======================================================
+// DEBUG ENDPOINTS (обновленные)
 // ======================================================
 app.get('/health', (req, res) => {
   res.status(200).send('✅ IVR Server is running');
@@ -1653,6 +1933,24 @@ app.get('/debug', (req, res) => {
     console.error("ERROR loading logs:", error);
   }
   
+  // Проверяем архивы
+  let dailyArchives = [];
+  try {
+    if (fs.existsSync(DAILY_LOGS_DIR)) {
+      const files = fs.readdirSync(DAILY_LOGS_DIR);
+      const dates = new Set();
+      files.forEach(file => {
+        if (file.includes('-')) {
+          const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
+          dates.add(date);
+        }
+      });
+      dailyArchives = Array.from(dates).sort().reverse();
+    }
+  } catch (error) {
+    console.error("ERROR loading daily archives:", error);
+  }
+  
   res.json({
     status: 'running',
     businessStatus,
@@ -1672,6 +1970,11 @@ app.get('/debug', (req, res) => {
       total: reminderLogs.length,
       recent: reminderLogs.slice(-10)
     },
+    dailyArchives: {
+      totalDates: dailyArchives.length,
+      dates: dailyArchives.slice(0, 10),
+      allDates: `/daily-archives`
+    },
     nextAvailableDate: getNextAvailableDate(),
     reminderSystem: {
       schedule: 'ONE DAY BEFORE appointment at 2 PM Pacific Time',
@@ -1681,7 +1984,8 @@ app.get('/debug', (req, res) => {
     businessHours: {
       open: businessStatus.isOpen,
       message: businessStatus.isOpen ? 'Open now' : `Closed - ${businessStatus.nextOpenTime}`
-    }
+    },
+    selfPing: process.env.FREE_PLAN === 'true' ? 'Active (4 min interval)' : 'Inactive'
   });
 });
 
@@ -1690,27 +1994,65 @@ app.get('/', (req, res) => {
   
   res.send(`
     <html>
-      <body style="font-family: Arial; padding: 20px;">
+      <head>
+        <title>Altair Partners IVR Server</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; }
+          .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+          .open { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+          .closed { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+          .endpoints { background-color: #e2e3e5; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          ul { line-height: 1.6; }
+          a { color: #0066cc; text-decoration: none; }
+          a:hover { text-decoration: underline; }
+          .archive-info { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        </style>
+      </head>
+      <body>
         <h1>✅ Altair Partners IVR Server</h1>
-        <p>Status: <strong style="color: ${businessStatus.isOpen ? 'green' : 'red'}">${businessStatus.isOpen ? 'OPEN' : 'CLOSED'}</strong></p>
-        <p>Current Time (PST): ${businessStatus.currentTime}</p>
-        <p>Business Hours: ${businessStatus.hours}</p>
-        <p>Location: ${businessStatus.location}</p>
-        <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
-        <p>Endpoints:</p>
-        <ul>
-          <li><a href="/health">/health</a> - Health check</li>
-          <li><a href="/debug">/debug</a> - Debug info</li>
-          <li><a href="/logs">/logs</a> - Call logs</li>
-          <li><a href="/appointments">/appointments</a> - All appointments</li>
-          <li><a href="/conversations">/conversations</a> - AI conversations</li>
-          <li><a href="/reminders">/reminders</a> - Reminder logs</li>
-          <li><a href="/business-status">/business-status</a> - Business hours check</li>
-        </ul>
-        <p>Twilio Webhook: POST /voice</p>
-        <p>⏰ Reminder System: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
-        <p>🔄 Next check: Every 5 minutes</p>
-        <p>🔔 <a href="/test-reminder?phone=+15034448881">Test reminder</a></p>
+        
+        <div class="status ${businessStatus.isOpen ? 'open' : 'closed'}">
+          <p><strong>Status:</strong> ${businessStatus.isOpen ? '🟢 OPEN' : '🔴 CLOSED'}</p>
+          <p><strong>Current Time (PST):</strong> ${businessStatus.currentTime}</p>
+          <p><strong>Business Hours:</strong> ${businessStatus.hours}</p>
+          <p><strong>Location:</strong> ${businessStatus.location}</p>
+          <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
+        </div>
+        
+        <div class="archive-info">
+          <h3>📦 Daily Archives System</h3>
+          <p>Все логи автоматически сохраняются по дням. Номера телефонов НЕ удаляются!</p>
+          <p><a href="/daily-archives">Просмотреть все архивы по датам</a></p>
+          <p>Архивация происходит каждый день в 11:59 PM PST</p>
+        </div>
+        
+        <div class="endpoints">
+          <h3>Endpoints:</h3>
+          <ul>
+            <li><a href="/health">/health</a> - Health check</li>
+            <li><a href="/debug">/debug</a> - Debug info</li>
+            <li><a href="/daily-archives">/daily-archives</a> - Все архивы по дням</li>
+            <li><a href="/logs">/logs</a> - Текущие логи звонков</li>
+            <li><a href="/appointments">/appointments</a> - Все appointments</li>
+            <li><a href="/conversations">/conversations</a> - AI conversations</li>
+            <li><a href="/reminders">/reminders</a> - Reminder logs</li>
+            <li><a href="/business-status">/business-status</a> - Business hours check</li>
+          </ul>
+          
+          <h3>Пример просмотра архива за дату:</h3>
+          <ul>
+            <li><a href="/daily-archives/2025-12-08/calls">/daily-archives/2025-12-08/calls</a></li>
+            <li><a href="/daily-archives/2025-12-08/appointments">/daily-archives/2025-12-08/appointments</a></li>
+            <li><a href="/daily-archives/2025-12-08/ai">/daily-archives/2025-12-08/ai</a></li>
+          </ul>
+        </div>
+        
+        <p><strong>Twilio Webhook:</strong> POST /voice</p>
+        <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
+        <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
+        <p><strong>🔔 <a href="/test-reminder?phone=+15034448881">Test reminder</a></strong></p>
+        <p><strong>📦 Архивация:</strong> Ежедневно в 11:59 PM PST</p>
+        <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}</p>
       </body>
     </html>
   `);
@@ -1727,7 +2069,8 @@ app.get('/logs', (req, res) => {
     res.json({
       total: callLogs.length,
       logs: callLogs.reverse(),
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      note: "Это текущие логи. Архивы по дням доступны по /daily-archives"
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load logs" });
@@ -1740,7 +2083,8 @@ app.get('/appointments', (req, res) => {
   res.json({
     total: appointments.length,
     appointments: appointments.reverse(),
-    lastUpdated: new Date().toISOString()
+    lastUpdated: new Date().toISOString(),
+    note: "Это текущие appointments. Архивы по дням доступны по /daily-archives"
   });
 });
 
@@ -1755,7 +2099,8 @@ app.get('/conversations', (req, res) => {
     res.json({
       total: aiConversations.length,
       conversations: aiConversations.reverse(),
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      note: "Это текущие AI разговоры. Архивы по дням доступны по /daily-archives"
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load conversations" });
@@ -1774,7 +2119,8 @@ app.get('/reminders', (req, res) => {
       total: reminderLogs.length,
       reminders: reminderLogs.reverse(),
       lastUpdated: new Date().toISOString(),
-      systemInfo: 'Calls ONE DAY BEFORE appointment at 2 PM Pacific Time'
+      systemInfo: 'Calls ONE DAY BEFORE appointment at 2 PM Pacific Time',
+      note: "Это текущие reminders. Архивы по дням доступны по /daily-archives"
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load reminders" });
@@ -1798,19 +2144,25 @@ app.listen(PORT, () => {
   console.log(`🌐 Server URL: ${serverUrl}`);
   console.log(`✅ Health check: ${serverUrl}/health`);
   console.log(`✅ Debug: ${serverUrl}/debug`);
-  console.log(`📊 Logs: ${serverUrl}/logs`);
+  console.log(`📦 Daily archives: ${serverUrl}/daily-archives`);
+  console.log(`📊 Current logs: ${serverUrl}/logs`);
   console.log(`📅 Appointments: ${serverUrl}/appointments`);
   console.log(`🤖 Conversations: ${serverUrl}/conversations`);
   console.log(`⏰ Reminders: ${serverUrl}/reminders`);
   console.log(`🏢 Business Status: ${serverUrl}/business-status`);
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
   console.log(`🤖 AI Representative is ready (fast mode)`);
-  console.log(`📝 Logging enabled: call_logs.json, ai_conversations.json, reminders_log.json`);
+  console.log(`📝 Logging enabled: logs/current/call_logs.json`);
+  console.log(`📦 Daily archiving enabled: logs/daily/ (сохраняет каждый день в 23:59 PST)`);
   console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
   console.log(`🔄 Check interval: Every 5 minutes`);
   console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
   console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
+  console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}`);
   
   // Запускаем reminder scheduler
   startReminderScheduler();
+  
+  // Запускаем daily archiver
+  startDailyArchiver();
 });
