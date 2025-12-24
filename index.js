@@ -676,6 +676,1191 @@ function getNextAvailableDate() {
 }
 
 // ======================================================
+// BEAUTIFUL ARCHIVE VIEWER HTML
+// ======================================================
+
+const ARCHIVE_VIEWER_HTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📊 Altair Partners - Beautiful Archive Viewer</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+            color: white;
+            padding: 30px 40px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
+        }
+
+        .badge {
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 5px;
+        }
+
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            padding: 20px 40px;
+            background: #f8fafc;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            text-align: center;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(99, 102, 241, 0.2);
+            border-color: #6366f1;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: #4f46e5;
+            margin-bottom: 5px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-label {
+            color: #64748b;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .controls {
+            padding: 25px 40px;
+            background: white;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 12px 24px;
+            background: #f1f5f9;
+            border: 2px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #475569;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .filter-btn:hover {
+            background: #e2e8f0;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .filter-btn.active {
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+            color: white;
+            border-color: #4f46e5;
+            box-shadow: 0 5px 20px rgba(79, 70, 229, 0.3);
+        }
+
+        .search-box {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 20px;
+            border: 2px solid #cbd5e1;
+            border-radius: 10px;
+            font-size: 1rem;
+            font-weight: 500;
+            background: white;
+            transition: all 0.3s ease;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        .action-btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn {
+            background: linear-gradient(to right, #10b981, #34d399);
+            color: white;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px) rotate(5deg);
+            box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
+        }
+
+        .back-btn {
+            background: #64748b;
+            color: white;
+        }
+
+        .back-btn:hover {
+            background: #475569;
+            transform: translateX(-5px);
+        }
+
+        .date-grid {
+            padding: 40px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .date-card {
+            background: white;
+            border: 2px solid #e2e8f0;
+            border-radius: 15px;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            animation: cardSlide 0.5s ease backwards;
+            animation-delay: calc(var(--i) * 0.1s);
+        }
+
+        @keyframes cardSlide {
+            from {
+                opacity: 0;
+                transform: translateY(30px) scale(0.9);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .date-card:hover {
+            transform: translateY(-10px) scale(1.02);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            border-color: #4f46e5;
+        }
+
+        .date-header {
+            background: linear-gradient(to right, #60a5fa, #3b82f6);
+            color: white;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+        }
+
+        .date-header::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-top: 10px solid #3b82f6;
+        }
+
+        .date-day {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .date-number {
+            font-size: 3.5rem;
+            font-weight: 800;
+            line-height: 1;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .date-month-year {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-top: 5px;
+        }
+
+        .date-stats {
+            padding: 20px;
+            background: #f8fafc;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+
+        .log-type {
+            font-weight: 600;
+            color: #475569;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .log-count {
+            background: #4f46e5;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            min-width: 40px;
+            text-align: center;
+        }
+
+        .button-row {
+            padding: 15px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .view-btn {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px;
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+            color: white;
+            border: none;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+
+        .view-btn:hover {
+            background: linear-gradient(to right, #4338ca, #6d28d9);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(79, 70, 229, 0.3);
+        }
+
+        .details-container {
+            padding: 40px;
+            display: none;
+        }
+
+        .details-container.active {
+            display: block;
+            animation: slideIn 0.5s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .details-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .log-table-container {
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .log-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .log-table thead {
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+        }
+
+        .log-table th {
+            color: white;
+            padding: 20px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 1.1rem;
+            position: relative;
+        }
+
+        .log-table th::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            height: 60%;
+            width: 1px;
+            background: rgba(255,255,255,0.3);
+        }
+
+        .log-table th:last-child::after {
+            display: none;
+        }
+
+        .log-table td {
+            padding: 18px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            transition: background 0.2s ease;
+        }
+
+        .log-table tbody tr:hover {
+            background: #f8fafc;
+        }
+
+        .log-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .phone-number {
+            font-family: 'SF Mono', Monaco, 'Cascadia Mono', monospace;
+            background: #f1f5f9;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-weight: 600;
+            color: #1e293b;
+            font-size: 0.9rem;
+        }
+
+        .action-badge {
+            padding: 6px 15px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+
+        .badge-call { background: #dbeafe; color: #1e40af; }
+        .badge-appointment { background: #dcfce7; color: #166534; }
+        .badge-ai { background: #fef3c7; color: #92400e; }
+        .badge-reminder { background: #f3e8ff; color: #6b21a8; }
+        .badge-error { background: #fee2e2; color: #991b1b; }
+
+        .message-preview {
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #64748b;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #64748b;
+            font-size: 1.2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .loader {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e2e8f0;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-container {
+            display: none;
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px;
+            text-align: center;
+            animation: shake 0.5s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+
+        .error-container.active {
+            display: block;
+        }
+
+        .no-data {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 60px;
+            color: #64748b;
+            font-size: 1.2rem;
+        }
+
+        .no-data i {
+            font-size: 3rem;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        @media (max-width: 768px) {
+            .date-grid {
+                grid-template-columns: 1fr;
+                padding: 20px;
+            }
+            
+            .controls {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 15px;
+            }
+            
+            .search-box {
+                min-width: 100%;
+            }
+            
+            .stats-bar {
+                grid-template-columns: repeat(2, 1fr);
+                padding: 15px;
+                gap: 10px;
+            }
+            
+            .stat-number {
+                font-size: 2rem;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .stats-bar {
+                grid-template-columns: 1fr;
+            }
+            
+            .header {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>
+                <i class="fas fa-archive"></i>
+                Altair Partners Call Archive
+            </h1>
+            <p>Instant call logging system • View all calls, appointments, and conversations • Real-time updates</p>
+            <div class="badge">
+                <i class="fas fa-bolt"></i>
+                INSTANT ARCHIVE - Все звонки сохраняются сразу!
+            </div>
+        </div>
+
+        <!-- Stats Bar -->
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-card" id="totalDates">
+                <div class="stat-number">0</div>
+                <div class="stat-label">Archived Dates</div>
+            </div>
+            <div class="stat-card" id="totalCalls">
+                <div class="stat-number">0</div>
+                <div class="stat-label">Total Calls</div>
+            </div>
+            <div class="stat-card" id="totalAppointments">
+                <div class="stat-number">0</div>
+                <div class="stat-label">Appointments</div>
+            </div>
+            <div class="stat-card" id="totalAI">
+                <div class="stat-number">0</div>
+                <div class="stat-label">AI Conversations</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls" id="controls">
+            <button class="filter-btn active" data-type="all">
+                <i class="fas fa-layer-group"></i> All Types
+            </button>
+            <button class="filter-btn" data-type="calls">
+                <i class="fas fa-phone"></i> Calls
+            </button>
+            <button class="filter-btn" data-type="appointments">
+                <i class="fas fa-calendar-check"></i> Appointments
+            </button>
+            <button class="filter-btn" data-type="ai">
+                <i class="fas fa-robot"></i> AI Conversations
+            </button>
+            <button class="filter-btn" data-type="reminders">
+                <i class="fas fa-bell"></i> Reminders
+            </button>
+            
+            <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search by date or phone number...">
+            
+            <button class="action-btn refresh-btn" id="refreshBtn">
+                <i class="fas fa-sync-alt"></i> Refresh
+            </button>
+        </div>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="loader"></div>
+            Loading archive data...
+        </div>
+
+        <!-- Error -->
+        <div class="error-container" id="errorContainer">
+            <i class="fas fa-exclamation-triangle"></i>
+            <h3>Error loading data</h3>
+            <p id="errorMessage">Please check if the server is running.</p>
+            <button class="action-btn refresh-btn" onclick="loadArchiveData()" style="margin-top: 10px;">
+                <i class="fas fa-redo"></i> Try Again
+            </button>
+        </div>
+
+        <!-- Dates Grid -->
+        <div class="date-grid" id="dateGrid">
+            <!-- Dates will be inserted here -->
+        </div>
+
+        <!-- No Data Message -->
+        <div class="no-data" id="noData" style="display: none;">
+            <i class="fas fa-inbox"></i>
+            <h3>No archive data found</h3>
+            <p>There are no logs available for the selected criteria.</p>
+        </div>
+
+        <!-- Details Container -->
+        <div class="details-container" id="detailsContainer">
+            <div class="details-header">
+                <h2 id="detailTitle">
+                    <i class="fas fa-file-alt"></i>
+                    Log Details
+                </h2>
+                <button class="action-btn back-btn" id="backBtn">
+                    <i class="fas fa-arrow-left"></i> Back to Archive
+                </button>
+            </div>
+            
+            <div class="log-table-container">
+                <table class="log-table" id="logTable">
+                    <thead>
+                        <tr>
+                            <th><i class="fas fa-clock"></i> Time</th>
+                            <th><i class="fas fa-phone"></i> Phone Number</th>
+                            <th><i class="fas fa-bolt"></i> Action</th>
+                            <th><i class="fas fa-info-circle"></i> Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logTableBody">
+                        <!-- Logs will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const SERVER_URL = window.location.origin;
+        let currentView = 'grid';
+        let currentDate = '';
+        let currentType = 'all';
+        let allDates = [];
+
+        // DOM Elements
+        const loadingEl = document.getElementById('loading');
+        const errorContainerEl = document.getElementById('errorContainer');
+        const errorMessageEl = document.getElementById('errorMessage');
+        const dateGridEl = document.getElementById('dateGrid');
+        const detailsContainerEl = document.getElementById('detailsContainer');
+        const logTableBodyEl = document.getElementById('logTableBody');
+        const detailTitleEl = document.getElementById('detailTitle');
+        const backBtn = document.getElementById('backBtn');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const searchBoxEl = document.getElementById('searchBox');
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        const noDataEl = document.getElementById('noData');
+        const statsBarEl = document.getElementById('statsBar');
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadArchiveData();
+            setupEventListeners();
+            setupAutoRefresh();
+            setupSearch();
+        });
+
+        // Event Listeners
+        function setupEventListeners() {
+            backBtn.addEventListener('click', showDateGrid);
+            refreshBtn.addEventListener('click', loadArchiveData);
+            
+            filterBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    filterBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentType = btn.dataset.type;
+                    renderDateGrid();
+                });
+            });
+        }
+
+        // Search functionality
+        function setupSearch() {
+            let searchTimeout;
+            searchBoxEl.addEventListener('input', () => {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    renderDateGrid();
+                }, 300);
+            });
+        }
+
+        // Auto-refresh every 30 seconds
+        function setupAutoRefresh() {
+            setInterval(() => {
+                if (currentView === 'grid') {
+                    loadArchiveData();
+                }
+            }, 30000);
+        }
+
+        // Load archive data
+        async function loadArchiveData() {
+            showLoading();
+            hideError();
+            hideNoData();
+            
+            try {
+                const response = await fetch('/daily-archives');
+                
+                if (!response.ok) {
+                    throw new Error(\`Server error: \${response.status}\`);
+                }
+                
+                const data = await response.json();
+                allDates = data.dates || [];
+                
+                updateStats(data);
+                renderDateGrid();
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error loading archive:', error);
+                showError(\`Failed to load archive: \${error.message}\`);
+                hideLoading();
+            }
+        }
+
+        // Update statistics
+        function updateStats(data) {
+            document.getElementById('totalDates').querySelector('.stat-number').textContent = data.totalDates || 0;
+            
+            // Calculate totals
+            let totalCalls = 0;
+            let totalAppointments = 0;
+            let totalAI = 0;
+            
+            allDates.forEach(date => {
+                if (date.logsAvailable.calls) totalCalls++;
+                if (date.logsAvailable.appointments) totalAppointments++;
+                if (date.logsAvailable.ai) totalAI++;
+            });
+            
+            document.getElementById('totalCalls').querySelector('.stat-number').textContent = totalCalls;
+            document.getElementById('totalAppointments').querySelector('.stat-number').textContent = totalAppointments;
+            document.getElementById('totalAI').querySelector('.stat-number').textContent = totalAI;
+            
+            // Animate stats
+            animateStats();
+        }
+
+        // Animate stats numbers
+        function animateStats() {
+            const statNumbers = document.querySelectorAll('.stat-number');
+            statNumbers.forEach(stat => {
+                const target = parseInt(stat.textContent);
+                let current = 0;
+                const increment = target / 20;
+                
+                const timer = setInterval(() => {
+                    current += increment;
+                    if (current >= target) {
+                        current = target;
+                        clearInterval(timer);
+                    }
+                    stat.textContent = Math.floor(current);
+                }, 50);
+            });
+        }
+
+        // Render date grid
+        function renderDateGrid() {
+            dateGridEl.innerHTML = '';
+            
+            let filteredDates = [...allDates];
+            
+            // Filter by type
+            if (currentType !== 'all') {
+                filteredDates = filteredDates.filter(date => date.logsAvailable[currentType]);
+            }
+            
+            // Filter by search
+            const searchTerm = searchBoxEl.value.toLowerCase();
+            if (searchTerm) {
+                filteredDates = filteredDates.filter(date => {
+                    return date.date.includes(searchTerm) ||
+                           date.formattedDate.toLowerCase().includes(searchTerm);
+                });
+            }
+            
+            // Sort by date (newest first)
+            filteredDates.sort((a, b) => new Date(b.date) - new Date(a.date));
+            
+            if (filteredDates.length === 0) {
+                showNoData();
+                return;
+            }
+            
+            hideNoData();
+            
+            // Create date cards
+            filteredDates.forEach((date, index) => {
+                const dateCard = createDateCard(date, index);
+                dateGridEl.appendChild(dateCard);
+            });
+        }
+
+        // Create date card
+        function createDateCard(dateData, index) {
+            const card = document.createElement('div');
+            card.className = 'date-card';
+            card.style.setProperty('--i', index);
+            
+            const date = new Date(dateData.date + 'T00:00:00');
+            const day = date.toLocaleDateString('en-US', { weekday: 'long' });
+            const dateNum = date.getDate();
+            const monthYear = date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            
+            card.innerHTML = \`
+                <div class="date-header">
+                    <div class="date-day">\${day}</div>
+                    <div class="date-number">\${dateNum}</div>
+                    <div class="date-month-year">\${monthYear}</div>
+                </div>
+                <div class="date-stats">
+            \`;
+            
+            // Add stats rows
+            const statsContainer = card.querySelector('.date-stats');
+            
+            if (dateData.logsAvailable.calls) {
+                statsContainer.innerHTML += \`
+                    <div class="stat-row">
+                        <span class="log-type">
+                            <i class="fas fa-phone"></i>
+                            Calls
+                        </span>
+                        <span class="log-count">\${dateData.totalItems || '?'}</span>
+                    </div>
+                \`;
+            }
+            
+            if (dateData.logsAvailable.appointments) {
+                statsContainer.innerHTML += \`
+                    <div class="stat-row">
+                        <span class="log-type">
+                            <i class="fas fa-calendar-check"></i>
+                            Appointments
+                        </span>
+                        <span class="log-count">\${dateData.uniquePhones || '?'}</span>
+                    </div>
+                \`;
+            }
+            
+            if (dateData.logsAvailable.ai) {
+                statsContainer.innerHTML += \`
+                    <div class="stat-row">
+                        <span class="log-type">
+                            <i class="fas fa-robot"></i>
+                            AI Conversations
+                        </span>
+                        <span class="log-count">\${dateData.totalItems || '?'}</span>
+                    </div>
+                \`;
+            }
+            
+            if (dateData.logsAvailable.reminders) {
+                statsContainer.innerHTML += \`
+                    <div class="stat-row">
+                        <span class="log-type">
+                            <i class="fas fa-bell"></i>
+                            Reminders
+                        </span>
+                        <span class="log-count">\${dateData.totalItems || '?'}</span>
+                    </div>
+                \`;
+            }
+            
+            // Add buttons
+            const buttonRow = document.createElement('div');
+            buttonRow.className = 'button-row';
+            
+            if (dateData.logsAvailable.calls) {
+                buttonRow.innerHTML += \`
+                    <button class="view-btn" data-type="calls">
+                        <i class="fas fa-phone"></i>
+                        Calls
+                    </button>
+                \`;
+            }
+            
+            if (dateData.logsAvailable.appointments) {
+                buttonRow.innerHTML += \`
+                    <button class="view-btn" data-type="appointments">
+                        <i class="fas fa-calendar-check"></i>
+                        Appointments
+                    </button>
+                \`;
+            }
+            
+            card.appendChild(buttonRow);
+            
+            // Add event listeners to buttons
+            card.querySelectorAll('.view-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const type = btn.dataset.type;
+                    showLogDetails(dateData.date, type);
+                });
+            });
+            
+            return card;
+        }
+
+        // Show log details
+        async function showLogDetails(date, type) {
+            showLoading();
+            currentDate = date;
+            currentView = 'details';
+            
+            try {
+                const response = await fetch(\`/daily-archives/\${date}/\${type}\`);
+                
+                if (!response.ok) {
+                    throw new Error(\`Failed to load \${type} logs\`);
+                }
+                
+                const data = await response.json();
+                
+                // Update title
+                const dateObj = new Date(date + 'T00:00:00');
+                const formattedDate = dateObj.toLocaleDateString('en-US', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+                
+                const typeLabels = {
+                    'calls': 'Calls',
+                    'appointments': 'Appointments',
+                    'ai': 'AI Conversations',
+                    'reminders': 'Reminders'
+                };
+                
+                detailTitleEl.innerHTML = \`
+                    <i class="fas fa-file-alt"></i>
+                    \${typeLabels[type]} - \${formattedDate}
+                \`;
+                
+                // Clear table
+                logTableBodyEl.innerHTML = '';
+                
+                // Add logs to table
+                if (data.logs && data.logs.length > 0) {
+                    data.logs.forEach(log => {
+                        const row = createLogRow(log, type);
+                        logTableBodyEl.appendChild(row);
+                    });
+                } else {
+                    logTableBodyEl.innerHTML = \`
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 40px; color: #64748b;">
+                                <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 10px; display: block;"></i>
+                                No \${type} logs found for this date
+                            </td>
+                        </tr>
+                    \`;
+                }
+                
+                // Show details view
+                dateGridEl.style.display = 'none';
+                detailsContainerEl.classList.add('active');
+                hideLoading();
+                
+            } catch (error) {
+                console.error('Error loading log details:', error);
+                showError(\`Failed to load log details: \${error.message}\`);
+                hideLoading();
+            }
+        }
+
+        // Create log table row
+        function createLogRow(log, type) {
+            const row = document.createElement('tr');
+            
+            // Format time
+            const time = log.time || log.timestamp || 'N/A';
+            const timeFormatted = new Date(time).toLocaleString('en-US', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: true
+            });
+            
+            // Format phone
+            const phone = log.phone || log.details?.phone || 'N/A';
+            const formattedPhone = phone !== 'N/A' ? 
+                \`<span class="phone-number">\${phone}</span>\` : 
+                '<span style="color: #94a3b8;">N/A</span>';
+            
+            // Format action
+            const action = log.action || 'N/A';
+            const actionBadge = getActionBadge(action);
+            
+            // Format details
+            let details = 'No details';
+            if (type === 'appointments') {
+                const name = log.name || log.details?.name || 'Unknown';
+                const business = log.businessType || log.details?.businessType || '';
+                const service = log.serviceType || log.details?.serviceType || '';
+                details = \`
+                    <strong>\${name}</strong><br>
+                    \${business ? \`<small>\${business}</small>\` : ''}
+                    \${service ? \`<br><small>\${service}</small>\` : ''}
+                \`;
+            } else if (type === 'ai') {
+                const question = log.question ? log.question.substring(0, 60) + (log.question.length > 60 ? '...' : '') : '';
+                const response = log.response ? log.response.substring(0, 60) + (log.response.length > 60 ? '...' : '') : '';
+                details = \`
+                    <div class="message-preview">
+                        <strong>Q:</strong> \${question || 'N/A'}<br>
+                        <strong>A:</strong> \${response || 'N/A'}
+                    </div>
+                \`;
+            } else if (type === 'calls') {
+                const name = log.details?.name || '';
+                const actionType = log.details?.action || '';
+                details = \`
+                    \${name ? \`<strong>\${name}</strong><br>\` : ''}
+                    \${actionType}
+                \`;
+            } else if (type === 'reminders') {
+                const apptName = log.appointment?.name || '';
+                const apptDate = log.appointment?.date || '';
+                const apptTime = log.appointment?.time || '';
+                details = \`
+                    \${apptName ? \`<strong>\${apptName}</strong><br>\` : ''}
+                    \${apptDate ? \`\${apptDate} at \${apptTime}\` : 'No appointment details'}
+                \`;
+            }
+            
+            row.innerHTML = \`
+                <td>\${timeFormatted}</td>
+                <td>\${formattedPhone}</td>
+                <td>\${actionBadge}</td>
+                <td>\${details}</td>
+            \`;
+            
+            return row;
+        }
+
+        // Show date grid
+        function showDateGrid() {
+            currentView = 'grid';
+            dateGridEl.style.display = 'grid';
+            detailsContainerEl.classList.remove('active');
+        }
+
+        // Utility functions
+        function getActionBadge(action) {
+            let badgeClass = 'badge-call';
+            let icon = 'fa-phone';
+            
+            if (action.includes('APPOINTMENT')) {
+                badgeClass = 'badge-appointment';
+                icon = 'fa-calendar-check';
+            } else if (action.includes('AI') || action.includes('CONVERSATION')) {
+                badgeClass = 'badge-ai';
+                icon = 'fa-robot';
+            } else if (action.includes('REMINDER')) {
+                badgeClass = 'badge-reminder';
+                icon = 'fa-bell';
+            } else if (action.includes('ERROR') || action.includes('FAILED')) {
+                badgeClass = 'badge-error';
+                icon = 'fa-exclamation-circle';
+            }
+            
+            return \`<span class="action-badge \${badgeClass}">
+                <i class="fas \${icon}"></i>
+                \${action}
+            </span>\`;
+        }
+
+        function showLoading() {
+            loadingEl.style.display = 'flex';
+            dateGridEl.style.display = 'none';
+        }
+
+        function hideLoading() {
+            loadingEl.style.display = 'none';
+            dateGridEl.style.display = 'grid';
+        }
+
+        function showError(message) {
+            errorMessageEl.textContent = message;
+            errorContainerEl.classList.add('active');
+        }
+
+        function hideError() {
+            errorContainerEl.classList.remove('active');
+        }
+
+        function showNoData() {
+            noDataEl.style.display = 'block';
+            dateGridEl.style.display = 'none';
+        }
+
+        function hideNoData() {
+            noDataEl.style.display = 'none';
+            dateGridEl.style.display = 'grid';
+        }
+    </script>
+</body>
+</html>
+`;
+
+// ======================================================
+// BEAUTIFUL ARCHIVE VIEWER ENDPOINT
+// ======================================================
+app.get('/archive-viewer', (req, res) => {
+  res.send(ARCHIVE_VIEWER_HTML);
+});
+
+// ======================================================
 // MAIN MENU (5 OPTIONS)
 // ======================================================
 app.post('/voice', (req, res) => {
@@ -1900,8 +3085,8 @@ app.get('/daily-archives/:date/:type', (req, res) => {
       totalItems,
       uniquePhones: uniquePhones.size,
       phoneList: Array.from(uniquePhones),
-      phoneDetails: phoneDetails.slice(0, 100), // Первые 100 записей
-      logs: logs.slice(0, 50), // Первые 50 логов
+      phoneDetails: phoneDetails.slice(0, 100),
+      logs: logs.slice(0, 50),
       fileInfo: {
         size: fs.statSync(filePath).size,
         created: fs.statSync(filePath).birthtime,
@@ -2002,7 +3187,8 @@ app.get('/debug', (req, res) => {
     dailyArchives: {
       totalDates: dailyArchives.length,
       dates: dailyArchives.slice(0, 10),
-      allDates: `/daily-archives`
+      allDates: `/daily-archives`,
+      beautifulViewer: `/archive-viewer`
     },
     systemInfo: {
       archiveMode: 'INSTANT (сохраняет сразу после звонка)',
@@ -2035,66 +3221,81 @@ app.get('/', (req, res) => {
       <head>
         <title>Altair Partners IVR Server</title>
         <style>
-          body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; }
-          .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
-          .open { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-          .closed { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-          .endpoints { background-color: #e2e3e5; padding: 15px; border-radius: 5px; margin: 15px 0; }
-          ul { line-height: 1.6; }
-          a { color: #0066cc; text-decoration: none; }
-          a:hover { text-decoration: underline; }
-          .archive-info { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
-          .instant-badge { background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+          .main-container { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+          .status { padding: 15px; border-radius: 10px; margin: 15px 0; }
+          .open { background: linear-gradient(to right, #10b981, #34d399); color: white; }
+          .closed { background: linear-gradient(to right, #ef4444, #f97316); color: white; }
+          .endpoints { background: #f8fafc; padding: 20px; border-radius: 10px; margin: 20px 0; }
+          ul { line-height: 1.8; list-style: none; padding: 0; }
+          li { padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+          a { color: #4f46e5; text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+          a:hover { color: #7c3aed; text-decoration: underline; }
+          .archive-info { background: linear-gradient(to right, #fef3c7, #fde68a); padding: 15px; border-radius: 10px; margin: 15px 0; border: 2px solid #f59e0b; }
+          .instant-badge { background: linear-gradient(to right, #10b981, #34d399); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+          .cta-button { display: inline-block; background: linear-gradient(to right, #4f46e5, #7c3aed); color: white; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 600; margin: 10px 5px; transition: all 0.3s ease; }
+          .cta-button:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3); text-decoration: none; }
+          h1 { color: #1e293b; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
         </style>
       </head>
       <body>
-        <h1>✅ Altair Partners IVR Server</h1>
-        
-        <div class="status ${businessStatus.isOpen ? 'open' : 'closed'}">
-          <p><strong>Status:</strong> ${businessStatus.isOpen ? '🟢 OPEN' : '🔴 CLOSED'}</p>
-          <p><strong>Current Time (PST):</strong> ${businessStatus.currentTime}</p>
-          <p><strong>Business Hours:</strong> ${businessStatus.hours}</p>
-          <p><strong>Location:</strong> ${businessStatus.location}</p>
-          <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
-        </div>
-        
-        <div class="archive-info">
-          <h3>📦 Instant Archive System <span class="instant-badge">LIVE</span></h3>
-          <p><strong>Все звонки сохраняются СРАЗУ после разговора!</strong></p>
-          <p>• 📞 Звонки → мгновенно в архив</p>
-          <p>• 📅 Appointments → мгновенно в архив</p>
-          <p>• 🤖 AI разговоры → мгновенно в архив</p>
-          <p>• ⏰ Reminders → мгновенно в архив</p>
-          <p><a href="/daily-archives">📊 Просмотреть все архивы по датам</a></p>
-        </div>
-        
-        <div class="endpoints">
-          <h3>Endpoints:</h3>
-          <ul>
-            <li><a href="/health">/health</a> - Health check</li>
-            <li><a href="/debug">/debug</a> - Debug info</li>
-            <li><a href="/daily-archives">/daily-archives</a> - Все архивы по дням</li>
-            <li><a href="/logs">/logs</a> - Текущие логи звонков</li>
-            <li><a href="/appointments">/appointments</a> - Все appointments</li>
-            <li><a href="/conversations">/conversations</a> - AI conversations</li>
-            <li><a href="/reminders">/reminders</a> - Reminder logs</li>
-            <li><a href="/business-status">/business-status</a> - Business hours check</li>
-          </ul>
+        <div class="main-container">
+          <h1>
+            <span style="font-size: 2rem;">🚀</span>
+            Altair Partners IVR Server
+          </h1>
           
-          <h3>Пример просмотра архива за сегодня:</h3>
-          <ul>
-            <li><a href="/daily-archives/${new Date().toISOString().split('T')[0]}/calls">/daily-archives/${new Date().toISOString().split('T')[0]}/calls</a> (сегодняшние звонки)</li>
-            <li><a href="/daily-archives/${new Date().toISOString().split('T')[0]}/appointments">/daily-archives/${new Date().toISOString().split('T')[0]}/appointments</a> (сегодняшние appointments)</li>
-          </ul>
+          <div class="status ${businessStatus.isOpen ? 'open' : 'closed'}">
+            <p><strong>Status:</strong> ${businessStatus.isOpen ? '🟢 OPEN' : '🔴 CLOSED'}</p>
+            <p><strong>Current Time (PST):</strong> ${businessStatus.currentTime}</p>
+            <p><strong>Business Hours:</strong> ${businessStatus.hours}</p>
+            <p><strong>Location:</strong> ${businessStatus.location}</p>
+            <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
+          </div>
+          
+          <div class="archive-info">
+            <h3 style="color: #92400e; margin-top: 0;">📦 NEW! Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span></h3>
+            <p><strong>Теперь с красивым интерфейсом с кнопками!</strong></p>
+            <p>• 📊 Графики и статистика</p>
+            <p>• 🔍 Поиск по датам и номерам</p>
+            <p>• 🎨 Анимации и красивые карточки</p>
+            <p>• 📱 Адаптивный дизайн для телефона</p>
+            <p style="margin-top: 10px;">
+              <a href="/archive-viewer" class="cta-button">
+                🚀 Открыть Красивый Архив
+              </a>
+            </p>
+          </div>
+          
+          <div class="endpoints">
+            <h3 style="color: #1e293b;">📁 Main Endpoints:</h3>
+            <ul>
+              <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🎨</span> /archive-viewer</a> - Красивый архив с кнопками!</li>
+              <li><a href="/daily-archives"><span style="font-size: 1.2rem;">📊</span> /daily-archives</a> - Все архивы по дням (JSON)</li>
+              <li><a href="/debug"><span style="font-size: 1.2rem;">🔧</span> /debug</a> - Debug info</li>
+              <li><a href="/health"><span style="font-size: 1.2rem;">❤️</span> /health</a> - Health check</li>
+            </ul>
+            
+            <h3 style="color: #1e293b; margin-top: 25px;">📋 Data Endpoints:</h3>
+            <ul>
+              <li><a href="/logs"><span style="font-size: 1.2rem;">📞</span> /logs</a> - Текущие логи звонков</li>
+              <li><a href="/appointments"><span style="font-size: 1.2rem;">📅</span> /appointments</a> - Все appointments</li>
+              <li><a href="/conversations"><span style="font-size: 1.2rem;">🤖</span> /conversations</a> - AI conversations</li>
+              <li><a href="/reminders"><span style="font-size: 1.2rem;">⏰</span> /reminders</a> - Reminder logs</li>
+              <li><a href="/business-status"><span style="font-size: 1.2rem;">🏢</span> /business-status</a> - Business hours check</li>
+            </ul>
+          </div>
+          
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
+            <p><strong>Twilio Webhook:</strong> POST /voice</p>
+            <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
+            <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
+            <p><strong>🔔 Test reminder:</strong> POST /test-reminder?phone=+15034448881</p>
+            <p><strong>📦 Архивация:</strong> <span class="instant-badge">INSTANT MODE</span> (сразу после звонка)</p>
+            <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}</p>
+            <p><strong>📞 Тестовый звонок:</strong> +1 (503) 444-8881</p>
+          </div>
         </div>
-        
-        <p><strong>Twilio Webhook:</strong> POST /voice</p>
-        <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
-        <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
-        <p><strong>🔔 <a href="/test-reminder?phone=+15034448881">Test reminder</a></strong></p>
-        <p><strong>📦 Архивация:</strong> <span class="instant-badge">INSTANT MODE</span> (сразу после звонка)</p>
-        <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}</p>
-        <p><strong>📞 Тестовый звонок:</strong> +1 (503) 444-8881</p>
       </body>
     </html>
   `);
@@ -2184,14 +3385,19 @@ app.listen(PORT, () => {
   console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
+  console.log(`\n🎨 КРАСИВЫЙ АРХИВ-ВЬЮВЕР:`);
+  console.log(`✅ ${serverUrl}/archive-viewer - КРАСИВЫЙ ИНТЕРФЕЙС С КНОПКАМИ!`);
+  console.log(`\n📊 Основные endpoints:`);
   console.log(`✅ Health check: ${serverUrl}/health`);
   console.log(`✅ Debug: ${serverUrl}/debug`);
-  console.log(`📦 Daily archives: ${serverUrl}/daily-archives`);
-  console.log(`📊 Current logs: ${serverUrl}/logs`);
-  console.log(`📅 Appointments: ${serverUrl}/appointments`);
-  console.log(`🤖 Conversations: ${serverUrl}/conversations`);
-  console.log(`⏰ Reminders: ${serverUrl}/reminders`);
-  console.log(`🏢 Business Status: ${serverUrl}/business-status`);
+  console.log(`✅ Daily archives (JSON): ${serverUrl}/daily-archives`);
+  console.log(`\n📋 Data endpoints:`);
+  console.log(`✅ Current logs: ${serverUrl}/logs`);
+  console.log(`✅ Appointments: ${serverUrl}/appointments`);
+  console.log(`✅ Conversations: ${serverUrl}/conversations`);
+  console.log(`✅ Reminders: ${serverUrl}/reminders`);
+  console.log(`✅ Business Status: ${serverUrl}/business-status`);
+  console.log(`\n🛠️ System info:`);
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
   console.log(`🤖 AI Representative is ready (fast mode)`);
   console.log(`📝 INSTANT ARCHIVE SYSTEM: Все данные сохраняются сразу после звонка!`);
@@ -2201,6 +3407,8 @@ app.listen(PORT, () => {
   console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
   console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
   console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}`);
+  console.log(`\n🔥 НОВОЕ: Красивый архив-вьювер доступен по: ${serverUrl}/archive-viewer`);
+  console.log(`🎉 Теперь с кнопками, анимациями и красивым дизайном!`);
   
   // Запускаем reminder scheduler
   startReminderScheduler();
@@ -2208,5 +3416,6 @@ app.listen(PORT, () => {
   // Запускаем daily archiver
   startDailyArchiver();
   
-  console.log(`✅ INSTANT ARCHIVE SYSTEM READY - Все звонки будут сохраняться сразу!`);
+  console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - Все звонки будут сохраняться сразу!`);
+  console.log(`✅ BEAUTIFUL ARCHIVE VIEWER READY - Открывай в браузере и наслаждайся!`);
 });
