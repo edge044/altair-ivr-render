@@ -593,7 +593,7 @@ function getNextAvailableDate() {
 }
 
 // ======================================================
-// TWILIO VOICE ROUTES (сохраняем компактно)
+// TWILIO VOICE ROUTES
 // ======================================================
 
 app.post('/voice', (req, res) => {
@@ -1193,7 +1193,7 @@ app.post('/creative-appointment-check', (req, res) => {
   res.type('text/xml').send(twiml.toString());
 });
 
-// Appointment flow (сокращенно для экономии места)
+// Appointment flow
 app.post('/get-name', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.query.phone || req.body.From;
@@ -1849,7 +1849,7 @@ app.get('/archive-viewer', (req, res) => {
     <body>
       <div class="container">
         <div class="header">
-                   <h1>📊 Altair Partners - Daily Archives</h1>
+          <h1>📊 Altair Partners - Daily Archives</h1>
           <p>Все звонки сохраняются автоматически. Последнее обновление: ${new Date().toLocaleString()}</p>
         </div>
         
@@ -2722,7 +2722,7 @@ app.get('/', (req, res) => {
   `);
 });
 
-// ОСТАЛЬНЫЕ ENDPOINTS (кратко для экономии места)
+// ОСТАЛЬНЫЕ ENDPOINTS
 app.get('/health', (req, res) => {
   res.status(200).send('✅ IVR Server is running');
 });
@@ -2806,6 +2806,18 @@ app.get('/reminders', (req, res) => {
 // ОБНОВЛЯЕМ ДРУГИЕ ENDPOINTS ДЛЯ КРАСИВОГО ИНТЕРФЕЙСА
 app.get('/daily-archives', (req, res) => {
   res.redirect('/archive-viewer');
+});
+
+// Скачивание архивных файлов
+app.get('/daily-archives/:date/:type/download', (req, res) => {
+  const { date, type } = req.params;
+  const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
+  
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: "File not found" });
+  }
+  
+  res.download(filePath, `${type}-${date}.json`);
 });
 
 // ======================================================
