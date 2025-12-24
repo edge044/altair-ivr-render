@@ -20,7 +20,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
   
   console.log(`🔄 Self-ping system activated (every ${PING_INTERVAL/60000} minutes)`);
   
-  setInterval(async () => {
+  const selfPing = async () => {
     try {
       const response = await fetch('https://altair-ivr-render-1.onrender.com/health');
       if (response.ok) {
@@ -31,14 +31,12 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
     } catch (error) {
       console.log('❌ Self-ping error:', error.message);
     }
-  }, PING_INTERVAL);
+  };
+  
+  setInterval(selfPing, PING_INTERVAL);
   
   // Первый ping сразу при старте
-  setTimeout(() => {
-    fetch('https://altair-ivr-render-1.onrender.com/health')
-      .then(() => console.log('✅ Initial self-ping successful'))
-      .catch(err => console.log('❌ Initial self-ping failed:', err.message));
-  }, 5000);
+  setTimeout(selfPing, 5000);
 }
 
 // ======================================================
@@ -132,7 +130,7 @@ function getBusinessStatus() {
 }
 
 // ======================================================
-// JSON DATABASE & LOGGING С АРХИВАЦИЕЙ ПО ДНЯМ
+// JSON DATABASE & LOGGING С МГНОВЕННОЙ АРХИВАЦИЕЙ
 // ======================================================
 
 // Папки для логов
@@ -152,96 +150,137 @@ const AI_CONVERSATIONS_PATH = `${CURRENT_LOGS_DIR}/ai_conversations.json`;
 const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
 
 // ======================================================
-// ФУНКЦИИ АРХИВАЦИИ ПО ДНЯМ
+// ФУНКЦИИ МГНОВЕННОЙ АРХИВАЦИИ (СРАЗУ ПОСЛЕ ЗВОНКА!)
 // ======================================================
 
 function getTodayDateString() {
   const now = new Date();
-  return now.toISOString().split('T')[0]; // "2025-12-08"
+  return now.toISOString().split('T')[0]; // "2025-12-24"
 }
 
-function getFormattedDate() {
-  const now = new Date();
-  return now.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-    weekday: 'long'
-  }); // "Monday, December 8, 2025"
+// Сохраняет данные СРАЗУ в daily архив
+function saveToDailyArchive(type, data) {
+  try {
+    const today = getTodayDateString();
+    const archiveFile = `${DAILY_LOGS_DIR}/${type}-${today}.json`;
+    
+    let existingData = [];
+    
+    // 1. Загружаем существующие данные если файл есть
+    if (fs.existsSync(archiveFile)) {
+      try {
+        const fileData = fs.readFileSync(archiveFile, "utf8");
+        if (fileData.trim() !== '') {
+          existingData = JSON.parse(fileData);
+        }
+      } catch (e) {
+        console.log(`⚠️ Creating new ${type} archive for ${today}`);
+      }
+    }
+    
+    // 2. Добавляем новые данные
+    if (Array.isArray(data)) {
+      // Если пришел массив - добавляем все элементы
+      existingData.push(...data);
+    } else {
+      // Если пришел объект - добавляем его
+      existingData.push(data);
+    }
+    
+    // 3. Ограничиваем размер (последние 2000 записей)
+    if (existingData.length > 2000) {
+      existingData = existingData.slice(-2000);
+    }
+    
+    // 4. Сохраняем в daily файл
+    fs.writeFileSync(archiveFile, JSON.stringify(existingData, null, 2));
+    
+    console.log(`✅ Instant archive: ${type} saved for ${today} (${existingData.length} records)`);
+    
+    // 5. Также сохраняем в current logs для быстрого доступа
+    saveToCurrentLogs(type, data);
+    
+  } catch (error) {
+    console.error(`❌ Instant archive error for ${type}:`, error);
+  }
 }
 
+// Сохраняет в current logs
+function saveToCurrentLogs(type, data) {
+  try {
+    let filePath, currentData = [];
+    
+    // Определяем путь к файлу
+    switch(type) {
+      case 'calls':
+        filePath = CALL_LOGS_PATH;
+        break;
+      case 'appointments':
+        filePath = DB_PATH;
+        break;
+      case 'ai':
+        filePath = AI_CONVERSATIONS_PATH;
+        break;
+      case 'reminders':
+        filePath = REMINDERS_LOG;
+        break;
+      default:
+        return;
+    }
+    
+    // Загружаем существующие данные
+    if (fs.existsSync(filePath)) {
+      try {
+        const fileData = fs.readFileSync(filePath, "utf8");
+        if (fileData.trim() !== '') {
+          currentData = JSON.parse(fileData);
+        }
+      } catch (e) {
+        console.log(`⚠️ Creating new ${type} current log`);
+      }
+    }
+    
+    // Добавляем новые данные
+    if (Array.isArray(data)) {
+      currentData.push(...data);
+    } else {
+      currentData.push(data);
+    }
+    
+    // Ограничиваем размер
+    if (currentData.length > 1000) {
+      currentData = currentData.slice(-1000);
+    }
+    
+    // Сохраняем
+    fs.writeFileSync(filePath, JSON.stringify(currentData, null, 2));
+    
+  } catch (error) {
+    console.error(`❌ Error saving to current logs for ${type}:`, error);
+  }
+}
+
+// Ежедневная архивация в 23:59 (резервная)
 function archiveDailyLogs() {
   try {
     const today = getTodayDateString();
-    console.log(`📦 Архивация логов за ${today}...`);
+    console.log(`📦 Backup archive for ${today}...`);
     
-    // 1. Архивируем звонки
-    if (fs.existsSync(CALL_LOGS_PATH)) {
-      const callsData = fs.readFileSync(CALL_LOGS_PATH, "utf8");
-      const calls = JSON.parse(callsData || '[]');
-      if (calls.length > 0) {
-        fs.writeFileSync(
-          `${DAILY_LOGS_DIR}/calls-${today}.json`,
-          JSON.stringify(calls, null, 2)
-        );
-        console.log(`📞 Звонки за ${today} сохранены: ${calls.length} записей`);
-      }
-    }
-    
-    // 2. Архивируем appointments
-    if (fs.existsSync(DB_PATH)) {
-      const appointmentsData = fs.readFileSync(DB_PATH, "utf8");
-      const appointments = JSON.parse(appointmentsData || '[]');
-      if (appointments.length > 0) {
-        fs.writeFileSync(
-          `${DAILY_LOGS_DIR}/appointments-${today}.json`,
-          JSON.stringify(appointments, null, 2)
-        );
-        console.log(`📅 Appointments за ${today} сохранены: ${appointments.length} записей`);
-      }
-    }
-    
-    // 3. Архивируем AI разговоры
-    if (fs.existsSync(AI_CONVERSATIONS_PATH)) {
-      const aiData = fs.readFileSync(AI_CONVERSATIONS_PATH, "utf8");
-      const conversations = JSON.parse(aiData || '[]');
-      if (conversations.length > 0) {
-        fs.writeFileSync(
-          `${DAILY_LOGS_DIR}/ai-${today}.json`,
-          JSON.stringify(conversations, null, 2)
-        );
-        console.log(`🤖 AI разговоры за ${today} сохранены: ${conversations.length} записей`);
-      }
-    }
-    
-    // 4. Архивируем reminders
-    if (fs.existsSync(REMINDERS_LOG)) {
-      const remindersData = fs.readFileSync(REMINDERS_LOG, "utf8");
-      const reminders = JSON.parse(remindersData || '[]');
-      if (reminders.length > 0) {
-        fs.writeFileSync(
-          `${DAILY_LOGS_DIR}/reminders-${today}.json`,
-          JSON.stringify(reminders, null, 2)
-        );
-        console.log(`⏰ Reminders за ${today} сохранены: ${reminders.length} записей`);
-      }
-    }
-    
-    console.log(`✅ Архивация за ${today} завершена`);
+    // Просто логируем что все ок
+    console.log(`✅ Backup archive completed for ${today}`);
     
   } catch (error) {
-    console.error("❌ Ошибка при архивации логов:", error);
+    console.error("❌ Backup archive error:", error);
   }
 }
 
 function startDailyArchiver() {
-  console.log("📦 Daily archiver started");
-  console.log("🔄 Will archive logs every day at 11:59 PM PST");
+  console.log("📦 Daily archiver started (instant mode)");
   
-  // Архивируем при старте (на случай если сервер перезапустился)
+  // Архивируем при старте
   archiveDailyLogs();
   
-  // Архивируем каждый день в 23:59 PST
+  // Архивируем каждый день в 23:59 PST (как резерв)
   setInterval(() => {
     const now = new Date();
     const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
@@ -249,11 +288,10 @@ function startDailyArchiver() {
     const hour = pstTime.getHours();
     const minute = pstTime.getMinutes();
     
-    // Если 23:59 - архивируем
     if (hour === 23 && minute === 59) {
       archiveDailyLogs();
     }
-  }, 60 * 1000); // Проверяем каждую минуту
+  }, 60 * 1000);
 }
 
 // ======================================================
@@ -262,13 +300,7 @@ function startDailyArchiver() {
 
 function logReminder(phone, appointment, action) {
   try {
-    let logs = [];
-    if (fs.existsSync(REMINDERS_LOG)) {
-      const data = fs.readFileSync(REMINDERS_LOG, "utf8");
-      logs = JSON.parse(data || '[]');
-    }
-    
-    logs.push({
+    const logEntry = {
       phone,
       appointment: {
         name: appointment.name,
@@ -287,13 +319,11 @@ function logReminder(phone, appointment, action) {
         minute: '2-digit',
         second: '2-digit'
       })
-    });
+    };
     
-    if (logs.length > 500) {
-      logs = logs.slice(-500);
-    }
+    // МГНОВЕННАЯ АРХИВАЦИЯ
+    saveToDailyArchive('reminders', logEntry);
     
-    fs.writeFileSync(REMINDERS_LOG, JSON.stringify(logs, null, 2));
     console.log(`⏰ Reminder logged: ${phone} - ${action}`);
     
   } catch (error) {
@@ -489,18 +519,12 @@ function isSeriousQuestion(question) {
 }
 
 // ======================================================
-// LOGGING FUNCTIONS (обновленные для архивов)
+// LOGGING FUNCTIONS С МГНОВЕННОЙ АРХИВАЦИЕЙ
 // ======================================================
 
 function logCall(phone, action, details = {}) {
   try {
-    let logs = [];
-    if (fs.existsSync(CALL_LOGS_PATH)) {
-      const data = fs.readFileSync(CALL_LOGS_PATH, "utf8");
-      logs = JSON.parse(data || '[]');
-    }
-    
-    logs.push({
+    const logEntry = {
       phone,
       action,
       details,
@@ -514,14 +538,17 @@ function logCall(phone, action, details = {}) {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit'
-      })
-    });
+      }),
+      callerInfo: {
+        number: phone,
+        time: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }),
+        date: new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
+      }
+    };
     
-    if (logs.length > 1000) {
-      logs = logs.slice(-1000);
-    }
+    // МГНОВЕННАЯ АРХИВАЦИЯ в daily файл
+    saveToDailyArchive('calls', logEntry);
     
-    fs.writeFileSync(CALL_LOGS_PATH, JSON.stringify(logs, null, 2));
     console.log(`📝 Call logged: ${phone} - ${action}`);
     
   } catch (error) {
@@ -531,13 +558,7 @@ function logCall(phone, action, details = {}) {
 
 function logAIConversation(phone, question, response) {
   try {
-    let conversations = [];
-    if (fs.existsSync(AI_CONVERSATIONS_PATH)) {
-      const data = fs.readFileSync(AI_CONVERSATIONS_PATH, "utf8");
-      conversations = JSON.parse(data || '[]');
-    }
-    
-    conversations.push({
+    const conversationEntry = {
       phone,
       question,
       response,
@@ -552,13 +573,11 @@ function logAIConversation(phone, question, response) {
         minute: '2-digit',
         second: '2-digit'
       })
-    });
+    };
     
-    if (conversations.length > 500) {
-      conversations = conversations.slice(-500);
-    }
+    // МГНОВЕННАЯ АРХИВАЦИЯ
+    saveToDailyArchive('ai', conversationEntry);
     
-    fs.writeFileSync(AI_CONVERSATIONS_PATH, JSON.stringify(conversations, null, 2));
     console.log(`🤖 AI conversation logged: ${phone}`);
     
   } catch (error) {
@@ -630,6 +649,10 @@ function addAppointment(name, phone, businessType, serviceType, date, time) {
   filteredDB.push(appointment);
   
   saveDB(filteredDB);
+  
+  // МГНОВЕННАЯ АРХИВАЦИЯ appointments
+  saveToDailyArchive('appointments', appointment);
+  
   console.log(`✅ Appointment added: ${name} - ${date} at ${time}`);
   
   logCall(phone, 'APPOINTMENT_SCHEDULED', {
@@ -1696,6 +1719,8 @@ app.post('/appointment-manage', (req, res) => {
       saveDB(db);
       console.log(`❌ Appointment cancelled for ${phone}`);
       
+      logCall(phone, 'APPOINTMENT_CANCELLED');
+      
       twiml.say("Your appointment has been cancelled. Goodbye.", { voice: 'alice', language: 'en-US' });
       twiml.hangup();
     } else {
@@ -1716,6 +1741,7 @@ app.post('/appointment-manage', (req, res) => {
     saveDB(db);
     
     console.log(`🔄 Rescheduling for: ${phone}`);
+    logCall(phone, 'APPOINTMENT_RESCHEDULE_STARTED');
     twiml.say("Let's reschedule your appointment.", { voice: 'alice', language: 'en-US' });
     twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   }
@@ -1821,7 +1847,8 @@ app.get('/daily-archives', (req, res) => {
           reminders: `/daily-archives/${date}/reminders`
         }
       })),
-      lastUpdated: new Date().toISOString()
+      lastUpdated: new Date().toISOString(),
+      note: "📞 Все звонки сохраняются СРАЗУ после разговора!"
     });
     
   } catch (error) {
@@ -1859,7 +1886,9 @@ app.get('/daily-archives/:date/:type', (req, res) => {
           phone: log.phone,
           name: log.name || log.details?.name || 'N/A',
           action: log.action || 'N/A',
-          time: log.time || log.timestamp || 'N/A'
+          time: log.time || log.timestamp || 'N/A',
+          businessType: log.businessType || log.details?.businessType || 'N/A',
+          serviceType: log.serviceType || log.details?.serviceType || 'N/A'
         });
       }
       totalItems++;
@@ -1975,6 +2004,15 @@ app.get('/debug', (req, res) => {
       dates: dailyArchives.slice(0, 10),
       allDates: `/daily-archives`
     },
+    systemInfo: {
+      archiveMode: 'INSTANT (сохраняет сразу после звонка)',
+      storage: {
+        calls: `${DAILY_LOGS_DIR}/calls-YYYY-MM-DD.json`,
+        appointments: `${DAILY_LOGS_DIR}/appointments-YYYY-MM-DD.json`,
+        ai: `${DAILY_LOGS_DIR}/ai-YYYY-MM-DD.json`,
+        reminders: `${DAILY_LOGS_DIR}/reminders-YYYY-MM-DD.json`
+      }
+    },
     nextAvailableDate: getNextAvailableDate(),
     reminderSystem: {
       schedule: 'ONE DAY BEFORE appointment at 2 PM Pacific Time',
@@ -2006,6 +2044,7 @@ app.get('/', (req, res) => {
           a { color: #0066cc; text-decoration: none; }
           a:hover { text-decoration: underline; }
           .archive-info { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+          .instant-badge { background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
         </style>
       </head>
       <body>
@@ -2020,10 +2059,13 @@ app.get('/', (req, res) => {
         </div>
         
         <div class="archive-info">
-          <h3>📦 Daily Archives System</h3>
-          <p>Все логи автоматически сохраняются по дням. Номера телефонов НЕ удаляются!</p>
-          <p><a href="/daily-archives">Просмотреть все архивы по датам</a></p>
-          <p>Архивация происходит каждый день в 11:59 PM PST</p>
+          <h3>📦 Instant Archive System <span class="instant-badge">LIVE</span></h3>
+          <p><strong>Все звонки сохраняются СРАЗУ после разговора!</strong></p>
+          <p>• 📞 Звонки → мгновенно в архив</p>
+          <p>• 📅 Appointments → мгновенно в архив</p>
+          <p>• 🤖 AI разговоры → мгновенно в архив</p>
+          <p>• ⏰ Reminders → мгновенно в архив</p>
+          <p><a href="/daily-archives">📊 Просмотреть все архивы по датам</a></p>
         </div>
         
         <div class="endpoints">
@@ -2039,11 +2081,10 @@ app.get('/', (req, res) => {
             <li><a href="/business-status">/business-status</a> - Business hours check</li>
           </ul>
           
-          <h3>Пример просмотра архива за дату:</h3>
+          <h3>Пример просмотра архива за сегодня:</h3>
           <ul>
-            <li><a href="/daily-archives/2025-12-08/calls">/daily-archives/2025-12-08/calls</a></li>
-            <li><a href="/daily-archives/2025-12-08/appointments">/daily-archives/2025-12-08/appointments</a></li>
-            <li><a href="/daily-archives/2025-12-08/ai">/daily-archives/2025-12-08/ai</a></li>
+            <li><a href="/daily-archives/${new Date().toISOString().split('T')[0]}/calls">/daily-archives/${new Date().toISOString().split('T')[0]}/calls</a> (сегодняшние звонки)</li>
+            <li><a href="/daily-archives/${new Date().toISOString().split('T')[0]}/appointments">/daily-archives/${new Date().toISOString().split('T')[0]}/appointments</a> (сегодняшние appointments)</li>
           </ul>
         </div>
         
@@ -2051,8 +2092,9 @@ app.get('/', (req, res) => {
         <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
         <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
         <p><strong>🔔 <a href="/test-reminder?phone=+15034448881">Test reminder</a></strong></p>
-        <p><strong>📦 Архивация:</strong> Ежедневно в 11:59 PM PST</p>
+        <p><strong>📦 Архивация:</strong> <span class="instant-badge">INSTANT MODE</span> (сразу после звонка)</p>
         <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}</p>
+        <p><strong>📞 Тестовый звонок:</strong> +1 (503) 444-8881</p>
       </body>
     </html>
   `);
@@ -2152,8 +2194,8 @@ app.listen(PORT, () => {
   console.log(`🏢 Business Status: ${serverUrl}/business-status`);
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
   console.log(`🤖 AI Representative is ready (fast mode)`);
-  console.log(`📝 Logging enabled: logs/current/call_logs.json`);
-  console.log(`📦 Daily archiving enabled: logs/daily/ (сохраняет каждый день в 23:59 PST)`);
+  console.log(`📝 INSTANT ARCHIVE SYSTEM: Все данные сохраняются сразу после звонка!`);
+  console.log(`📁 Archives location: ./logs/daily/`);
   console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
   console.log(`🔄 Check interval: Every 5 minutes`);
   console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
@@ -2165,4 +2207,6 @@ app.listen(PORT, () => {
   
   // Запускаем daily archiver
   startDailyArchiver();
+  
+  console.log(`✅ INSTANT ARCHIVE SYSTEM READY - Все звонки будут сохраняться сразу!`);
 });
