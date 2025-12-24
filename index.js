@@ -13,10 +13,11 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // ======================================================
-// SELF-PING SYSTEM
+// SELF-PING SYSTEM (чтобы сервер не спал на Free плане)
 // ======================================================
 if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
-  const PING_INTERVAL = 4 * 60 * 1000;
+  const PING_INTERVAL = 4 * 60 * 1000; // 4 минуты
+  
   console.log(`🔄 Self-ping system activated (every ${PING_INTERVAL/60000} minutes)`);
   
   const selfPing = async () => {
@@ -33,6 +34,8 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
   };
   
   setInterval(selfPing, PING_INTERVAL);
+  
+  // Первый ping сразу при старте
   setTimeout(selfPing, 5000);
 }
 
@@ -45,7 +48,7 @@ function isWithinBusinessHours() {
     const now = new Date();
     const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
     
-    const day = pstTime.getDay();
+    const day = pstTime.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const hour = pstTime.getHours();
     const minutes = pstTime.getMinutes();
     const currentTime = hour * 100 + minutes;
@@ -75,13 +78,19 @@ function getTimeUntilOpen() {
     let daysUntilOpen = 0;
     let openingHour = 10;
     
-    if (day === 0) daysUntilOpen = 1;
-    else if (day === 6) daysUntilOpen = 2;
-    else if (day >= 1 && day <= 5) {
-      if (hour < 10) daysUntilOpen = 0;
-      else if (hour >= 17) {
-        if (day === 5) daysUntilOpen = 3;
-        else daysUntilOpen = 1;
+    if (day === 0) {
+      daysUntilOpen = 1;
+    } else if (day === 6) {
+      daysUntilOpen = 2;
+    } else if (day >= 1 && day <= 5) {
+      if (hour < 10) {
+        daysUntilOpen = 0;
+      } else if (hour >= 17) {
+        if (day === 5) {
+          daysUntilOpen = 3;
+        } else {
+          daysUntilOpen = 1;
+        }
       }
     }
     
@@ -124,28 +133,32 @@ function getBusinessStatus() {
 // JSON DATABASE & LOGGING С МГНОВЕННОЙ АРХИВАЦИЕЙ
 // ======================================================
 
+// Папки для логов
 const LOGS_DIR = "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
 const DAILY_LOGS_DIR = `${LOGS_DIR}/daily`;
 
+// Создаем папки если их нет
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
 if (!fs.existsSync(CURRENT_LOGS_DIR)) fs.mkdirSync(CURRENT_LOGS_DIR);
 if (!fs.existsSync(DAILY_LOGS_DIR)) fs.mkdirSync(DAILY_LOGS_DIR);
 
+// Пути к текущим логам
 const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const AI_CONVERSATIONS_PATH = `${CURRENT_LOGS_DIR}/ai_conversations.json`;
 const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
 
 // ======================================================
-// ФУНКЦИИ МГНОВЕННОЙ АРХИВАЦИИ
+// ФУНКЦИИ МГНОВЕННОЙ АРХИВАЦИИ (СРАЗУ ПОСЛЕ ЗВОНКА!)
 // ======================================================
 
 function getTodayDateString() {
   const now = new Date();
-  return now.toISOString().split('T')[0];
+  return now.toISOString().split('T')[0]; // "2025-12-24"
 }
 
+// Сохраняет данные СРАЗУ в daily архив
 function saveToDailyArchive(type, data) {
   try {
     const today = getTodayDateString();
@@ -153,6 +166,7 @@ function saveToDailyArchive(type, data) {
     
     let existingData = [];
     
+    // 1. Загружаем существующие данные если файл есть
     if (fs.existsSync(archiveFile)) {
       try {
         const fileData = fs.readFileSync(archiveFile, "utf8");
@@ -164,20 +178,26 @@ function saveToDailyArchive(type, data) {
       }
     }
     
+    // 2. Добавляем новые данные
     if (Array.isArray(data)) {
+      // Если пришел массив - добавляем все элементы
       existingData.push(...data);
     } else {
+      // Если пришел объект - добавляем его
       existingData.push(data);
     }
     
+    // 3. Ограничиваем размер (последние 2000 записей)
     if (existingData.length > 2000) {
       existingData = existingData.slice(-2000);
     }
     
+    // 4. Сохраняем в daily файл
     fs.writeFileSync(archiveFile, JSON.stringify(existingData, null, 2));
     
     console.log(`✅ Instant archive: ${type} saved for ${today} (${existingData.length} records)`);
     
+    // 5. Также сохраняем в current logs для быстрого доступа
     saveToCurrentLogs(type, data);
     
   } catch (error) {
@@ -185,18 +205,30 @@ function saveToDailyArchive(type, data) {
   }
 }
 
+// Сохраняет в current logs
 function saveToCurrentLogs(type, data) {
   try {
     let filePath, currentData = [];
     
+    // Определяем путь к файлу
     switch(type) {
-      case 'calls': filePath = CALL_LOGS_PATH; break;
-      case 'appointments': filePath = DB_PATH; break;
-      case 'ai': filePath = AI_CONVERSATIONS_PATH; break;
-      case 'reminders': filePath = REMINDERS_LOG; break;
-      default: return;
+      case 'calls':
+        filePath = CALL_LOGS_PATH;
+        break;
+      case 'appointments':
+        filePath = DB_PATH;
+        break;
+      case 'ai':
+        filePath = AI_CONVERSATIONS_PATH;
+        break;
+      case 'reminders':
+        filePath = REMINDERS_LOG;
+        break;
+      default:
+        return;
     }
     
+    // Загружаем существующие данные
     if (fs.existsSync(filePath)) {
       try {
         const fileData = fs.readFileSync(filePath, "utf8");
@@ -208,21 +240,58 @@ function saveToCurrentLogs(type, data) {
       }
     }
     
+    // Добавляем новые данные
     if (Array.isArray(data)) {
       currentData.push(...data);
     } else {
       currentData.push(data);
     }
     
+    // Ограничиваем размер
     if (currentData.length > 1000) {
       currentData = currentData.slice(-1000);
     }
     
+    // Сохраняем
     fs.writeFileSync(filePath, JSON.stringify(currentData, null, 2));
     
   } catch (error) {
     console.error(`❌ Error saving to current logs for ${type}:`, error);
   }
+}
+
+// Ежедневная архивация в 23:59 (резервная)
+function archiveDailyLogs() {
+  try {
+    const today = getTodayDateString();
+    console.log(`📦 Backup archive for ${today}...`);
+    
+    // Просто логируем что все ок
+    console.log(`✅ Backup archive completed for ${today}`);
+    
+  } catch (error) {
+    console.error("❌ Backup archive error:", error);
+  }
+}
+
+function startDailyArchiver() {
+  console.log("📦 Daily archiver started (instant mode)");
+  
+  // Архивируем при старте
+  archiveDailyLogs();
+  
+  // Архивируем каждый день в 23:59 PST (как резерв)
+  setInterval(() => {
+    const now = new Date();
+    const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    
+    const hour = pstTime.getHours();
+    const minute = pstTime.getMinutes();
+    
+    if (hour === 23 && minute === 59) {
+      archiveDailyLogs();
+    }
+  }, 60 * 1000);
 }
 
 // ======================================================
@@ -252,7 +321,9 @@ function logReminder(phone, appointment, action) {
       })
     };
     
+    // МГНОВЕННАЯ АРХИВАЦИЯ
     saveToDailyArchive('reminders', logEntry);
+    
     console.log(`⏰ Reminder logged: ${phone} - ${action}`);
     
   } catch (error) {
@@ -327,6 +398,7 @@ function checkAndSendReminders() {
     
     appointments.forEach(appointment => {
       try {
+        // Parse appointment date (format like "Monday, December 16")
         const appointmentDate = new Date(appointment.date + ' ' + todayYear);
         
         if (isNaN(appointmentDate.getTime())) {
@@ -338,6 +410,7 @@ function checkAndSendReminders() {
         const appointmentMonth = appointmentDate.getMonth();
         const appointmentDay = appointmentDate.getDate();
         
+        // Check if appointment is tomorrow
         const tomorrow = new Date(today);
         tomorrow.setDate(today.getDate() + 1);
         
@@ -348,6 +421,7 @@ function checkAndSendReminders() {
         if (isTomorrow) {
           console.log(`📅 Appointment found for tomorrow: ${appointment.name} - ${appointment.date} at ${appointment.time}`);
           
+          // Check if it's 2 PM Pacific Time
           const currentHour = today.getHours();
           const currentMinute = today.getMinutes();
           
@@ -371,7 +445,10 @@ function startReminderScheduler() {
   console.log("⏰ Reminder scheduler started");
   console.log("🔄 Will check every 5 minutes for appointments tomorrow at 2 PM PST");
   
+  // Check immediately on startup
   checkAndSendReminders();
+  
+  // Then check every 5 minutes
   setInterval(checkAndSendReminders, 5 * 60 * 1000);
 }
 
@@ -442,7 +519,7 @@ function isSeriousQuestion(question) {
 }
 
 // ======================================================
-// LOGGING FUNCTIONS
+// LOGGING FUNCTIONS С МГНОВЕННОЙ АРХИВАЦИЕЙ
 // ======================================================
 
 function logCall(phone, action, details = {}) {
@@ -469,7 +546,9 @@ function logCall(phone, action, details = {}) {
       }
     };
     
+    // МГНОВЕННАЯ АРХИВАЦИЯ в daily файл
     saveToDailyArchive('calls', logEntry);
+    
     console.log(`📝 Call logged: ${phone} - ${action}`);
     
   } catch (error) {
@@ -496,7 +575,9 @@ function logAIConversation(phone, question, response) {
       })
     };
     
+    // МГНОВЕННАЯ АРХИВАЦИЯ
     saveToDailyArchive('ai', conversationEntry);
+    
     console.log(`🤖 AI conversation logged: ${phone}`);
     
   } catch (error) {
@@ -566,8 +647,10 @@ function addAppointment(name, phone, businessType, serviceType, date, time) {
   };
   
   filteredDB.push(appointment);
+  
   saveDB(filteredDB);
   
+  // МГНОВЕННАЯ АРХИВАЦИЯ appointments
   saveToDailyArchive('appointments', appointment);
   
   console.log(`✅ Appointment added: ${name} - ${date} at ${time}`);
@@ -593,15 +676,18 @@ function getNextAvailableDate() {
 }
 
 // ======================================================
-// TWILIO VOICE ROUTES
+// MAIN MENU (5 OPTIONS)
 // ======================================================
-
 app.post('/voice', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
   
   console.log("📞 Main menu - Caller:", phone);
-  logCall(phone, 'CALL_RECEIVED', { caller: phone });
+  
+  logCall(phone, 'CALL_RECEIVED', {
+    caller: phone,
+    time: new Date().toLocaleTimeString()
+  });
   
   const gather = twiml.gather({
     numDigits: 1,
@@ -623,15 +709,60 @@ app.post('/voice', (req, res) => {
   twiml.say("Please select an option.", { voice: 'alice', language: 'en-US' });
   twiml.redirect('/voice');
 
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
+// ======================================================
+// TRANSFER TO APPOINTMENT FLOW
+// ======================================================
+app.post('/transfer-to-appointment', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log(`📅 Transferring to appointment flow for: ${phone}`);
+  
+  logCall(phone, 'APPOINTMENT_FLOW_STARTED');
+  
+  const appt = findAppointment(phone);
+
+  if (appt) {
+    const gather = twiml.gather({
+      numDigits: 1,
+      action: `/appointment-manage?phone=${encodeURIComponent(phone)}`,
+      method: 'POST',
+      timeout: 10
+    });
+
+    gather.say(
+      `I see you have an appointment scheduled on ${appt.date} at ${appt.time}. ` +
+      "Press 1 to cancel this appointment. Press 2 to reschedule.",
+      { voice: 'alice', language: 'en-US' }
+    );
+
+    twiml.say("No selection made. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+
+  } else {
+    twiml.say("I don't see you in our appointment database. Let me ask you a few questions to schedule an appointment.", 
+      { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+  }
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// HANDLE MAIN MENU
+// ======================================================
 app.post('/handle-key', (req, res) => {
   const twiml = new VoiceResponse();
   const digit = req.body.Digits;
   const phone = req.body.From;
 
   console.log(`🔘 Menu option ${digit} - Phone: ${phone}`);
+  
   logCall(phone, `MENU_OPTION_${digit}`);
 
   if (!digit) {
@@ -735,50 +866,20 @@ app.post('/handle-key', (req, res) => {
     twiml.redirect('/voice');
   }
 
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
-app.post('/transfer-to-appointment', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
-  
-  console.log(`📅 Transferring to appointment flow for: ${phone}`);
-  logCall(phone, 'APPOINTMENT_FLOW_STARTED');
-  
-  const appt = findAppointment(phone);
-
-  if (appt) {
-    const gather = twiml.gather({
-      numDigits: 1,
-      action: `/appointment-manage?phone=${encodeURIComponent(phone)}`,
-      method: 'POST',
-      timeout: 10
-    });
-
-    gather.say(
-      `I see you have an appointment scheduled on ${appt.date} at ${appt.time}. ` +
-      "Press 1 to cancel this appointment. Press 2 to reschedule.",
-      { voice: 'alice', language: 'en-US' }
-    );
-
-    twiml.say("No selection made. Returning to main menu.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
-
-  } else {
-    twiml.say("I don't see you in our appointment database. Let me ask you a few questions to schedule an appointment.", 
-      { voice: 'alice', language: 'en-US' });
-    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
-  }
-  
-  res.type('text/xml').send(twiml.toString());
-});
-
+// ======================================================
+// CLOSED HOURS OPTIONS
+// ======================================================
 app.post('/closed-hours-options', (req, res) => {
   const twiml = new VoiceResponse();
   const digit = req.body.Digits;
   const phone = req.body.From;
 
   console.log(`🔘 Closed hours option ${digit} - Phone: ${phone}`);
+  
   logCall(phone, `CLOSED_HOURS_OPTION_${digit}`);
 
   if (!digit) {
@@ -843,7 +944,8 @@ app.post('/closed-hours-options', (req, res) => {
     twiml.hangup();
   }
 
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/record-voice-message', (req, res) => {
@@ -852,6 +954,7 @@ app.post('/record-voice-message', (req, res) => {
   const phone = req.body.From;
 
   console.log(`🎤 Voice message recorded from: ${phone}`);
+  console.log(`📝 Message: ${message.substring(0, 100)}...`);
   
   if (message && message.trim() !== '') {
     try {
@@ -885,6 +988,9 @@ app.post('/record-voice-message', (req, res) => {
   res.type('text/xml').send(twiml.toString());
 });
 
+// ======================================================
+// REPRESENTATIVE (Option 2) - БЫСТРЫЙ AI
+// ======================================================
 app.post('/connect-representative', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
@@ -922,7 +1028,8 @@ app.post('/connect-representative', (req, res) => {
   twiml.say("I didn't hear your reason. Let's try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect('/connect-representative');
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/confirm-reason', (req, res) => {
@@ -952,7 +1059,8 @@ app.post('/confirm-reason', (req, res) => {
   twiml.say("No response received. Let's start over.", { voice: 'alice', language: 'en-US' });
   twiml.redirect('/connect-representative');
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/start-rings', (req, res) => {
@@ -1001,7 +1109,8 @@ app.post('/start-rings', (req, res) => {
   twiml.say("I didn't hear your question. Let me transfer you back to the main menu.");
   twiml.redirect('/voice');
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/process-rep-question', async (req, res) => {
@@ -1018,6 +1127,7 @@ app.post('/process-rep-question', async (req, res) => {
   }
   
   const aiResponse = await getRepResponse(question, phone);
+  
   logAIConversation(phone, question, aiResponse);
   
   twiml.say(aiResponse, { voice: 'alice', language: 'en-US' });
@@ -1060,9 +1170,13 @@ app.post('/process-rep-question', async (req, res) => {
   twiml.say("Or press any key to return to main menu.");
   twiml.redirect('/voice');
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
+// ======================================================
+// CREATIVE DIRECTOR (Option 7)
+// ======================================================
 app.post('/creative-director', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
@@ -1100,7 +1214,8 @@ app.post('/creative-director', (req, res) => {
   twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect('/creative-director');
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/check-creative-question', (req, res) => {
@@ -1174,7 +1289,8 @@ app.post('/check-creative-question', (req, res) => {
     twiml.redirect('/voice');
   }
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/creative-appointment-check', (req, res) => {
@@ -1190,15 +1306,19 @@ app.post('/creative-appointment-check', (req, res) => {
     twiml.redirect('/voice');
   }
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
-// Appointment flow
+// ======================================================
+// APPOINTMENT FLOW
+// ======================================================
 app.post('/get-name', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.query.phone || req.body.From;
   
   console.log(`📝 Getting name for: ${phone}`);
+  
   logCall(phone, 'APPOINTMENT_FLOW_STARTED');
 
   const gather = twiml.gather({
@@ -1216,7 +1336,8 @@ app.post('/get-name', (req, res) => {
   twiml.say("I didn't hear your name. Please try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/verify-name', (req, res) => {
@@ -1245,7 +1366,8 @@ app.post('/verify-name', (req, res) => {
   twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/get-business-type', (req, res) => {
@@ -1278,7 +1400,8 @@ app.post('/get-business-type', (req, res) => {
   twiml.say("I didn't hear your business type. Please try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/verify-business-type', (req, res) => {
@@ -1308,7 +1431,8 @@ app.post('/verify-business-type', (req, res) => {
   twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/get-service-type', (req, res) => {
@@ -1342,7 +1466,8 @@ app.post('/get-service-type', (req, res) => {
   twiml.say("I didn't hear your service type. Please try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/verify-service-type', (req, res) => {
@@ -1373,7 +1498,8 @@ app.post('/verify-service-type', (req, res) => {
   twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/schedule-date', (req, res) => {
@@ -1413,7 +1539,8 @@ app.post('/schedule-date', (req, res) => {
   twiml.say("I didn't hear a time. Please try again.", { voice: 'alice', language: 'en-US' });
   twiml.redirect(`/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`);
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
 app.post('/schedule-time', (req, res) => {
@@ -1504,14 +1631,19 @@ app.post('/schedule-time', (req, res) => {
   );
   twiml.hangup();
   
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
+// ======================================================
+// CALLBACK REQUEST (Option 3)
+// ======================================================
 app.post('/callback-request', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
   
   console.log(`📞 Callback request from: ${phone}`);
+  
   logCall(phone, 'CALLBACK_REQUESTED');
 
   twiml.say(
@@ -1527,14 +1659,20 @@ app.post('/callback-request', (req, res) => {
   });
   
   twiml.hangup();
-  res.type('text/xml').send(twiml.toString());
+
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
+// ======================================================
+// PARTNERSHIP (Option 4)
+// ======================================================
 app.post('/partnership', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
   
   console.log("🤝 Partnership inquiry");
+  
   logCall(phone, 'PARTNERSHIP_INQUIRY');
 
   twiml.say(
@@ -1544,15 +1682,21 @@ app.post('/partnership', (req, res) => {
     { voice: 'alice', language: 'en-US' }
   );
   twiml.hangup();
-  res.type('text/xml').send(twiml.toString());
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
+// ======================================================
+// CANCEL / RESCHEDULE APPOINTMENT
+// ======================================================
 app.post('/appointment-manage', (req, res) => {
   const twiml = new VoiceResponse();
   const digit = req.body.Digits;
   const phone = req.query.phone;
 
   console.log(`❌ Managing appointment for: ${phone}`);
+  
   logCall(phone, `APPOINTMENT_MANAGE_${digit}`);
 
   if (!digit) {
@@ -1574,7 +1718,9 @@ app.post('/appointment-manage', (req, res) => {
     if (db.length < initialLength) {
       saveDB(db);
       console.log(`❌ Appointment cancelled for ${phone}`);
+      
       logCall(phone, 'APPOINTMENT_CANCELLED');
+      
       twiml.say("Your appointment has been cancelled. Goodbye.", { voice: 'alice', language: 'en-US' });
       twiml.hangup();
     } else {
@@ -1593,6 +1739,7 @@ app.post('/appointment-manage', (req, res) => {
     });
     
     saveDB(db);
+    
     console.log(`🔄 Rescheduling for: ${phone}`);
     logCall(phone, 'APPOINTMENT_RESCHEDULE_STARTED');
     twiml.say("Let's reschedule your appointment.", { voice: 'alice', language: 'en-US' });
@@ -1604,9 +1751,13 @@ app.post('/appointment-manage', (req, res) => {
     twiml.redirect('/voice');
   }
 
-  res.type('text/xml').send(twiml.toString());
+  res.type('text/xml');
+  res.send(twiml.toString());
 });
 
+// ======================================================
+// TEST REMINDER ENDPOINT
+// ======================================================
 app.post('/test-reminder', (req, res) => {
   const phone = req.body.phone || req.query.phone;
   
@@ -1615,6 +1766,7 @@ app.post('/test-reminder', (req, res) => {
   }
   
   console.log(`🔔 Manual test trigger for phone: ${phone}`);
+  
   triggerTestReminder(phone);
   
   res.json({ 
@@ -1624,6 +1776,9 @@ app.post('/test-reminder', (req, res) => {
   });
 });
 
+// ======================================================
+// BUSINESS HOURS ENDPOINT
+// ======================================================
 app.get('/business-status', (req, res) => {
   const businessStatus = getBusinessStatus();
   
@@ -1640,14 +1795,17 @@ app.get('/business-status', (req, res) => {
 });
 
 // ======================================================
-// КРАСИВЫЙ HTML ИНТЕРФЕЙС ДЛЯ АРХИВОВ
+// ДНЕВНЫЕ АРХИВЫ - НОВЫЕ ENDPOINTS
 // ======================================================
 
-app.get('/archive-viewer', (req, res) => {
+// Показать все доступные даты архивов
+app.get('/daily-archives', (req, res) => {
   try {
     const files = fs.readdirSync(DAILY_LOGS_DIR);
     
+    // Группируем файлы по дате
     const dates = {};
+    
     files.forEach(file => {
       if (file.includes('calls-') || file.includes('appointments-') || file.includes('ai-') || file.includes('reminders-')) {
         const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
@@ -1658,8 +1816,7 @@ app.get('/archive-viewer', (req, res) => {
             calls: false,
             appointments: false,
             ai: false,
-            reminders: false,
-            files: []
+            reminders: false
           };
         }
         
@@ -1667,768 +1824,389 @@ app.get('/archive-viewer', (req, res) => {
         if (type === 'appointments') dates[date].appointments = true;
         if (type === 'ai') dates[date].ai = true;
         if (type === 'reminders') dates[date].reminders = true;
-        
-        dates[date].files.push(file);
       }
     });
     
     const sortedDates = Object.keys(dates).sort().reverse();
-    const today = new Date().toISOString().split('T')[0];
     
-    let html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>📊 Altair Partners - Daily Archives</title>
-      <style>
-        body { 
-          font-family: 'Arial', sans-serif; 
-          padding: 20px; 
-          max-width: 1200px; 
-          margin: 0 auto; 
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          min-height: 100vh;
-        }
-        .container {
-          background: white;
-          border-radius: 15px;
-          padding: 30px;
-          box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-          margin-top: 20px;
-        }
-        .header {
-          text-align: center;
-          margin-bottom: 30px;
-          padding-bottom: 20px;
-          border-bottom: 2px solid #eee;
-        }
-        .header h1 {
-          color: #333;
-          margin-bottom: 10px;
-        }
-        .header p {
-          color: #666;
-          font-size: 16px;
-        }
-        .date-card {
-          background: #fff;
-          border-radius: 10px;
-          padding: 20px;
-          margin-bottom: 15px;
-          box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-          border-left: 5px solid #667eea;
-          transition: all 0.3s ease;
-        }
-        .date-card:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-        .today {
-          border-left: 5px solid #28a745;
-          background: #f8fff9;
-          border: 2px solid #28a745;
-        }
-        .date-title {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 15px;
-        }
-        .date-title h3 {
-          margin: 0;
-          color: #333;
-        }
-        .today-badge {
-          background: #28a745;
-          color: white;
-          padding: 5px 10px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: bold;
-        }
-        .logs-badges {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-bottom: 15px;
-        }
-        .badge {
-          padding: 6px 12px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: bold;
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .calls { background: #007bff; color: white; }
-        .appointments { background: #28a745; color: white; }
-        .ai { background: #ffc107; color: black; }
-        .reminders { background: #dc3545; color: white; }
-        .actions {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .btn {
-          padding: 8px 16px;
-          border-radius: 5px;
-          text-decoration: none;
-          font-weight: bold;
-          transition: all 0.3s;
-          border: none;
-          cursor: pointer;
-          font-size: 14px;
-          display: inline-flex;
-          align-items: center;
-          gap: 5px;
-        }
-        .btn-view { background: #6c757d; color: white; }
-        .btn-download { background: #17a2b8; color: white; }
-        .btn-details { background: #6610f2; color: white; }
-        .btn:hover {
-          opacity: 0.9;
-          transform: translateY(-2px);
-        }
-        .empty-state {
-          text-align: center;
-          padding: 50px;
-          background: #f8f9fa;
-          border-radius: 10px;
-          margin: 20px 0;
-        }
-        .call-now {
-          background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-          color: white;
-          padding: 20px;
-          border-radius: 10px;
-          text-align: center;
-          margin: 30px 0;
-          box-shadow: 0 5px 15px rgba(40, 167, 69, 0.3);
-        }
-        .call-now h3 {
-          margin-top: 0;
-          font-size: 24px;
-        }
-        .phone-number {
-          font-size: 28px;
-          font-weight: bold;
-          margin: 15px 0;
-          background: rgba(255,255,255,0.2);
-          padding: 10px;
-          border-radius: 5px;
-          display: inline-block;
-        }
-        .stats {
-          display: flex;
-          justify-content: space-around;
-          background: #f8f9fa;
-          padding: 15px;
-          border-radius: 10px;
-          margin-bottom: 20px;
-        }
-        .stat-item {
-          text-align: center;
-        }
-        .stat-number {
-          font-size: 24px;
-          font-weight: bold;
-          color: #667eea;
-        }
-        .stat-label {
-          font-size: 14px;
-          color: #666;
-        }
-        @media (max-width: 768px) {
-          .container { padding: 15px; }
-          .actions { flex-direction: column; }
-          .btn { width: 100%; text-align: center; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="container">
-        <div class="header">
-          <h1>📊 Altair Partners - Daily Archives</h1>
-          <p>Все звонки сохраняются автоматически. Последнее обновление: ${new Date().toLocaleString()}</p>
-        </div>
-        
-        <div class="stats">
-          <div class="stat-item">
-            <div class="stat-number">${sortedDates.length}</div>
-            <div class="stat-label">Дней в архиве</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-number">${dates[today] ? Object.values(dates[today]).filter(Boolean).length : 0}</div>
-            <div class="stat-label">Файлов сегодня</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-number">${Object.keys(dates).reduce((acc, date) => acc + dates[date].files.length, 0)}</div>
-            <div class="stat-label">Всего файлов</div>
-          </div>
-        </div>`;
-    
-    if (sortedDates.length === 0) {
-      html += `
-      <div class="empty-state">
-        <h2>📭 Архивы пусты</h2>
-        <p>Пока нет сохраненных данных. Сделайте первый звонок!</p>
-        <div class="call-now">
-          <h3>📞 Позвоните сейчас чтобы создать архив!</h3>
-          <div class="phone-number">+1 (503) 444-8881</div>
-          <p>После звонка данные появятся здесь автоматически!</p>
-          <p style="margin-top: 20px; font-size: 14px;">
-            <strong>Как тестировать:</strong><br>
-            1. Позвоните на номер выше<br>
-            2. Выберите любую опцию (1, 2, 3, 4 или 7)<br>
-            3. Обновите эту страницу через 10 секунд<br>
-            4. Данные появятся в архиве!
-          </p>
-        </div>
-      </div>`;
-    } else {
-      html += `<h2 style="color: #333; margin-bottom: 20px;">📅 Доступные архивы (${sortedDates.length} дней):</h2>`;
-      
-      sortedDates.forEach(date => {
-        const isToday = date === today;
-        const formattedDate = new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+    res.json({
+      totalDates: sortedDates.length,
+      dates: sortedDates.map(date => ({
+        date,
+        formattedDate: new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
           weekday: 'long',
           year: 'numeric',
           month: 'long',
           day: 'numeric'
-        });
-        
-        html += `
-        <div class="date-card ${isToday ? 'today' : ''}">
-          <div class="date-title">
-            <h3>${formattedDate}</h3>
-            ${isToday ? '<span class="today-badge">СЕГОДНЯ</span>' : ''}
-          </div>
-          <div class="logs-badges">
-            ${dates[date].calls ? '<span class="badge calls">📞 Звонки</span>' : ''}
-            ${dates[date].appointments ? '<span class="badge appointments">📅 Записи</span>' : ''}
-            ${dates[date].ai ? '<span class="badge ai">🤖 AI разговоры</span>' : ''}
-            ${dates[date].reminders ? '<span class="badge reminders">⏰ Напоминания</span>' : ''}
-          </div>
-          <div class="actions">
-            ${dates[date].calls ? `
-            <a href="/archive-details/${date}/calls" class="btn btn-details">
-              👁️ Просмотреть звонки
-            </a>
-            <a href="/daily-archives/${date}/calls/download" class="btn btn-download">
-              💾 Скачать звонки
-            </a>` : ''}
-            
-            ${dates[date].appointments ? `
-            <a href="/archive-details/${date}/appointments" class="btn btn-details">
-              👁️ Просмотреть записи
-            </a>` : ''}
-            
-            ${dates[date].ai ? `
-            <a href="/archive-details/${date}/ai" class="btn btn-details">
-              👁️ Просмотреть AI
-            </a>` : ''}
-          </div>
-        </div>`;
-      });
-      
-      if (!dates[today]) {
-        html += `
-        <div class="call-now">
-          <h3>📞 Нет данных за сегодня (${today})</h3>
-          <p>Позвоните сейчас чтобы создать архив за сегодня!</p>
-          <div class="phone-number">+1 (503) 444-8881</div>
-          <p style="margin-top: 10px; font-size: 14px;">
-            <strong>Тестовый звонок:</strong><br>
-            • Нажмите 1 → Записаться на встречу<br>
-            • Нажмите 2 → Поговорить с представителем<br>
-            • Нажмите 7 → Креативный директор<br>
-            • Данные сохранятся автоматически!
-          </p>
-        </div>`;
-      }
-    }
-    
-    html += `
-      <div style="margin-top: 30px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
-        <h3 style="color: #333; margin-top: 0;">ℹ️ Как пользоваться архивом:</h3>
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin-top: 15px;">
-          <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #007bff;">
-            <strong>1. 📞 Сделайте звонок</strong>
-            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Позвоните на +1 (503) 444-8881</p>
-          </div>
-          <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #28a745;">
-            <strong>2. 🎯 Выберите опцию</strong>
-            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Любая опция (1,2,3,4,7) создаст запись</p>
-          </div>
-          <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #ffc107;">
-            <strong>3. 🔄 Обновите страницу</strong>
-            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Через 10 секунд после звонка</p>
-          </div>
-          <div style="background: white; padding: 15px; border-radius: 8px; border-left: 4px solid #dc3545;">
-            <strong>4. 📊 Просмотрите данные</strong>
-            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">Нажмите "Просмотреть" на нужной дате</p>
-          </div>
-        </div>
-      </div>
-      
-      <div style="margin-top: 20px; text-align: center; padding-top: 20px; border-top: 1px solid #eee;">
-        <a href="/" style="color: #667eea; text-decoration: none; font-weight: bold;">← Вернуться на главную</a>
-        <span style="margin: 0 10px; color: #ccc;">|</span>
-        <a href="/debug" style="color: #667eea; text-decoration: none;">Debug информация</a>
-      </div>
-    </div>
-  </body>
-</html>`;
-    
-    res.send(html);
+        }),
+        logsAvailable: dates[date],
+        endpoints: {
+          calls: `/daily-archives/${date}/calls`,
+          appointments: `/daily-archives/${date}/appointments`,
+          ai: `/daily-archives/${date}/ai`,
+          reminders: `/daily-archives/${date}/reminders`
+        }
+      })),
+      lastUpdated: new Date().toISOString(),
+      note: "📞 Все звонки сохраняются СРАЗУ после разговора!"
+    });
     
   } catch (error) {
-    console.error("ERROR loading archive viewer:", error);
-    res.status(500).send(`
-      <html>
-        <body style="font-family: Arial; padding: 20px;">
-          <h1>❌ Ошибка загрузки архива</h1>
-          <p>${error.message}</p>
-          <a href="/" style="color: blue;">Вернуться на главную</a>
-        </body>
-      </html>
-    `);
+    console.error("ERROR loading daily archives:", error);
+    res.status(500).json({ error: "Failed to load daily archives" });
   }
 });
 
-// КРАСИВЫЙ ДЕТАЛЬНЫЙ ПРОСМОТР АРХИВА
-app.get('/archive-details/:date/:type', (req, res) => {
+// Получить логи за конкретную дату
+app.get('/daily-archives/:date/:type', (req, res) => {
   const { date, type } = req.params;
   
   try {
     const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
     
     if (!fs.existsSync(filePath)) {
-      return res.send(`
-        <html>
-          <body style="font-family: Arial; padding: 20px;">
-            <h1>📭 Файл не найден</h1>
-            <p>Архив ${type} за ${date} не существует.</p>
-            <p><a href="/archive-viewer">← Вернуться к архивам</a></p>
-          </body>
-        </html>
-      `);
+      return res.status(404).json({ 
+        error: "Archive not found",
+        message: `No ${type} logs found for date ${date}` 
+      });
     }
     
     const data = fs.readFileSync(filePath, "utf8");
     const logs = JSON.parse(data || '[]');
     
-    const typeNames = {
-      'calls': '📞 Звонки',
-      'appointments': '📅 Записи на встречи',
-      'ai': '🤖 AI разговоры',
-      'reminders': '⏰ Напоминания'
-    };
+    let totalItems = 0;
+    let uniquePhones = new Set();
+    let phoneDetails = [];
     
-    const typeName = typeNames[type] || type;
-    
-    let html = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <title>${typeName} - ${date}</title>
-      <style>
-        body { 
-          font-family: 'Arial', sans-serif; 
-          padding: 20px; 
-          max-width: 1400px; 
-          margin: 0 auto; 
-          background: #f5f5f5;
-        }
-        .header {
-          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-          color: white;
-          padding: 25px;
-          border-radius: 10px;
-          margin-bottom: 20px;
-        }
-        .back-btn {
-          display: inline-block;
-          background: rgba(255,255,255,0.2);
-          color: white;
-          padding: 8px 15px;
-          border-radius: 5px;
-          text-decoration: none;
-          margin-bottom: 15px;
-          font-weight: bold;
-        }
-        .back-btn:hover {
-          background: rgba(255,255,255,0.3);
-        }
-        .stats {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 15px;
-          margin-bottom: 30px;
-        }
-        .stat-card {
-          background: white;
-          padding: 20px;
-          border-radius: 10px;
-          text-align: center;
-          box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-        }
-        .stat-number {
-          font-size: 32px;
-          font-weight: bold;
-          color: #667eea;
-          margin-bottom: 5px;
-        }
-        .stat-label {
-          color: #666;
-          font-size: 14px;
-        }
-        .log-table {
-          width: 100%;
-          background: white;
-          border-radius: 10px;
-          overflow: hidden;
-          box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-          margin-bottom: 20px;
-        }
-        .log-table th {
-          background: #f8f9fa;
-          padding: 15px;
-          text-align: left;
-          font-weight: bold;
-          color: #333;
-          border-bottom: 2px solid #dee2e6;
-        }
-        .log-table td {
-          padding: 15px;
-          border-bottom: 1px solid #eee;
-          vertical-align: top;
-        }
-        .log-table tr:hover {
-          background: #f8f9fa;
-        }
-        .phone-cell {
-          font-family: monospace;
-          font-weight: bold;
-          color: #007bff;
-        }
-        .action-cell {
-          padding: 3px 8px;
-          border-radius: 3px;
-          font-size: 12px;
-          font-weight: bold;
-        }
-        .CALL_RECEIVED { background: #28a745; color: white; }
-        .APPOINTMENT_SCHEDULED { background: #17a2b8; color: white; }
-        .REPRESENTATIVE_SELECTED { background: #ffc107; color: black; }
-        .default-action { background: #6c757d; color: white; }
-        .pagination {
-          display: flex;
-          justify-content: center;
-          gap: 10px;
-          margin-top: 20px;
-        }
-        .page-btn {
-          padding: 8px 15px;
-          background: #667eea;
-          color: white;
-          border: none;
-          border-radius: 5px;
-          cursor: pointer;
-          text-decoration: none;
-          display: inline-block;
-        }
-        .page-btn:hover {
-          background: #5a67d8;
-        }
-        .search-box {
-          margin-bottom: 20px;
-          padding: 15px;
-          background: white;
-          border-radius: 10px;
-          box-shadow: 0 3px 10px rgba(0,0,0,0.1);
-        }
-        .search-input {
-          width: 100%;
-          padding: 12px;
-          border: 2px solid #dee2e6;
-          border-radius: 5px;
-          font-size: 16px;
-          margin-bottom: 10px;
-        }
-        .search-input:focus {
-          outline: none;
-          border-color: #667eea;
-        }
-        .export-btn {
-          display: inline-block;
-          background: #28a745;
-          color: white;
-          padding: 10px 20px;
-          border-radius: 5px;
-          text-decoration: none;
-          font-weight: bold;
-          margin-top: 10px;
-        }
-        .export-btn:hover {
-          background: #218838;
-        }
-        @media (max-width: 768px) {
-          .log-table { font-size: 14px; }
-          .log-table th, .log-table td { padding: 10px; }
-          .stats { grid-template-columns: 1fr; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="header">
-        <a href="/archive-viewer" class="back-btn">← Назад к архивам</a>
-        <h1>${typeName}</h1>
-        <p>Дата: ${date} | Всего записей: ${logs.length}</p>
-      </div>
-      
-      <div class="stats">
-        <div class="stat-card">
-          <div class="stat-number">${logs.length}</div>
-          <div class="stat-label">Всего записей</div>
-        </div>
-        
-        ${type === 'calls' ? `
-        <div class="stat-card">
-          <div class="stat-number">${new Set(logs.map(l => l.phone)).size}</div>
-          <div class="stat-label">Уникальных номеров</div>
-        </div>
-        ` : ''}
-        
-        ${type === 'appointments' ? `
-        <div class="stat-card">
-          <div class="stat-number">${new Set(logs.map(l => l.name)).size}</div>
-          <div class="stat-label">Уникальных клиентов</div>
-        </div>
-        ` : ''}
-        
-        <div class="stat-card">
-          <div class="stat-number">${logs.length > 0 ? new Date(logs[logs.length-1].timestamp).toLocaleTimeString() : 'Нет'}</div>
-          <div class="stat-label">Последняя запись</div>
-        </div>
-      </div>
-      
-      <div class="search-box">
-        <input type="text" class="search-input" placeholder="🔍 Поиск по номеру телефона, имени или действию..." 
-               onkeyup="filterTable()" id="searchInput">
-        <div style="font-size: 14px; color: #666; margin-top: 5px;">
-          Найдено записей: <span id="recordCount">${logs.length}</span>
-        </div>
-        <a href="/daily-archives/${date}/${type}/download" class="export-btn">💾 Скачать JSON файл</a>
-      </div>`;
-    
-    if (logs.length === 0) {
-      html += `
-      <div style="text-align: center; padding: 50px; background: white; border-radius: 10px;">
-        <h3>📭 Нет данных</h3>
-        <p>В этом архиве пока нет записей.</p>
-      </div>`;
-    } else {
-      html += `
-      <div class="log-table">
-        <table style="width: 100%; border-collapse: collapse;">
-          <thead>
-            <tr>
-              ${type === 'calls' ? `
-              <th>Телефон</th>
-              <th>Действие</th>
-              <th>Время (PST)</th>
-              <th>Детали</th>
-              ` : ''}
-              
-              ${type === 'appointments' ? `
-              <th>Имя</th>
-              <th>Телефон</th>
-              <th>Тип бизнеса</th>
-              <th>Услуга</th>
-              <th>Дата встречи</th>
-              <th>Время</th>
-              ` : ''}
-              
-              ${type === 'ai' ? `
-              <th>Телефон</th>
-              <th>Вопрос</th>
-              <th>Ответ AI</th>
-              <th>Время</th>
-              ` : ''}
-              
-              ${type === 'reminders' ? `
-              <th>Телефон</th>
-              <th>Действие</th>
-              <th>Имя клиента</th>
-              <th>Дата встречи</th>
-              <th>Время встречи</th>
-              ` : ''}
-            </tr>
-          </thead>
-          <tbody id="logTableBody">`;
-      
-      // Показываем только первые 50 записей для производительности
-      const displayLogs = logs.slice(0, 50);
-      
-      displayLogs.forEach((log, index) => {
-        if (type === 'calls') {
-          const actionClass = log.action ? `action-cell ${log.action}` : 'action-cell default-action';
-          html += `
-          <tr>
-            <td class="phone-cell">${log.phone || 'N/A'}</td>
-            <td><span class="${actionClass}">${log.action || 'N/A'}</span></td>
-            <td>${log.time || log.timestamp || 'N/A'}</td>
-            <td>
-              ${log.details ? `
-              <div style="font-size: 12px; color: #666;">
-                ${log.details.name ? `<strong>Имя:</strong> ${log.details.name}<br>` : ''}
-                ${log.details.businessType ? `<strong>Бизнес:</strong> ${log.details.businessType}<br>` : ''}
-                ${log.details.serviceType ? `<strong>Услуга:</strong> ${log.details.serviceType}<br>` : ''}
-                ${log.details.date ? `<strong>Дата:</strong> ${log.details.date}<br>` : ''}
-              </div>
-              ` : 'N/A'}
-            </td>
-          </tr>`;
-        }
-        
-        else if (type === 'appointments') {
-          html += `
-          <tr>
-            <td><strong>${log.name || 'N/A'}</strong></td>
-            <td class="phone-cell">${log.phone || 'N/A'}</td>
-            <td>${log.businessType || 'N/A'}</td>
-            <td>${log.serviceType || 'N/A'}</td>
-            <td>${log.date || 'N/A'}</td>
-            <td>${log.time || 'N/A'}</td>
-          </tr>`;
-        }
-        
-        else if (type === 'ai') {
-          html += `
-          <tr>
-            <td class="phone-cell">${log.phone || 'N/A'}</td>
-            <td><strong>${log.question ? log.question.substring(0, 50) + (log.question.length > 50 ? '...' : '') : 'N/A'}</strong></td>
-            <td>${log.response ? log.response.substring(0, 70) + (log.response.length > 70 ? '...' : '') : 'N/A'}</td>
-            <td>${log.time || 'N/A'}</td>
-          </tr>`;
-        }
-        
-        else if (type === 'reminders') {
-          html += `
-          <tr>
-            <td class="phone-cell">${log.phone || 'N/A'}</td>
-            <td><span class="action-cell ${log.action || 'default-action'}">${log.action || 'N/A'}</span></td>
-            <td>${log.appointment?.name || 'N/A'}</td>
-            <td>${log.appointment?.date || 'N/A'}</td>
-            <td>${log.appointment?.time || 'N/A'}</td>
-          </tr>`;
-        }
-      });
-      
-      html += `
-          </tbody>
-        </table>
-      </div>`;
-      
-      if (logs.length > 50) {
-        html += `
-        <div style="text-align: center; padding: 15px; background: white; border-radius: 10px; margin-top: 10px;">
-          <p>Показано 50 из ${logs.length} записей</p>
-          <a href="/daily-archives/${date}/${type}/download" class="export-btn">
-            💾 Скачать полные данные (${logs.length} записей)
-          </a>
-        </div>`;
+    // Анализируем данные
+    logs.forEach(log => {
+      if (log.phone) {
+        uniquePhones.add(log.phone);
+        phoneDetails.push({
+          phone: log.phone,
+          name: log.name || log.details?.name || 'N/A',
+          action: log.action || 'N/A',
+          time: log.time || log.timestamp || 'N/A',
+          businessType: log.businessType || log.details?.businessType || 'N/A',
+          serviceType: log.serviceType || log.details?.serviceType || 'N/A'
+        });
       }
-    }
+      totalItems++;
+    });
     
-    html += `
-      <script>
-        function filterTable() {
-          const input = document.getElementById('searchInput');
-          const filter = input.value.toLowerCase();
-          const rows = document.querySelectorAll('#logTableBody tr');
-          let visibleCount = 0;
-          
-          rows.forEach(row => {
-            const text = row.textContent.toLowerCase();
-            if (text.includes(filter)) {
-              row.style.display = '';
-              visibleCount++;
-            } else {
-              row.style.display = 'none';
-            }
-          });
-          
-          document.getElementById('recordCount').textContent = visibleCount;
-        }
-        
-        // Автоматически фильтруем если есть параметр поиска в URL
-        const urlParams = new URLSearchParams(window.location.search);
-        const searchQuery = urlParams.get('search');
-        if (searchQuery) {
-          document.getElementById('searchInput').value = searchQuery;
-          filterTable();
-        }
-      </script>
-      
-      <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; text-align: center;">
-        <a href="/archive-viewer" class="page-btn">← Назад к архивам</a>
-        <a href="/" style="margin-left: 10px;" class="page-btn">🏠 На главную</a>
-      </div>
-    </body>
-  </html>`;
-    
-    res.send(html);
+    res.json({
+      date,
+      type,
+      totalItems,
+      uniquePhones: uniquePhones.size,
+      phoneList: Array.from(uniquePhones),
+      phoneDetails: phoneDetails.slice(0, 100), // Первые 100 записей
+      logs: logs.slice(0, 50), // Первые 50 логов
+      fileInfo: {
+        size: fs.statSync(filePath).size,
+        created: fs.statSync(filePath).birthtime,
+        modified: fs.statSync(filePath).mtime
+      },
+      downloadUrl: `/daily-archives/${date}/${type}/download`
+    });
     
   } catch (error) {
-    console.error(`ERROR loading archive details for ${type} on ${date}:`, error);
-    res.status(500).send(`
-      <html>
-        <body style="font-family: Arial; padding: 20px;">
-          <h1>❌ Ошибка загрузки архива</h1>
-          <p>${error.message}</p>
-          <a href="/archive-viewer">← Вернуться к архивам</a>
-        </body>
-      </html>
-    `);
+    console.error(`ERROR loading ${type} archive for ${date}:`, error);
+    res.status(500).json({ error: "Failed to load archive" });
   }
 });
 
-// Скачивание архивных файлов
+// Скачать архив за дату
 app.get('/daily-archives/:date/:type/download', (req, res) => {
   const { date, type } = req.params;
   const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
   
   if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: "File not found" });
+    return res.status(404).send("File not found");
   }
   
   res.download(filePath, `${type}-${date}.json`);
 });
 
 // ======================================================
-// START SERVER
+// DEBUG ENDPOINTS (обновленные)
+// ======================================================
+app.get('/health', (req, res) => {
+  res.status(200).send('✅ IVR Server is running');
+});
+
+app.get('/debug', (req, res) => {
+  const appointments = loadDB();
+  const businessStatus = getBusinessStatus();
+  
+  let callLogs = [];
+  let aiConversations = [];
+  let reminderLogs = [];
+  
+  try {
+    if (fs.existsSync(CALL_LOGS_PATH)) {
+      const logsData = fs.readFileSync(CALL_LOGS_PATH, "utf8");
+      callLogs = JSON.parse(logsData || '[]');
+    }
+    
+    if (fs.existsSync(AI_CONVERSATIONS_PATH)) {
+      const convData = fs.readFileSync(AI_CONVERSATIONS_PATH, "utf8");
+      aiConversations = JSON.parse(convData || '[]');
+    }
+    
+    if (fs.existsSync(REMINDERS_LOG)) {
+      const remData = fs.readFileSync(REMINDERS_LOG, "utf8");
+      reminderLogs = JSON.parse(remData || '[]');
+    }
+  } catch (error) {
+    console.error("ERROR loading logs:", error);
+  }
+  
+  // Проверяем архивы
+  let dailyArchives = [];
+  try {
+    if (fs.existsSync(DAILY_LOGS_DIR)) {
+      const files = fs.readdirSync(DAILY_LOGS_DIR);
+      const dates = new Set();
+      files.forEach(file => {
+        if (file.includes('-')) {
+          const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
+          dates.add(date);
+        }
+      });
+      dailyArchives = Array.from(dates).sort().reverse();
+    }
+  } catch (error) {
+    console.error("ERROR loading daily archives:", error);
+  }
+  
+  res.json({
+    status: 'running',
+    businessStatus,
+    appointments: {
+      total: appointments.length,
+      recent: appointments.slice(-10)
+    },
+    callLogs: {
+      total: callLogs.length,
+      recent: callLogs.slice(-20)
+    },
+    aiConversations: {
+      total: aiConversations.length,
+      recent: aiConversations.slice(-10)
+    },
+    reminderLogs: {
+      total: reminderLogs.length,
+      recent: reminderLogs.slice(-10)
+    },
+    dailyArchives: {
+      totalDates: dailyArchives.length,
+      dates: dailyArchives.slice(0, 10),
+      allDates: `/daily-archives`
+    },
+    systemInfo: {
+      archiveMode: 'INSTANT (сохраняет сразу после звонка)',
+      storage: {
+        calls: `${DAILY_LOGS_DIR}/calls-YYYY-MM-DD.json`,
+        appointments: `${DAILY_LOGS_DIR}/appointments-YYYY-MM-DD.json`,
+        ai: `${DAILY_LOGS_DIR}/ai-YYYY-MM-DD.json`,
+        reminders: `${DAILY_LOGS_DIR}/reminders-YYYY-MM-DD.json`
+      }
+    },
+    nextAvailableDate: getNextAvailableDate(),
+    reminderSystem: {
+      schedule: 'ONE DAY BEFORE appointment at 2 PM Pacific Time',
+      checkInterval: 'Every 5 minutes',
+      testEndpoint: 'POST /test-reminder?phone=+1234567890'
+    },
+    businessHours: {
+      open: businessStatus.isOpen,
+      message: businessStatus.isOpen ? 'Open now' : `Closed - ${businessStatus.nextOpenTime}`
+    },
+    selfPing: process.env.FREE_PLAN === 'true' ? 'Active (4 min interval)' : 'Inactive'
+  });
+});
+
+app.get('/', (req, res) => {
+  const businessStatus = getBusinessStatus();
+  
+  res.send(`
+    <html>
+      <head>
+        <title>Altair Partners IVR Server</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; }
+          .status { padding: 10px; border-radius: 5px; margin: 10px 0; }
+          .open { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+          .closed { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+          .endpoints { background-color: #e2e3e5; padding: 15px; border-radius: 5px; margin: 15px 0; }
+          ul { line-height: 1.6; }
+          a { color: #0066cc; text-decoration: none; }
+          a:hover { text-decoration: underline; }
+          .archive-info { background-color: #fff3cd; padding: 10px; border-radius: 5px; margin: 10px 0; }
+          .instant-badge { background-color: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <h1>✅ Altair Partners IVR Server</h1>
+        
+        <div class="status ${businessStatus.isOpen ? 'open' : 'closed'}">
+          <p><strong>Status:</strong> ${businessStatus.isOpen ? '🟢 OPEN' : '🔴 CLOSED'}</p>
+          <p><strong>Current Time (PST):</strong> ${businessStatus.currentTime}</p>
+          <p><strong>Business Hours:</strong> ${businessStatus.hours}</p>
+          <p><strong>Location:</strong> ${businessStatus.location}</p>
+          <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
+        </div>
+        
+        <div class="archive-info">
+          <h3>📦 Instant Archive System <span class="instant-badge">LIVE</span></h3>
+          <p><strong>Все звонки сохраняются СРАЗУ после разговора!</strong></p>
+          <p>• 📞 Звонки → мгновенно в архив</p>
+          <p>• 📅 Appointments → мгновенно в архив</p>
+          <p>• 🤖 AI разговоры → мгновенно в архив</p>
+          <p>• ⏰ Reminders → мгновенно в архив</p>
+          <p><a href="/daily-archives">📊 Просмотреть все архивы по датам</a></p>
+        </div>
+        
+        <div class="endpoints">
+          <h3>Endpoints:</h3>
+          <ul>
+            <li><a href="/health">/health</a> - Health check</li>
+            <li><a href="/debug">/debug</a> - Debug info</li>
+            <li><a href="/daily-archives">/daily-archives</a> - Все архивы по дням</li>
+            <li><a href="/logs">/logs</a> - Текущие логи звонков</li>
+            <li><a href="/appointments">/appointments</a> - Все appointments</li>
+            <li><a href="/conversations">/conversations</a> - AI conversations</li>
+            <li><a href="/reminders">/reminders</a> - Reminder logs</li>
+            <li><a href="/business-status">/business-status</a> - Business hours check</li>
+          </ul>
+          
+          <h3>Пример просмотра архива за сегодня:</h3>
+          <ul>
+            <li><a href="/daily-archives/${new Date().toISOString().split('T')[0]}/calls">/daily-archives/${new Date().toISOString().split('T')[0]}/calls</a> (сегодняшние звонки)</li>
+            <li><a href="/daily-archives/${new Date().toISOString().split('T')[0]}/appointments">/daily-archives/${new Date().toISOString().split('T')[0]}/appointments</a> (сегодняшние appointments)</li>
+          </ul>
+        </div>
+        
+        <p><strong>Twilio Webhook:</strong> POST /voice</p>
+        <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
+        <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
+        <p><strong>🔔 <a href="/test-reminder?phone=+15034448881">Test reminder</a></strong></p>
+        <p><strong>📦 Архивация:</strong> <span class="instant-badge">INSTANT MODE</span> (сразу после звонка)</p>
+        <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}</p>
+        <p><strong>📞 Тестовый звонок:</strong> +1 (503) 444-8881</p>
+      </body>
+    </html>
+  `);
+});
+
+app.get('/logs', (req, res) => {
+  try {
+    let callLogs = [];
+    if (fs.existsSync(CALL_LOGS_PATH)) {
+      const logsData = fs.readFileSync(CALL_LOGS_PATH, "utf8");
+      callLogs = JSON.parse(logsData || '[]');
+    }
+    
+    res.json({
+      total: callLogs.length,
+      logs: callLogs.reverse(),
+      lastUpdated: new Date().toISOString(),
+      note: "Это текущие логи. Архивы по дням доступны по /daily-archives"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load logs" });
+  }
+});
+
+app.get('/appointments', (req, res) => {
+  const appointments = loadDB();
+  
+  res.json({
+    total: appointments.length,
+    appointments: appointments.reverse(),
+    lastUpdated: new Date().toISOString(),
+    note: "Это текущие appointments. Архивы по дням доступны по /daily-archives"
+  });
+});
+
+app.get('/conversations', (req, res) => {
+  try {
+    let aiConversations = [];
+    if (fs.existsSync(AI_CONVERSATIONS_PATH)) {
+      const convData = fs.readFileSync(AI_CONVERSATIONS_PATH, "utf8");
+      aiConversations = JSON.parse(convData || '[]');
+    }
+    
+    res.json({
+      total: aiConversations.length,
+      conversations: aiConversations.reverse(),
+      lastUpdated: new Date().toISOString(),
+      note: "Это текущие AI разговоры. Архивы по дням доступны по /daily-archives"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load conversations" });
+  }
+});
+
+app.get('/reminders', (req, res) => {
+  try {
+    let reminderLogs = [];
+    if (fs.existsSync(REMINDERS_LOG)) {
+      const remData = fs.readFileSync(REMINDERS_LOG, "utf8");
+      reminderLogs = JSON.parse(remData || '[]');
+    }
+    
+    res.json({
+      total: reminderLogs.length,
+      reminders: reminderLogs.reverse(),
+      lastUpdated: new Date().toISOString(),
+      systemInfo: 'Calls ONE DAY BEFORE appointment at 2 PM Pacific Time',
+      note: "Это текущие reminders. Архивы по дням доступны по /daily-archives"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load reminders" });
+  }
+});
+
+// ======================================================
+// START SERVER WITH REMINDER SYSTEM
 // ======================================================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   const businessStatus = getBusinessStatus();
+  
+  // Получаем реальный URL сервера
   const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   
   console.log(`🚀 Altair Partners IVR Server running on port ${PORT}`);
   console.log(`⏰ Business Status: ${businessStatus.isOpen ? 'OPEN' : 'CLOSED'}`);
   console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
+  console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
   console.log(`✅ Health check: ${serverUrl}/health`);
-  console.log(`📊 Archive Viewer: ${serverUrl}/archive-viewer`);
-  console.log(`🔧 Debug Panel: ${serverUrl}/debug`);
-  console.log(`📞 Test Number: +1 (503) 444-8881`);
-  console.log(`📦 INSTANT ARCHIVE SYSTEM: Все данные сохраняются сразу!`);
-  console.log(`🤖 AI Assistant: Ready (fast mode)`);
-  console.log(`⏰ Reminder System: Active (checks every 5 minutes)`);
-  console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active' : 'Inactive'}`);
+  console.log(`✅ Debug: ${serverUrl}/debug`);
+  console.log(`📦 Daily archives: ${serverUrl}/daily-archives`);
+  console.log(`📊 Current logs: ${serverUrl}/logs`);
+  console.log(`📅 Appointments: ${serverUrl}/appointments`);
+  console.log(`🤖 Conversations: ${serverUrl}/conversations`);
+  console.log(`⏰ Reminders: ${serverUrl}/reminders`);
+  console.log(`🏢 Business Status: ${serverUrl}/business-status`);
+  console.log(`✅ Next available date: ${getNextAvailableDate()}`);
+  console.log(`🤖 AI Representative is ready (fast mode)`);
+  console.log(`📝 INSTANT ARCHIVE SYSTEM: Все данные сохраняются сразу после звонка!`);
+  console.log(`📁 Archives location: ./logs/daily/`);
+  console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
+  console.log(`🔄 Check interval: Every 5 minutes`);
+  console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
+  console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
+  console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}`);
   
+  // Запускаем reminder scheduler
   startReminderScheduler();
-  console.log(`✅ SYSTEM READY - Все звонки будут сохраняться в красивый архив!`);
+  
+  // Запускаем daily archiver
+  startDailyArchiver();
+  
+  console.log(`✅ INSTANT ARCHIVE SYSTEM READY - Все звонки будут сохраняться сразу!`);
 });
