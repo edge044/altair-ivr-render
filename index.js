@@ -2421,7 +2421,7 @@ const VOICEMAILS_HTML = `
 `;
 
 // ======================================================
-// НОВЫЙ: ОБНОВЛЕННЫЙ ANALYTICS DASHBOARD
+// НОВЫЙ: ОБНОВЛЕННЫЙ ANALYTICS DASHBOARD (ИСПРАВЛЕННЫЙ!)
 // ======================================================
 
 const ANALYTICS_HTML = `
@@ -2842,8 +2842,13 @@ const ANALYTICS_HTML = `
                 
                 // Update active button
                 document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
-                event ? event.target.classList.add('active') : 
-                    document.querySelector(`.filter-btn[onclick*="'\${timeframe}'"]`).classList.add('active');
+                
+                // FIXED LINE - НЕТ ВЛОЖЕННЫХ TEMPLATE LITERALS!
+                const selector = \`.filter-btn[onclick*="loadData('"\${timeframe}\`')"]\`;
+                const element = document.querySelector(selector);
+                if (element) {
+                    element.classList.add('active');
+                }
 
                 const response = await fetch(\`/api/analytics?timeframe=\${timeframe}\`);
                 const data = await response.json();
@@ -3701,9 +3706,8 @@ app.post('/handle-key', (req, res) => {
 });
 
 // ======================================================
-// CLOSED HOURS OPTIONS (ОБНОВЛЕННЫЕ)
+// CLOSED HOURS OPTIONS
 // ======================================================
-
 app.post('/closed-hours-options', (req, res) => {
   const twiml = new VoiceResponse();
   const digit = req.body.Digits;
@@ -3721,12 +3725,48 @@ app.post('/closed-hours-options', (req, res) => {
 
   if (digit === '1') {
     console.log("📞 Callback request during closed hours");
-    twiml.redirect('/callback-request');
+    
+    twiml.say(
+      "Your callback request has been submitted. We'll call you back during our next business hours. " +
+      "Thank you for calling Altair Partners. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    try {
+      twilioClient.messages.create({
+        body: `📞 AFTER-HOURS Callback requested from ${phone} (Closed hours)`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: '+15035442571'
+      });
+      console.log(`📱 After-hours callback notification sent to admin`);
+    } catch (err) {
+      console.log("ERROR sending admin notification:", err);
+    }
+    
+    logCall(phone, 'AFTER_HOURS_CALLBACK_REQUESTED');
+    twiml.hangup();
   }
 
   else if (digit === '2') {
-    console.log("🎤 Voicemail during closed hours");
-    twiml.redirect('/start-voicemail-recording');
+    console.log("🎤 Voice message during closed hours");
+    
+    const gather = twiml.gather({
+      input: 'speech',
+      action: '/record-voice-message',
+      method: 'POST',
+      speechTimeout: 10,
+      timeout: 30,
+      speechModel: 'phone_call',
+      enhanced: true
+    });
+    
+    gather.say(
+      "Please leave your voice message after the beep. When you are finished, simply hang up or press the pound key.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    twiml.say("I didn't hear your message. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/closed-hours-options');
   }
 
   else if (digit === '9') {
@@ -3743,34 +3783,849 @@ app.post('/closed-hours-options', (req, res) => {
   res.send(twiml.toString());
 });
 
+app.post('/record-voice-message', (req, res) => {
+  const twiml = new VoiceResponse();
+  const message = req.body.SpeechResult || '';
+  const phone = req.body.From;
+
+  console.log(`🎤 Voice message recorded from: ${phone}`);
+  console.log(`📝 Message: ${message.substring(0, 100)}...`);
+  
+  if (message && message.trim() !== '') {
+    try {
+      twilioClient.messages.create({
+        body: `🎤 AFTER-HOURS VOICE MESSAGE from ${phone}:\n\n"${message.substring(0, 300)}"`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: '+15035442571'
+      });
+      console.log(`📱 Voice message notification sent to admin`);
+    } catch (err) {
+      console.log("ERROR sending voice message notification:", err);
+    }
+    
+    logCall(phone, 'VOICE_MESSAGE_RECORDED', {
+      messageLength: message.length,
+      preview: message.substring(0, 100)
+    });
+    
+    twiml.say(
+      "Thank you for your message. We will get back to you during our next business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+  } else {
+    twiml.say(
+      "I didn't hear your message. Please try again or call back during business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+  }
+  
+  twiml.hangup();
+  res.type('text/xml').send(twiml.toString());
+});
+
 // ======================================================
-// ОСТАЛЬНЫЕ ЭНДПОИНТЫ (APPOINTMENT FLOW и т.д.)
+// REPRESENTATIVE (Option 2) - FAST AI
 // ======================================================
+app.post('/connect-representative', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log("👤 Representative - asking for reason");
+  
+  if (!isWithinBusinessHours()) {
+    const nextOpenTime = getTimeUntilOpen();
+    twiml.say(
+      `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
+      "Please call back during business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    twiml.hangup();
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  logCall(phone, 'REPRESENTATIVE_SELECTED');
 
-// [Здесь остальная часть кода из предыдущей версии - appointment flow,
-// representative flow, creative director и т.д. Она остается без изменений]
+  const gather = twiml.gather({
+    input: 'speech',
+    action: '/confirm-reason',
+    method: 'POST',
+    speechTimeout: 5,
+    timeout: 10,
+    speechModel: 'phone_call',
+    enhanced: true
+  });
+  
+  gather.say(
+    "Before I connect you with a representative, please tell me the reason for your call.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  
+  twiml.say("I didn't hear your reason. Let's try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect('/connect-representative');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
 
-// Для экономии места, я пропускаю повторение этих функций, но в реальном файле
-// они должны быть на своих местах. Вот краткий список что должно быть:
+app.post('/confirm-reason', (req, res) => {
+  const twiml = new VoiceResponse();
+  const reason = req.body.SpeechResult || '';
+  const phone = req.body.From;
+  
+  console.log(`❓ Call reason: ${reason}`);
+  
+  if (!reason || reason.trim() === '') {
+    twiml.say("I didn't hear your reason. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/connect-representative');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech dtmf',
+    action: `/start-rings?reason=${encodeURIComponent(reason)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say(`You are calling about: ${reason}. Is this correct? Say yes or no.`, 
+    { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("No response received. Let's start over.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect('/connect-representative');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
 
-// 1. /transfer-to-appointment
-// 2. /connect-representative
-// 3. /confirm-reason
-// 4. /start-rings
-// 5. /process-rep-question
-// 6. /creative-director
-// 7. /check-creative-question
-// 8. /creative-appointment-check
-// 9. /get-name
-// 10. /verify-name
-// 11. /get-business-type
-// 12. /verify-business-type
-// 13. /get-service-type
-// 14. /verify-service-type
-// 15. /schedule-date
-// 16. /schedule-time
-// 17. /appointment-manage
-// 18. /partnership
+app.post('/start-rings', (req, res) => {
+  const twiml = new VoiceResponse();
+  const response = req.body.SpeechResult || req.body.Digits || '';
+  const reason = req.query.reason;
+  const phone = req.body.From;
+  
+  console.log(`✅ Reason confirmed: ${reason} - Response: ${response}`);
+  
+  const lowerResponse = response.toLowerCase();
+  
+  if (lowerResponse.includes('no') || lowerResponse === '2') {
+    twiml.say("Let's try again. Please tell me the reason for your call.", 
+      { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/connect-representative');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  twiml.say("Okay, wait while I transfer you. Please hold.", 
+    { voice: 'alice', language: 'en-US' });
+  
+  for (let i = 0; i < 3; i++) {
+    twiml.play({ digits: 'w' });
+    twiml.play({ digits: '1' });
+    twiml.pause({ length: 1 });
+  }
+  
+  twiml.say(
+    "The wait time is greater than average, so I will help you with that. ",
+    { voice: 'alice', language: 'en-US' }
+  );
+  
+  const gather = twiml.gather({
+    input: 'speech',
+    action: '/process-rep-question',
+    method: 'POST',
+    speechTimeout: 2,
+    timeout: 8,
+    speechModel: 'phone_call',
+    enhanced: true
+  });
+  
+  gather.say("What would you like to know?", { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("I didn't hear your question. Let me transfer you back to the main menu.");
+  twiml.redirect('/voice');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/process-rep-question', async (req, res) => {
+  const twiml = new VoiceResponse();
+  const question = req.body.SpeechResult || '';
+  const phone = req.body.From;
+  
+  console.log(`🤖 Processing question: ${question}`);
+  
+  if (!question || question.trim() === '') {
+    twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/process-rep-question');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const aiResponse = await getRepResponse(question, phone);
+  
+  logAIConversation(phone, question, aiResponse);
+  
+  twiml.say(aiResponse, { voice: 'alice', language: 'en-US' });
+  
+  const lowerQuestion = question.toLowerCase();
+  
+  if (lowerQuestion.includes('appointment') || 
+      lowerQuestion.includes('book') || 
+      lowerQuestion.includes('schedule') ||
+      lowerQuestion.includes('meeting') ||
+      lowerQuestion.includes('appoint')) {
+    
+    twiml.pause({ length: 0.5 });
+    twiml.say("Transferring you to our booking system now.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/transfer-to-appointment');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  if (lowerQuestion.includes('bye') || 
+      lowerQuestion.includes('thank you') || 
+      lowerQuestion.includes('thanks') ||
+      lowerQuestion.includes('goodbye') ||
+      lowerQuestion.includes('that\'s all')) {
+    
+    twiml.say("Thank you for calling Altair Partners. Goodbye!", { voice: 'alice', language: 'en-US' });
+    twiml.hangup();
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech',
+    action: '/process-rep-question',
+    method: 'POST',
+    speechTimeout: 2,
+    timeout: 8
+  });
+  
+  gather.say("What else can I help you with?", { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("Or press any key to return to main menu.");
+  twiml.redirect('/voice');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// CREATIVE DIRECTOR (Option 7)
+// ======================================================
+app.post('/creative-director', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log("🎨 Creative Director - asking for details");
+  
+  if (!isWithinBusinessHours()) {
+    const nextOpenTime = getTimeUntilOpen();
+    twiml.say(
+      `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
+      "Please call back during business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    twiml.hangup();
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  logCall(phone, 'CREATIVE_DIRECTOR_SELECTED');
+
+  const gather = twiml.gather({
+    input: 'speech',
+    action: '/check-creative-question',
+    method: 'POST',
+    speechTimeout: 5,
+    timeout: 15,
+    speechModel: 'phone_call',
+    enhanced: true
+  });
+  
+  gather.say(
+    "What exactly are you calling about? Maybe I can help you with that.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  
+  twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect('/creative-director');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/check-creative-question', (req, res) => {
+  const twiml = new VoiceResponse();
+  const question = req.body.SpeechResult || '';
+  const phone = req.body.From;
+  
+  console.log(`🎨 Creative Director question: ${question}`);
+  
+  if (!question || question.trim() === '') {
+    twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/creative-director');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  if (isSeriousQuestion(question)) {
+    console.log(`🚨 SERIOUS QUESTION detected: ${question}`);
+    
+    logCall(phone, 'SERIOUS_QUESTION_DETECTED', {
+      question,
+      category: 'legal/money'
+    });
+    
+    try {
+      twilioClient.calls.create({
+        url: 'http://demo.twilio.com/docs/voice.xml',
+        to: '+15035442571',
+        from: process.env.TWILIO_PHONE_NUMBER
+      });
+      console.log(`📞 Calling creative director about serious matter: ${question}`);
+    } catch (err) {
+      console.log("ERROR calling director:", err);
+    }
+    
+    twiml.say(
+      "I understand this is important. Our creative director has been notified and will review your inquiry shortly. " +
+      "Would you like to schedule an appointment to discuss this further?",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    const gather = twiml.gather({
+      input: 'speech dtmf',
+      action: '/creative-appointment-check',
+      method: 'POST',
+      speechTimeout: 3,
+      timeout: 8
+    });
+    
+    gather.say("Say yes or no.", { voice: 'alice', language: 'en-US' });
+    
+    twiml.say("Returning to main menu.");
+    twiml.redirect('/voice');
+    
+  } else {
+    twiml.say(
+      "Perfect! You talked about that. Would you like to schedule an appointment with us?",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    const gather = twiml.gather({
+      input: 'speech dtmf',
+      action: '/creative-appointment-check',
+      method: 'POST',
+      speechTimeout: 3,
+      timeout: 8
+    });
+    
+    gather.say("Say yes or no.", { voice: 'alice', language: 'en-US' });
+    
+    twiml.say("Returning to main menu.");
+    twiml.redirect('/voice');
+  }
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/creative-appointment-check', (req, res) => {
+  const twiml = new VoiceResponse();
+  const response = req.body.SpeechResult || req.body.Digits || '';
+  const lowerResponse = response.toLowerCase();
+  
+  if (lowerResponse.includes('yes') || lowerResponse === '1') {
+    twiml.say("Great! Transferring you to our booking system.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/transfer-to-appointment');
+  } else {
+    twiml.say("Okay. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+  }
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// APPOINTMENT FLOW
+// ======================================================
+app.post('/get-name', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.query.phone || req.body.From;
+  
+  console.log(`📝 Getting name for: ${phone}`);
+  
+  logCall(phone, 'APPOINTMENT_FLOW_STARTED');
+
+  const gather = twiml.gather({
+    input: 'speech',
+    action: `/verify-name?phone=${encodeURIComponent(phone)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10,
+    speechModel: 'phone_call',
+    enhanced: true
+  });
+  
+  gather.say("First question: What is your full name?", { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("I didn't hear your name. Please try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/verify-name', (req, res) => {
+  const twiml = new VoiceResponse();
+  const name = req.body.SpeechResult || '';
+  const phone = req.query.phone || req.body.From;
+  
+  console.log(`📝 Name received: ${name} for ${phone}`);
+  
+  if (!name || name.trim() === '') {
+    twiml.say("Sorry, I didn't catch your name. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech dtmf',
+    action: `/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say(`I heard: ${name}. Is this correct? Say yes or no.`, { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/get-business-type', (req, res) => {
+  const twiml = new VoiceResponse();
+  const response = req.body.SpeechResult || req.body.Digits || '';
+  const phone = req.query.phone || req.body.From;
+  const name = decodeURIComponent(req.query.name || '');
+  
+  console.log(`📝 Name verification: ${response} for ${name}`);
+  
+  const lowerResponse = response.toLowerCase();
+  
+  if (lowerResponse.includes('no') || lowerResponse === '2') {
+    twiml.say("Let's try again. What is your full name?", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech',
+    action: `/verify-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say(`Thanks ${name}. Second question: What type of business do you have?`, 
+    { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("I didn't hear your business type. Please try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/verify-business-type', (req, res) => {
+  const twiml = new VoiceResponse();
+  const businessType = req.body.SpeechResult || '';
+  const phone = req.query.phone || req.body.From;
+  const name = decodeURIComponent(req.query.name || '');
+  
+  console.log(`🏢 Business type: ${businessType} for ${name}`);
+  
+  if (!businessType || businessType.trim() === '') {
+    twiml.say("Sorry, I didn't catch your business type. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech dtmf',
+    action: `/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say(`I heard: ${businessType}. Is this correct? Say yes or no.`, { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/get-service-type', (req, res) => {
+  const twiml = new VoiceResponse();
+  const response = req.body.SpeechResult || req.body.Digits || '';
+  const phone = req.query.phone || req.body.From;
+  const name = decodeURIComponent(req.query.name || '');
+  const businessType = decodeURIComponent(req.query.businessType || '');
+  
+  console.log(`🏢 Business verification: ${response} for ${businessType}`);
+  
+  const lowerResponse = response.toLowerCase();
+  
+  if (lowerResponse.includes('no') || lowerResponse === '2') {
+    twiml.say("Let's try again. What type of business do you have?", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech',
+    action: `/verify-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say("Third question: What type of service are you looking for?", 
+    { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("I didn't hear your service type. Please try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/verify-service-type', (req, res) => {
+  const twiml = new VoiceResponse();
+  const serviceType = req.body.SpeechResult || '';
+  const phone = req.query.phone || req.body.From;
+  const name = decodeURIComponent(req.query.name || '');
+  const businessType = decodeURIComponent(req.query.businessType || '');
+  
+  console.log(`🔧 Service type: ${serviceType} for ${name}`);
+  
+  if (!serviceType || serviceType.trim() === '') {
+    twiml.say("Sorry, I didn't catch your service type. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const gather = twiml.gather({
+    input: 'speech dtmf',
+    action: `/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say(`I heard: ${serviceType}. Is this correct? Say yes or no.`, { voice: 'alice', language: 'en-US' });
+  
+  twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/schedule-date', (req, res) => {
+  const twiml = new VoiceResponse();
+  const response = req.body.SpeechResult || req.body.Digits || '';
+  const phone = req.query.phone || req.body.From;
+  const name = decodeURIComponent(req.query.name || '');
+  const businessType = decodeURIComponent(req.query.businessType || '');
+  const serviceType = decodeURIComponent(req.query.serviceType || '');
+  
+  console.log(`🔧 Service verification: ${response} for ${serviceType}`);
+  
+  const lowerResponse = response.toLowerCase();
+  
+  if (lowerResponse.includes('no') || lowerResponse === '2') {
+    twiml.say("Let's try again. What type of service are you looking for?", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const nextDate = getNextAvailableDate();
+  
+  const gather = twiml.gather({
+    input: 'speech',
+    action: `/schedule-time?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}&date=${encodeURIComponent(nextDate)}`,
+    method: 'POST',
+    speechTimeout: 3,
+    timeout: 10
+  });
+  
+  gather.say(
+    `Perfect. The next available date is ${nextDate}. ` +
+    "What time works for you on that day? Please say the time including AM or PM.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  
+  twiml.say("I didn't hear a time. Please try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/schedule-time', (req, res) => {
+  const twiml = new VoiceResponse();
+  const time = req.body.SpeechResult || '';
+  const phone = req.query.phone || req.body.From;
+  const name = decodeURIComponent(req.query.name || '');
+  const businessType = decodeURIComponent(req.query.businessType || '');
+  const serviceType = decodeURIComponent(req.query.serviceType || '');
+  const date = decodeURIComponent(req.query.date || '');
+  
+  console.log(`⏰ Time received: ${time} for ${date}`);
+  
+  if (!time || time.trim() === '') {
+    twiml.say("Sorry, I didn't catch the time. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`);
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  let cleanedTime = time.trim()
+    .replace(/NPM/gi, 'PM')
+    .replace(/MPM/gi, 'PM')
+    .replace(/AMM/gi, 'AM')
+    .replace(/B ?M/gi, 'PM')
+    .replace(/A ?M/gi, 'AM')
+    .replace(/P ?M/gi, 'PM')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  if (!cleanedTime.toLowerCase().includes('pacific') && !cleanedTime.toLowerCase().includes('pt')) {
+    cleanedTime = `${cleanedTime} Pacific Time`;
+  }
+  
+  const existingAppt = findAppointment(phone);
+  if (existingAppt) {
+    twiml.say(
+      "I see you already have an existing appointment. Please cancel it first before scheduling a new one. " +
+      "Returning to main menu.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    twiml.redirect('/voice');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  const appointmentSaved = addAppointment(name, phone, businessType, serviceType, date, cleanedTime);
+  
+  if (appointmentSaved) {
+    try {
+      twilioClient.messages.create({
+        body: `✅ Thank you for your appointment with Altair Partners!\n\n` +
+              `Your appointment: ${date} at ${cleanedTime}\n` +
+              `Name: ${name}\n` +
+              `Business: ${businessType}\n` +
+              `Service: ${serviceType}\n\n` +
+              `For further communication with our creative director, please reply with your email address.`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: phone
+      });
+      console.log(`📱 SMS sent to client ${phone}`);
+    } catch (err) {
+      console.log("ERROR sending SMS to client:", err);
+    }
+    
+    try {
+      twilioClient.messages.create({
+        body: `📅 NEW APPOINTMENT\n` +
+              `Name: ${name}\n` +
+              `Phone: ${phone}\n` +
+              `Date: ${date} at ${cleanedTime}\n` +
+              `Business: ${businessType}\n` +
+              `Service: ${serviceType}\n` +
+              `⏰ Reminder: Will call ONE DAY BEFORE at 2 PM Pacific Time`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: '+15035442571'
+      });
+      console.log(`📱 Notification sent to admin`);
+    } catch (err) {
+      console.log("ERROR sending admin notification:", err);
+    }
+  }
+  
+  twiml.say(
+    `Excellent! Your appointment has been scheduled for ${date} at ${cleanedTime}. ` +
+    "You will receive an SMS shortly. Please check your messages and reply with your email address " +
+    "for further communication with our creative director. We will also call you ONE DAY BEFORE " +
+    "your appointment at 2 PM Pacific Time as a reminder. Thank you for choosing Altair Partners!",
+    { voice: 'alice', language: 'en-US' }
+  );
+  twiml.hangup();
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// PARTNERSHIP (Option 4)
+// ======================================================
+app.post('/partnership', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log("🤝 Partnership inquiry");
+  
+  logCall(phone, 'PARTNERSHIP_INQUIRY');
+
+  twiml.say(
+    "Thank you for your interest in partnership opportunities. " +
+    "Please email us at partners@altairpartners.com for more information. " +
+    "Thank you for choosing Altair Partners. Goodbye.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  twiml.hangup();
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// CANCEL / RESCHEDULE APPOINTMENT
+// ======================================================
+app.post('/appointment-manage', (req, res) => {
+  const twiml = new VoiceResponse();
+  const digit = req.body.Digits;
+  const phone = req.query.phone;
+
+  console.log(`❌ Managing appointment for: ${phone}`);
+  
+  logCall(phone, `APPOINTMENT_MANAGE_${digit}`);
+
+  if (!digit) {
+    twiml.say("No selection made. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+    return res.type('text/xml').send(twiml.toString());
+  }
+
+  if (digit === '1') {
+    let db = loadDB();
+    const normalizedPhone = phone.replace(/\D/g, '');
+    const initialLength = db.length;
+    
+    db = db.filter(a => {
+      const normalizedApptPhone = a.phone.replace(/\D/g, '');
+      return normalizedApptPhone !== normalizedPhone;
+    });
+    
+    if (db.length < initialLength) {
+      saveDB(db);
+      console.log(`❌ Appointment cancelled for ${phone}`);
+      
+      logCall(phone, 'APPOINTMENT_CANCELLED');
+      
+      twiml.say("Your appointment has been cancelled. Goodbye.", { voice: 'alice', language: 'en-US' });
+      twiml.hangup();
+    } else {
+      twiml.say("No appointment found to cancel. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+      twiml.redirect('/voice');
+    }
+  }
+
+  else if (digit === '2') {
+    let db = loadDB();
+    const normalizedPhone = phone.replace(/\D/g, '');
+    
+    db = db.filter(a => {
+      const normalizedApptPhone = a.phone.replace(/\D/g, '');
+      return normalizedApptPhone !== normalizedPhone;
+    });
+    
+    saveDB(db);
+    
+    console.log(`🔄 Rescheduling for: ${phone}`);
+    logCall(phone, 'APPOINTMENT_RESCHEDULE_STARTED');
+    twiml.say("Let's reschedule your appointment.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+  }
+
+  else {
+    twiml.say("Invalid option. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+  }
+
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// TRANSFER TO APPOINTMENT FLOW
+// ======================================================
+app.post('/transfer-to-appointment', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log(`🔀 Transferring to appointment flow: ${phone}`);
+  
+  twiml.say("Transferring you to our appointment scheduling system.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// TEST REMINDER ENDPOINT
+// ======================================================
+app.post('/test-reminder', (req, res) => {
+  const phone = req.body.phone || req.query.phone;
+  
+  if (!phone) {
+    return res.status(400).json({ error: "Phone number required" });
+  }
+  
+  console.log(`🔔 Manual test trigger for phone: ${phone}`);
+  
+  // Find appointment for this phone
+  const db = loadDB();
+  const appointment = db.find(a => a.phone === phone);
+  
+  if (!appointment) {
+    return res.status(404).json({ error: "No appointment found for this phone" });
+  }
+  
+  console.log(`🔔 Sending test reminder to: ${phone} for appointment: ${appointment.date} at ${appointment.time}`);
+  
+  sendReminderCall(phone, appointment);
+  
+  res.json({ 
+    status: 'test_triggered', 
+    phone, 
+    appointment,
+    message: 'Test reminder call initiated' 
+  });
+});
+
+// ======================================================
+// BUSINESS HOURS ENDPOINT
+// ======================================================
+app.get('/business-status', (req, res) => {
+  const businessStatus = getBusinessStatus();
+  
+  res.json({
+    isOpen: businessStatus.isOpen,
+    currentTime: businessStatus.currentTime,
+    nextOpenTime: businessStatus.nextOpenTime,
+    businessHours: businessStatus.hours,
+    location: businessStatus.location,
+    message: businessStatus.isOpen ? 
+      "We are currently open!" : 
+      `We are currently closed. ${businessStatus.nextOpenTime}`
+  });
+});
 
 // ======================================================
 // DEBUG И ДРУГИЕ ЭНДПОИНТЫ
