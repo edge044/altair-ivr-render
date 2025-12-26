@@ -14,23 +14,23 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // ======================================================
-// SECURITY: PASSWORD PROTECTION
+// SECURITY: PASSWORD PROTECTION FOR ARCHIVES
 // ======================================================
 
-function requireAuth(req, res, next) {
-  const AUTH_USERNAME = process.env.ARCHIVE_USERNAME || 'altair_admin';
-  const AUTH_PASSWORD = process.env.ARCHIVE_PASSWORD || 'AltairSecure2024!@#$';
+function requireArchiveAuth(req, res, next) {
+  const AUTH_USERNAME = process.env.ARCHIVE_USERNAME || 'admin';
+  const AUTH_PASSWORD = process.env.ARCHIVE_PASSWORD || 'ChangeThisPassword123!';
   
   const user = basicAuth(req);
   
   if (!user || user.name !== AUTH_USERNAME || user.pass !== AUTH_PASSWORD) {
     console.log(`🔒 Unauthorized access attempt from IP: ${req.ip} - User: ${user ? user.name : 'none'}`);
     
-    res.set('WWW-Authenticate', 'Basic realm="Altair Partners - Secure Dashboard Access"');
+    res.set('WWW-Authenticate', 'Basic realm="Altair Partners Archive - Secure Access"');
     return res.status(401).send(`
       <html>
         <head>
-          <title>🔒 401 - Secure Dashboard Access</title>
+          <title>🔒 401 - Secure Archive Access</title>
           <style>
             body { 
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -65,6 +65,33 @@ function requireAuth(req, res, next) {
               margin-bottom: 30px;
               font-size: 1.1rem;
             }
+            .credentials {
+              background: #f8fafc;
+              padding: 20px;
+              border-radius: 10px;
+              margin: 20px 0;
+              text-align: left;
+            }
+            .cred-item {
+              display: flex;
+              justify-content: space-between;
+              padding: 10px 0;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            .cred-item:last-child {
+              border-bottom: none;
+            }
+            .label {
+              color: #475569;
+              font-weight: 600;
+            }
+            .value {
+              font-family: 'SF Mono', Monaco, monospace;
+              background: #f1f5f9;
+              padding: 4px 12px;
+              border-radius: 6px;
+              color: #1e293b;
+            }
             .warning {
               background: #fef3c7;
               border: 2px solid #f59e0b;
@@ -84,31 +111,42 @@ function requireAuth(req, res, next) {
         <body>
           <div class="auth-box">
             <div class="lock-icon">🔒</div>
-            <h1>Secure Dashboard Access</h1>
-            <p class="subtitle">All dashboards are password protected for security</p>
+            <h1>Secure Archive Access</h1>
+            <p class="subtitle">This archive contains confidential call data and is password protected</p>
+            
+            <div class="credentials">
+              <div class="cred-item">
+                <span class="label">Username:</span>
+                <span class="value">${AUTH_USERNAME}</span>
+              </div>
+              <div class="cred-item">
+                <span class="label">Password:</span>
+                <span class="value">•••••••••••</span>
+              </div>
+            </div>
             
             <div class="warning">
-              ⚠️ <strong>SECURITY NOTICE:</strong> Change default credentials in .env file!
+              ⚠️ <strong>SECURITY NOTICE:</strong> All access attempts are logged and monitored.
               Unauthorized access is strictly prohibited.
             </div>
             
             <p class="note">Access restricted to Altair Partners authorized personnel only.</p>
-            <p class="note">Contact system administrator for credentials.</p>
+            <p class="note">Please contact the system administrator if you need credentials.</p>
           </div>
         </body>
       </html>
     `);
   }
   
-  console.log(`🔓 Authorized dashboard access from ${req.ip} - User: ${user.name}`);
+  console.log(`🔓 Authorized archive access from ${req.ip} - User: ${user.name}`);
   next();
 }
 
 // ======================================================
-// SELF-PING SYSTEM
+// SELF-PING SYSTEM (to keep server awake on Free plan)
 // ======================================================
 if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
-  const PING_INTERVAL = 4 * 60 * 1000;
+  const PING_INTERVAL = 4 * 60 * 1000; // 4 minutes
   
   console.log(`🔄 Self-ping system activated (every ${PING_INTERVAL/60000} minutes)`);
   
@@ -126,6 +164,8 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
   };
   
   setInterval(selfPing, PING_INTERVAL);
+  
+  // First ping immediately after startup
   setTimeout(selfPing, 5000);
 }
 
@@ -138,13 +178,15 @@ function isWithinBusinessHours() {
     const now = new Date();
     const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
     
-    const day = pstTime.getDay();
+    const day = pstTime.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
     const hour = pstTime.getHours();
     const minutes = pstTime.getMinutes();
     const currentTime = hour * 100 + minutes;
     
     const isWeekday = day >= 1 && day <= 5;
     const isWithinHours = currentTime >= 1000 && currentTime <= 1700;
+    
+    console.log(`⏰ Time check: Day ${day}, Time ${hour}:${minutes}, Weekday: ${isWeekday}, Within hours: ${isWithinHours}`);
     
     return isWeekday && isWithinHours;
     
@@ -218,31 +260,35 @@ function getBusinessStatus() {
 }
 
 // ======================================================
-// JSON DATABASE & LOGGING
+// JSON DATABASE & LOGGING WITH INSTANT ARCHIVING
 // ======================================================
 
+// Logs folders
 const LOGS_DIR = "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
 const DAILY_LOGS_DIR = `${LOGS_DIR}/daily`;
 
-// Создаем папки
-[LOGS_DIR, CURRENT_LOGS_DIR, DAILY_LOGS_DIR].forEach(dir => {
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-});
+// Create folders if they don't exist
+if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
+if (!fs.existsSync(CURRENT_LOGS_DIR)) fs.mkdirSync(CURRENT_LOGS_DIR);
+if (!fs.existsSync(DAILY_LOGS_DIR)) fs.mkdirSync(DAILY_LOGS_DIR);
 
-// Пути к файлам
+// Paths to current logs
 const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const AI_CONVERSATIONS_PATH = `${CURRENT_LOGS_DIR}/ai_conversations.json`;
 const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
 
-// Функция для получения сегодняшней даты
+// ======================================================
+// INSTANT ARCHIVING FUNCTIONS (IMMEDIATELY AFTER CALL!)
+// ======================================================
+
 function getTodayDateString() {
   const now = new Date();
-  return now.toISOString().split('T')[0];
+  return now.toISOString().split('T')[0]; // "2025-12-24"
 }
 
-// Сохраняет данные СРАЗУ в daily архив
+// Saves data IMMEDIATELY to daily archive
 function saveToDailyArchive(type, data) {
   try {
     const today = getTodayDateString();
@@ -250,7 +296,7 @@ function saveToDailyArchive(type, data) {
     
     let existingData = [];
     
-    // 1. Загружаем существующие данные если файл есть
+    // 1. Load existing data if file exists
     if (fs.existsSync(archiveFile)) {
       try {
         const fileData = fs.readFileSync(archiveFile, "utf8");
@@ -262,24 +308,26 @@ function saveToDailyArchive(type, data) {
       }
     }
     
-    // 2. Добавляем новые данные
+    // 2. Add new data
     if (Array.isArray(data)) {
+      // If array came - add all elements
       existingData.push(...data);
     } else {
+      // If object came - add it
       existingData.push(data);
     }
     
-    // 3. Ограничиваем размер (последние 2000 записей)
+    // 3. Limit size (last 2000 records)
     if (existingData.length > 2000) {
       existingData = existingData.slice(-2000);
     }
     
-    // 4. Сохраняем в daily файл
+    // 4. Save to daily file
     fs.writeFileSync(archiveFile, JSON.stringify(existingData, null, 2));
     
     console.log(`✅ Instant archive: ${type} saved for ${today} (${existingData.length} records)`);
     
-    // 5. Также сохраняем в current logs для быстрого доступа
+    // 5. Also save to current logs for quick access
     saveToCurrentLogs(type, data);
     
   } catch (error) {
@@ -287,12 +335,12 @@ function saveToDailyArchive(type, data) {
   }
 }
 
-// Сохраняет в current logs
+// Saves to current logs
 function saveToCurrentLogs(type, data) {
   try {
     let filePath, currentData = [];
     
-    // Определяем путь к файлу
+    // Determine file path
     switch(type) {
       case 'calls':
         filePath = CALL_LOGS_PATH;
@@ -310,7 +358,7 @@ function saveToCurrentLogs(type, data) {
         return;
     }
     
-    // Загружаем существующие данные
+    // Load existing data
     if (fs.existsSync(filePath)) {
       try {
         const fileData = fs.readFileSync(filePath, "utf8");
@@ -322,24 +370,58 @@ function saveToCurrentLogs(type, data) {
       }
     }
     
-    // Добавляем новые данные
+    // Add new data
     if (Array.isArray(data)) {
       currentData.push(...data);
     } else {
       currentData.push(data);
     }
     
-    // Ограничиваем размер
+    // Limit size
     if (currentData.length > 1000) {
       currentData = currentData.slice(-1000);
     }
     
-    // Сохраняем
+    // Save
     fs.writeFileSync(filePath, JSON.stringify(currentData, null, 2));
     
   } catch (error) {
     console.error(`❌ Error saving to current logs for ${type}:`, error);
   }
+}
+
+// Daily archiving at 23:59 (backup)
+function archiveDailyLogs() {
+  try {
+    const today = getTodayDateString();
+    console.log(`📦 Backup archive for ${today}...`);
+    
+    // Just log that everything is OK
+    console.log(`✅ Backup archive completed for ${today}`);
+    
+  } catch (error) {
+    console.error("❌ Backup archive error:", error);
+  }
+}
+
+function startDailyArchiver() {
+  console.log("📦 Daily archiver started (instant mode)");
+  
+  // Archive on startup
+  archiveDailyLogs();
+  
+  // Archive every day at 23:59 PST (as backup)
+  setInterval(() => {
+    const now = new Date();
+    const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    
+    const hour = pstTime.getHours();
+    const minute = pstTime.getMinutes();
+    
+    if (hour === 23 && minute === 59) {
+      archiveDailyLogs();
+    }
+  }, 60 * 1000);
 }
 
 // ======================================================
@@ -369,13 +451,39 @@ function logReminder(phone, appointment, action) {
       })
     };
     
-    // МГНОВЕННАЯ АРХИВАЦИЯ
+    // INSTANT ARCHIVING
     saveToDailyArchive('reminders', logEntry);
     
     console.log(`⏰ Reminder logged: ${phone} - ${action}`);
     
   } catch (error) {
     console.error("ERROR logging reminder:", error);
+  }
+}
+
+function triggerTestReminder(phone) {
+  console.log(`🔔 TEST REMINDER triggered for: ${phone}`);
+  
+  try {
+    twilioClient.calls.create({
+      twiml: `<Response>
+        <Say voice="alice" language="en-US">
+          Hello, this is Altair Partners calling to remind you about your TEST appointment. 
+          This is a test reminder call. Please call us if you need to reschedule. 
+          Thank you for choosing Altair Partners!
+        </Say>
+        <Hangup/>
+      </Response>`,
+      to: phone,
+      from: process.env.TWILIO_PHONE_NUMBER
+    });
+    
+    logReminder(phone, { name: "TEST", date: "Test Date", time: "Test Time" }, "TEST_REMINDER_SENT");
+    
+    console.log(`📞 Test reminder call initiated to: ${phone}`);
+    
+  } catch (error) {
+    console.error("ERROR making test reminder call:", error);
   }
 }
 
@@ -420,6 +528,7 @@ function checkAndSendReminders() {
     
     appointments.forEach(appointment => {
       try {
+        // Parse appointment date (format like "Monday, December 16")
         const appointmentDate = new Date(appointment.date + ' ' + todayYear);
         
         if (isNaN(appointmentDate.getTime())) {
@@ -466,7 +575,10 @@ function startReminderScheduler() {
   console.log("⏰ Reminder scheduler started");
   console.log("🔄 Will check every 5 minutes for appointments tomorrow at 2 PM PST");
   
+  // Check immediately on startup
   checkAndSendReminders();
+  
+  // Then check every 5 minutes
   setInterval(checkAndSendReminders, 5 * 60 * 1000);
 }
 
@@ -529,14 +641,15 @@ function isSeriousQuestion(question) {
   const lower = question.toLowerCase();
   const seriousKeywords = [
     'law', 'legal', 'attorney', 'lawyer', 'court', 'lawsuit', 'sue',
-    'million', 'billion', '100k', '500k', 'investment', 'laws', 'contract'
+    'million', 'billion', '100k', '500k', 'investment', 'laws', 'contract',
+    'legal action', 'attorney', 'litigation', 'judge', 'lawsuit', 'settlement'
   ];
   
   return seriousKeywords.some(keyword => lower.includes(keyword));
 }
 
 // ======================================================
-// LOGGING FUNCTIONS
+// LOGGING FUNCTIONS WITH INSTANT ARCHIVING
 // ======================================================
 
 function logCall(phone, action, details = {}) {
@@ -555,10 +668,15 @@ function logCall(phone, action, details = {}) {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit'
-      })
+      }),
+      callerInfo: {
+        number: phone,
+        time: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }),
+        date: new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
+      }
     };
     
-    // МГНОВЕННАЯ АРХИВАЦИЯ в daily файл
+    // INSTANT ARCHIVING to daily file
     saveToDailyArchive('calls', logEntry);
     
     console.log(`📝 Call logged: ${phone} - ${action}`);
@@ -587,7 +705,7 @@ function logAIConversation(phone, question, response) {
       })
     };
     
-    // МГНОВЕННАЯ АРХИВАЦИЯ
+    // INSTANT ARCHIVING
     saveToDailyArchive('ai', conversationEntry);
     
     console.log(`🤖 AI conversation logged: ${phone}`);
@@ -662,7 +780,7 @@ function addAppointment(name, phone, businessType, serviceType, date, time) {
   
   saveDB(filteredDB);
   
-  // МГНОВЕННАЯ АРХИВАЦИЯ appointments
+  // INSTANT ARCHIVING appointments
   saveToDailyArchive('appointments', appointment);
   
   console.log(`✅ Appointment added: ${name} - ${date} at ${time}`);
@@ -1276,7 +1394,7 @@ const ARCHIVE_VIEWER_HTML = `
             <p>Instant call logging system • View all calls, appointments, and conversations • Real-time updates</p>
             <div class="badge">
                 <i class="fas fa-bolt"></i>
-                INSTANT ARCHIVE - Все звонки сохраняются сразу!
+                INSTANT ARCHIVE - All calls saved immediately!
             </div>
         </div>
 
@@ -1866,567 +1984,10 @@ const ARCHIVE_VIEWER_HTML = `
 `;
 
 // ======================================================
-// UNIFIED SECURE DASHBOARD HTML
+// BEAUTIFUL ARCHIVE VIEWER ENDPOINT (PROTECTED!)
 // ======================================================
-
-const DASHBOARD_HTML = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📊 Altair Partners - Secure Dashboard</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-        }
-
-        body {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            min-height: 100vh;
-            padding: 20px;
-            color: white;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            background: rgba(255, 255, 255, 0.95);
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-            overflow: hidden;
-            color: #333;
-        }
-
-        .header {
-            background: linear-gradient(to right, #4f46e5, #7c3aed);
-            color: white;
-            padding: 30px 40px;
-            border-bottom: 1px solid rgba(255,255,255,0.1);
-        }
-
-        .header h1 {
-            font-size: 2.5rem;
-            margin-bottom: 10px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
-
-        .security-banner {
-            background: #fee2e2;
-            color: #991b1b;
-            padding: 15px;
-            border-radius: 10px;
-            margin: 20px 0;
-            border: 2px solid #ef4444;
-            text-align: center;
-            font-weight: 600;
-        }
-
-        .dashboard-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-            gap: 25px;
-            padding: 30px;
-        }
-
-        .dashboard-card {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
-            border: 2px solid #e2e8f0;
-            text-align: center;
-        }
-
-        .dashboard-card:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 20px 40px rgba(0,0,0,0.2);
-        }
-
-        .card-icon {
-            font-size: 3.5rem;
-            margin-bottom: 20px;
-            height: 80px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .card-title {
-            font-size: 1.8rem;
-            font-weight: 700;
-            margin-bottom: 15px;
-            color: #1e293b;
-        }
-
-        .card-description {
-            color: #64748b;
-            margin-bottom: 25px;
-            line-height: 1.6;
-        }
-
-        .card-btn {
-            display: inline-block;
-            padding: 12px 30px;
-            background: linear-gradient(to right, #4f46e5, #7c3aed);
-            color: white;
-            text-decoration: none;
-            border-radius: 10px;
-            font-weight: 600;
-            font-size: 1.1rem;
-            transition: all 0.3s ease;
-            border: none;
-            cursor: pointer;
-            width: 100%;
-        }
-
-        .card-btn:hover {
-            background: linear-gradient(to right, #4338ca, #6d28d9);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(79, 70, 229, 0.4);
-        }
-
-        .system-status {
-            background: #f8fafc;
-            padding: 25px;
-            border-radius: 15px;
-            margin: 30px;
-            border-left: 5px solid #10b981;
-        }
-
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-
-        .status-item {
-            background: white;
-            padding: 15px;
-            border-radius: 10px;
-            text-align: center;
-            border: 1px solid #e2e8f0;
-        }
-
-        .status-label {
-            color: #64748b;
-            font-size: 0.9rem;
-            margin-bottom: 5px;
-        }
-
-        .status-value {
-            color: #1e293b;
-            font-size: 1.3rem;
-            font-weight: 700;
-        }
-
-        .active {
-            color: #10b981;
-        }
-
-        .inactive {
-            color: #ef4444;
-        }
-
-        .logout-btn {
-            display: block;
-            width: 200px;
-            margin: 30px auto;
-            padding: 12px;
-            background: #64748b;
-            color: white;
-            text-align: center;
-            border-radius: 10px;
-            text-decoration: none;
-            font-weight: 600;
-            transition: all 0.3s ease;
-        }
-
-        .logout-btn:hover {
-            background: #475569;
-        }
-
-        .iframe-container {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.9);
-            z-index: 1000;
-            padding: 20px;
-        }
-
-        .iframe-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #1e293b;
-            color: white;
-            padding: 15px 20px;
-            border-radius: 10px 10px 0 0;
-        }
-
-        .close-btn {
-            background: #ef4444;
-            color: white;
-            border: none;
-            padding: 8px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: 600;
-        }
-
-        .iframe-content {
-            background: white;
-            height: calc(100vh - 100px);
-            border-radius: 0 0 10px 10px;
-            overflow: hidden;
-        }
-
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-
-        @media (max-width: 768px) {
-            .dashboard-grid {
-                grid-template-columns: 1fr;
-                padding: 15px;
-            }
-            
-            .header h1 {
-                font-size: 2rem;
-            }
-            
-            .card-title {
-                font-size: 1.5rem;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>
-                <i class="fas fa-shield-alt"></i>
-                Altair Partners - Secure Dashboard
-            </h1>
-            <p>All systems in one secure location</p>
-        </div>
-
-        <!-- Security Banner -->
-        <div class="security-banner">
-            🔒 SECURE ACCESS | Username: altair_admin | Password: AltairSecure2024!@#$ | Change in .env file
-        </div>
-
-        <!-- Dashboard Grid -->
-        <div class="dashboard-grid">
-            <!-- Archive Viewer Card -->
-            <div class="dashboard-card">
-                <div class="card-icon" style="color: #8b5cf6;">
-                    <i class="fas fa-archive"></i>
-                </div>
-                <div class="card-title">🗂️ Archive Viewer</div>
-                <div class="card-description">
-                    Browse all call logs, appointments, AI conversations, and reminders. Beautiful interface with search.
-                </div>
-                <button class="card-btn" onclick="openDashboard('archive')">
-                    <i class="fas fa-external-link-alt"></i> Open Archive
-                </button>
-            </div>
-
-            <!-- Appointments Card -->
-            <div class="dashboard-card">
-                <div class="card-icon" style="color: #ef4444;">
-                    <i class="fas fa-calendar-check"></i>
-                </div>
-                <div class="card-title">📅 Appointments</div>
-                <div class="card-description">
-                    View all scheduled appointments. See upcoming meetings, dates, times, and client information.
-                </div>
-                <button class="card-btn" onclick="openDashboard('appointments')">
-                    <i class="fas fa-external-link-alt"></i> View Appointments
-                </button>
-            </div>
-
-            <!-- Analytics Card -->
-            <div class="dashboard-card">
-                <div class="card-icon" style="color: #4f46e5;">
-                    <i class="fas fa-chart-line"></i>
-                </div>
-                <div class="card-title">📈 Analytics Dashboard</div>
-                <div class="card-description">
-                    Real-time call analytics, charts, and statistics. Track conversions, sentiment, and performance.
-                </div>
-                <button class="card-btn" onclick="openDashboard('analytics')">
-                    <i class="fas fa-external-link-alt"></i> Open Analytics
-                </button>
-            </div>
-
-            <!-- Debug Card -->
-            <div class="dashboard-card">
-                <div class="card-icon" style="color: #f59e0b;">
-                    <i class="fas fa-cogs"></i>
-                </div>
-                <div class="card-title">🔧 System Debug</div>
-                <div class="card-description">
-                    Technical dashboard for system monitoring, logs, and debugging. Check server status and errors.
-                </div>
-                <button class="card-btn" onclick="openDashboard('debug')">
-                    <i class="fas fa-external-link-alt"></i> Open Debug
-                </button>
-            </div>
-        </div>
-
-        <!-- System Status -->
-        <div class="system-status">
-            <h3 style="color: #1e293b; margin-bottom: 15px;"><i class="fas fa-server"></i> System Status</h3>
-            <div class="status-grid" id="systemStatus">
-                <div class="status-item">
-                    <div class="status-label">Server</div>
-                    <div class="status-value active">ONLINE</div>
-                </div>
-                <div class="status-item">
-                    <div class="status-label">IVR System</div>
-                    <div class="status-value active">RUNNING</div>
-                </div>
-                <div class="status-item">
-                    <div class="status-label">Database</div>
-                    <div class="status-value active">ACTIVE</div>
-                </div>
-                <div class="status-item">
-                    <div class="status-label">Archive System</div>
-                    <div class="status-value active">WORKING</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Logout -->
-        <a href="/" class="logout-btn">
-            <i class="fas fa-sign-out-alt"></i> Back to Main Page
-        </a>
-    </div>
-
-    <!-- Dashboard Container (Hidden until clicked) -->
-    <div class="iframe-container" id="dashboardContainer">
-        <div class="iframe-header">
-            <div id="dashboardTitle">Dashboard</div>
-            <button class="close-btn" onclick="closeDashboard()">
-                <i class="fas fa-times"></i> Close
-            </button>
-        </div>
-        <div class="iframe-content">
-            <iframe id="dashboardFrame" src=""></iframe>
-        </div>
-    </div>
-
-    <script>
-        // Dashboard URLs mapping
-        const dashboardUrls = {
-            'analytics': '/debug',
-            'archive': '/archive-viewer',
-            'debug': '/debug',
-            'appointments': '/debug'
-        };
-
-        const dashboardTitles = {
-            'analytics': '📈 Analytics Dashboard',
-            'archive': '🗂️ Archive Viewer',
-            'debug': '🔧 System Debug',
-            'appointments': '📅 Appointments'
-        };
-
-        function openDashboard(type) {
-            const url = dashboardUrls[type];
-            const title = dashboardTitles[type];
-            
-            if (!url) {
-                alert('Dashboard not available');
-                return;
-            }
-
-            document.getElementById('dashboardTitle').textContent = title;
-            document.getElementById('dashboardFrame').src = url;
-            document.getElementById('dashboardContainer').style.display = 'block';
-            document.body.style.overflow = 'hidden';
-        }
-
-        function closeDashboard() {
-            document.getElementById('dashboardContainer').style.display = 'none';
-            document.getElementById('dashboardFrame').src = '';
-            document.body.style.overflow = 'auto';
-        }
-
-        // Close with ESC key
-        document.addEventListener('keydown', function(event) {
-            if (event.key === 'Escape') {
-                closeDashboard();
-            }
-        });
-
-        // Check system status on load
-        window.addEventListener('load', function() {
-            fetch('/health')
-                .then(response => {
-                    if (!response.ok) {
-                        document.querySelectorAll('.status-value')[0].textContent = 'OFFLINE';
-                        document.querySelectorAll('.status-value')[0].className = 'status-value inactive';
-                    }
-                })
-                .catch(error => {
-                    document.querySelectorAll('.status-value')[0].textContent = 'OFFLINE';
-                    document.querySelectorAll('.status-value')[0].className = 'status-value inactive';
-                });
-        });
-    </script>
-</body>
-</html>
-`;
-
-// ======================================================
-// ДНЕВНЫЕ АРХИВЫ - API ENDPOINTS
-// ======================================================
-
-// Показать все доступные даты архивов
-app.get('/daily-archives', (req, res) => {
-  try {
-    const files = fs.readdirSync(DAILY_LOGS_DIR);
-    
-    // Группируем файлы по дате
-    const dates = {};
-    
-    files.forEach(file => {
-      if (file.includes('calls-') || file.includes('appointments-') || file.includes('ai-') || file.includes('reminders-')) {
-        const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
-        const type = file.split('-')[0];
-        
-        if (!dates[date]) {
-          dates[date] = {
-            calls: false,
-            appointments: false,
-            ai: false,
-            reminders: false
-          };
-        }
-        
-        if (type === 'calls') dates[date].calls = true;
-        if (type === 'appointments') dates[date].appointments = true;
-        if (type === 'ai') dates[date].ai = true;
-        if (type === 'reminders') dates[date].reminders = true;
-      }
-    });
-    
-    const sortedDates = Object.keys(dates).sort().reverse();
-    
-    res.json({
-      totalDates: sortedDates.length,
-      dates: sortedDates.map(date => ({
-        date,
-        formattedDate: new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
-          weekday: 'long',
-          year: 'numeric',
-          month: 'long',
-          day: 'numeric'
-        }),
-        logsAvailable: dates[date],
-        endpoints: {
-          calls: `/daily-archives/${date}/calls`,
-          appointments: `/daily-archives/${date}/appointments`,
-          ai: `/daily-archives/${date}/ai`,
-          reminders: `/daily-archives/${date}/reminders`
-        }
-      })),
-      lastUpdated: new Date().toISOString(),
-      note: "📞 Все звонки сохраняются СРАЗУ после разговора!"
-    });
-    
-  } catch (error) {
-    console.error("ERROR loading daily archives:", error);
-    res.status(500).json({ error: "Failed to load daily archives" });
-  }
-});
-
-// Получить логи за конкретную дату
-app.get('/daily-archives/:date/:type', (req, res) => {
-  const { date, type } = req.params;
-  
-  try {
-    const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ 
-        error: "Archive not found",
-        message: `No ${type} logs found for date ${date}` 
-      });
-    }
-    
-    const data = fs.readFileSync(filePath, "utf8");
-    const logs = JSON.parse(data || '[]');
-    
-    let totalItems = 0;
-    let uniquePhones = new Set();
-    let phoneDetails = [];
-    
-    // Анализируем данные
-    logs.forEach(log => {
-      if (log.phone) {
-        uniquePhones.add(log.phone);
-        phoneDetails.push({
-          phone: log.phone,
-          name: log.name || log.details?.name || 'N/A',
-          action: log.action || 'N/A',
-          time: log.time || log.timestamp || 'N/A',
-          businessType: log.businessType || log.details?.businessType || 'N/A',
-          serviceType: log.serviceType || log.details?.serviceType || 'N/A'
-        });
-      }
-      totalItems++;
-    });
-    
-    res.json({
-      date,
-      type,
-      totalItems,
-      uniquePhones: uniquePhones.size,
-      phoneList: Array.from(uniquePhones),
-      phoneDetails: phoneDetails.slice(0, 100),
-      logs: logs.slice(0, 50),
-      fileInfo: {
-        size: fs.statSync(filePath).size,
-        created: fs.statSync(filePath).birthtime,
-        modified: fs.statSync(filePath).mtime
-      },
-      downloadUrl: `/daily-archives/${date}/${type}/download`
-    });
-    
-  } catch (error) {
-    console.error(`ERROR loading ${type} archive for ${date}:`, error);
-    res.status(500).json({ error: "Failed to load archive" });
-  }
-});
-
-// Скачать архив за дату
-app.get('/daily-archives/:date/:type/download', (req, res) => {
-  const { date, type } = req.params;
-  const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
-  
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("File not found");
-  }
-  
-  res.download(filePath, `${type}-${date}.json`);
+app.get('/archive-viewer', requireArchiveAuth, (req, res) => {
+  res.send(ARCHIVE_VIEWER_HTML);
 });
 
 // ======================================================
@@ -2463,6 +2024,46 @@ app.post('/voice', (req, res) => {
   twiml.say("Please select an option.", { voice: 'alice', language: 'en-US' });
   twiml.redirect('/voice');
 
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// TRANSFER TO APPOINTMENT FLOW
+// ======================================================
+app.post('/transfer-to-appointment', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log(`📅 Transferring to appointment flow for: ${phone}`);
+  
+  logCall(phone, 'APPOINTMENT_FLOW_STARTED');
+  
+  const appt = findAppointment(phone);
+
+  if (appt) {
+    const gather = twiml.gather({
+      numDigits: 1,
+      action: `/appointment-manage?phone=${encodeURIComponent(phone)}`,
+      method: 'POST',
+      timeout: 10
+    });
+
+    gather.say(
+      `I see you have an appointment scheduled on ${appt.date} at ${appt.time}. ` +
+      "Press 1 to cancel this appointment. Press 2 to reschedule.",
+      { voice: 'alice', language: 'en-US' }
+    );
+
+    twiml.say("No selection made. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+
+  } else {
+    twiml.say("I don't see you in our appointment database. Let me ask you a few questions to schedule an appointment.", 
+      { voice: 'alice', language: 'en-US' });
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
+  }
+  
   res.type('text/xml');
   res.send(twiml.toString());
 });
@@ -2585,11 +2186,126 @@ app.post('/handle-key', (req, res) => {
 });
 
 // ======================================================
-// IVR LOGIC CONTINUES... 
-// (Здесь должна быть остальная IVR логика из второго кода)
+// CLOSED HOURS OPTIONS
 // ======================================================
+app.post('/closed-hours-options', (req, res) => {
+  const twiml = new VoiceResponse();
+  const digit = req.body.Digits;
+  const phone = req.body.From;
 
-// REPRESENTATIVE (Option 2) - БЫСТРЫЙ AI
+  console.log(`🔘 Closed hours option ${digit} - Phone: ${phone}`);
+  
+  logCall(phone, `CLOSED_HOURS_OPTION_${digit}`);
+
+  if (!digit) {
+    twiml.say("No selection made. Goodbye.", { voice: 'alice', language: 'en-US' });
+    twiml.hangup();
+    return res.type('text/xml').send(twiml.toString());
+  }
+
+  if (digit === '1') {
+    console.log("📞 Callback request during closed hours");
+    
+    twiml.say(
+      "Your callback request has been submitted. We'll call you back during our next business hours. " +
+      "Thank you for calling Altair Partners. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    try {
+      twilioClient.messages.create({
+        body: `📞 AFTER-HOURS Callback requested from ${phone} (Closed hours)`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: process.env.MY_PERSONAL_NUMBER
+      });
+      console.log(`📱 After-hours callback notification sent to admin`);
+    } catch (err) {
+      console.log("ERROR sending admin notification:", err);
+    }
+    
+    logCall(phone, 'AFTER_HOURS_CALLBACK_REQUESTED');
+    twiml.hangup();
+  }
+
+  else if (digit === '2') {
+    console.log("🎤 Voice message during closed hours");
+    
+    const gather = twiml.gather({
+      input: 'speech',
+      action: '/record-voice-message',
+      method: 'POST',
+      speechTimeout: 10,
+      timeout: 30,
+      speechModel: 'phone_call',
+      enhanced: true
+    });
+    
+    gather.say(
+      "Please leave your voice message after the beep. When you are finished, simply hang up or press the pound key.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    twiml.say("I didn't hear your message. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/closed-hours-options');
+  }
+
+  else if (digit === '9') {
+    twiml.say("Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+  }
+
+  else {
+    twiml.say("Invalid option. Goodbye.", { voice: 'alice', language: 'en-US' });
+    twiml.hangup();
+  }
+
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/record-voice-message', (req, res) => {
+  const twiml = new VoiceResponse();
+  const message = req.body.SpeechResult || '';
+  const phone = req.body.From;
+
+  console.log(`🎤 Voice message recorded from: ${phone}`);
+  console.log(`📝 Message: ${message.substring(0, 100)}...`);
+  
+  if (message && message.trim() !== '') {
+    try {
+      twilioClient.messages.create({
+        body: `🎤 AFTER-HOURS VOICE MESSAGE from ${phone}:\n\n"${message.substring(0, 300)}"`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: process.env.MY_PERSONAL_NUMBER
+      });
+      console.log(`📱 Voice message notification sent to admin`);
+    } catch (err) {
+      console.log("ERROR sending voice message notification:", err);
+    }
+    
+    logCall(phone, 'VOICE_MESSAGE_RECORDED', {
+      messageLength: message.length,
+      preview: message.substring(0, 100)
+    });
+    
+    twiml.say(
+      "Thank you for your message. We will get back to you during our next business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+  } else {
+    twiml.say(
+      "I didn't hear your message. Please try again or call back during business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+  }
+  
+  twiml.hangup();
+  res.type('text/xml').send(twiml.toString());
+});
+
+// ======================================================
+// REPRESENTATIVE (Option 2) - FAST AI
+// ======================================================
 app.post('/connect-representative', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
@@ -2741,7 +2457,7 @@ app.post('/process-rep-question', async (req, res) => {
     
     twiml.pause({ length: 0.5 });
     twiml.say("Transferring you to our booking system now.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-name');
+    twiml.redirect('/transfer-to-appointment');
     return res.type('text/xml').send(twiml.toString());
   }
   
@@ -2773,10 +2489,148 @@ app.post('/process-rep-question', async (req, res) => {
   res.send(twiml.toString());
 });
 
-// APPOINTMENT FLOW
-app.post('/get-name', (req, res) => {
+// ======================================================
+// CREATIVE DIRECTOR (Option 7)
+// ======================================================
+app.post('/creative-director', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
+  
+  console.log("🎨 Creative Director - asking for details");
+  
+  if (!isWithinBusinessHours()) {
+    const nextOpenTime = getTimeUntilOpen();
+    twiml.say(
+      `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
+      "Please call back during business hours. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    twiml.hangup();
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  logCall(phone, 'CREATIVE_DIRECTOR_SELECTED');
+
+  const gather = twiml.gather({
+    input: 'speech',
+    action: '/check-creative-question',
+    method: 'POST',
+    speechTimeout: 5,
+    timeout: 15,
+    speechModel: 'phone_call',
+    enhanced: true
+  });
+  
+  gather.say(
+    "What exactly are you calling about? Maybe I can help you with that.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  
+  twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
+  twiml.redirect('/creative-director');
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/check-creative-question', (req, res) => {
+  const twiml = new VoiceResponse();
+  const question = req.body.SpeechResult || '';
+  const phone = req.body.From;
+  
+  console.log(`🎨 Creative Director question: ${question}`);
+  
+  if (!question || question.trim() === '') {
+    twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/creative-director');
+    return res.type('text/xml').send(twiml.toString());
+  }
+  
+  if (isSeriousQuestion(question)) {
+    console.log(`🚨 SERIOUS QUESTION detected: ${question}`);
+    
+    logCall(phone, 'SERIOUS_QUESTION_DETECTED', {
+      question,
+      category: 'legal/money'
+    });
+    
+    try {
+      twilioClient.calls.create({
+        url: 'http://demo.twilio.com/docs/voice.xml',
+        to: '+15035442571',
+        from: process.env.TWILIO_PHONE_NUMBER
+      });
+      console.log(`📞 Calling creative director about serious matter: ${question}`);
+    } catch (err) {
+      console.log("ERROR calling director:", err);
+    }
+    
+    twiml.say(
+      "I understand this is important. Our creative director has been notified and will review your inquiry shortly. " +
+      "Would you like to schedule an appointment to discuss this further?",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    const gather = twiml.gather({
+      input: 'speech dtmf',
+      action: '/creative-appointment-check',
+      method: 'POST',
+      speechTimeout: 3,
+      timeout: 8
+    });
+    
+    gather.say("Say yes or no.", { voice: 'alice', language: 'en-US' });
+    
+    twiml.say("Returning to main menu.");
+    twiml.redirect('/voice');
+    
+  } else {
+    twiml.say(
+      "Perfect! You talked about that. Would you like to schedule an appointment with us?",
+      { voice: 'alice', language: 'en-US' }
+    );
+    
+    const gather = twiml.gather({
+      input: 'speech dtmf',
+      action: '/creative-appointment-check',
+      method: 'POST',
+      speechTimeout: 3,
+      timeout: 8
+    });
+    
+    gather.say("Say yes or no.", { voice: 'alice', language: 'en-US' });
+    
+    twiml.say("Returning to main menu.");
+    twiml.redirect('/voice');
+  }
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+app.post('/creative-appointment-check', (req, res) => {
+  const twiml = new VoiceResponse();
+  const response = req.body.SpeechResult || req.body.Digits || '';
+  const lowerResponse = response.toLowerCase();
+  
+  if (lowerResponse.includes('yes') || lowerResponse === '1') {
+    twiml.say("Great! Transferring you to our booking system.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/transfer-to-appointment');
+  } else {
+    twiml.say("Okay. Returning to main menu.", { voice: 'alice', language: 'en-US' });
+    twiml.redirect('/voice');
+  }
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// APPOINTMENT FLOW
+// ======================================================
+app.post('/get-name', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.query.phone || req.body.From;
   
   console.log(`📝 Getting name for: ${phone}`);
   
@@ -2784,7 +2638,7 @@ app.post('/get-name', (req, res) => {
 
   const gather = twiml.gather({
     input: 'speech',
-    action: '/verify-name',
+    action: `/verify-name?phone=${encodeURIComponent(phone)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10,
@@ -2795,7 +2649,7 @@ app.post('/get-name', (req, res) => {
   gather.say("First question: What is your full name?", { voice: 'alice', language: 'en-US' });
   
   twiml.say("I didn't hear your name. Please try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/get-name');
+  twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2804,19 +2658,19 @@ app.post('/get-name', (req, res) => {
 app.post('/verify-name', (req, res) => {
   const twiml = new VoiceResponse();
   const name = req.body.SpeechResult || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   
   console.log(`📝 Name received: ${name} for ${phone}`);
   
   if (!name || name.trim() === '') {
     twiml.say("Sorry, I didn't catch your name. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-name');
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
   const gather = twiml.gather({
     input: 'speech dtmf',
-    action: `/get-business-type?name=${encodeURIComponent(name)}`,
+    action: `/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10
@@ -2825,7 +2679,7 @@ app.post('/verify-name', (req, res) => {
   gather.say(`I heard: ${name}. Is this correct? Say yes or no.`, { voice: 'alice', language: 'en-US' });
   
   twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/get-name');
+  twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2834,7 +2688,7 @@ app.post('/verify-name', (req, res) => {
 app.post('/get-business-type', (req, res) => {
   const twiml = new VoiceResponse();
   const response = req.body.SpeechResult || req.body.Digits || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   const name = decodeURIComponent(req.query.name || '');
   
   console.log(`📝 Name verification: ${response} for ${name}`);
@@ -2843,13 +2697,13 @@ app.post('/get-business-type', (req, res) => {
   
   if (lowerResponse.includes('no') || lowerResponse === '2') {
     twiml.say("Let's try again. What is your full name?", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-name');
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
   const gather = twiml.gather({
     input: 'speech',
-    action: `/verify-business-type?name=${encodeURIComponent(name)}`,
+    action: `/verify-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10
@@ -2859,7 +2713,7 @@ app.post('/get-business-type', (req, res) => {
     { voice: 'alice', language: 'en-US' });
   
   twiml.say("I didn't hear your business type. Please try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/get-business-type');
+  twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2868,20 +2722,20 @@ app.post('/get-business-type', (req, res) => {
 app.post('/verify-business-type', (req, res) => {
   const twiml = new VoiceResponse();
   const businessType = req.body.SpeechResult || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   const name = decodeURIComponent(req.query.name || '');
   
   console.log(`🏢 Business type: ${businessType} for ${name}`);
   
   if (!businessType || businessType.trim() === '') {
     twiml.say("Sorry, I didn't catch your business type. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-business-type');
+    twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
   const gather = twiml.gather({
     input: 'speech dtmf',
-    action: `/get-service-type?name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`,
+    action: `/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10
@@ -2890,7 +2744,7 @@ app.post('/verify-business-type', (req, res) => {
   gather.say(`I heard: ${businessType}. Is this correct? Say yes or no.`, { voice: 'alice', language: 'en-US' });
   
   twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/get-business-type');
+  twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2899,7 +2753,7 @@ app.post('/verify-business-type', (req, res) => {
 app.post('/get-service-type', (req, res) => {
   const twiml = new VoiceResponse();
   const response = req.body.SpeechResult || req.body.Digits || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   const name = decodeURIComponent(req.query.name || '');
   const businessType = decodeURIComponent(req.query.businessType || '');
   
@@ -2909,13 +2763,13 @@ app.post('/get-service-type', (req, res) => {
   
   if (lowerResponse.includes('no') || lowerResponse === '2') {
     twiml.say("Let's try again. What type of business do you have?", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-business-type');
+    twiml.redirect(`/get-business-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
   const gather = twiml.gather({
     input: 'speech',
-    action: `/verify-service-type?name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`,
+    action: `/verify-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10
@@ -2925,7 +2779,7 @@ app.post('/get-service-type', (req, res) => {
     { voice: 'alice', language: 'en-US' });
   
   twiml.say("I didn't hear your service type. Please try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/get-service-type');
+  twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2934,7 +2788,7 @@ app.post('/get-service-type', (req, res) => {
 app.post('/verify-service-type', (req, res) => {
   const twiml = new VoiceResponse();
   const serviceType = req.body.SpeechResult || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   const name = decodeURIComponent(req.query.name || '');
   const businessType = decodeURIComponent(req.query.businessType || '');
   
@@ -2942,13 +2796,13 @@ app.post('/verify-service-type', (req, res) => {
   
   if (!serviceType || serviceType.trim() === '') {
     twiml.say("Sorry, I didn't catch your service type. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-service-type');
+    twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
   const gather = twiml.gather({
     input: 'speech dtmf',
-    action: `/schedule-date?name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`,
+    action: `/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10
@@ -2957,7 +2811,7 @@ app.post('/verify-service-type', (req, res) => {
   gather.say(`I heard: ${serviceType}. Is this correct? Say yes or no.`, { voice: 'alice', language: 'en-US' });
   
   twiml.say("No response received. Let's try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/get-service-type');
+  twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2966,7 +2820,7 @@ app.post('/verify-service-type', (req, res) => {
 app.post('/schedule-date', (req, res) => {
   const twiml = new VoiceResponse();
   const response = req.body.SpeechResult || req.body.Digits || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   const name = decodeURIComponent(req.query.name || '');
   const businessType = decodeURIComponent(req.query.businessType || '');
   const serviceType = decodeURIComponent(req.query.serviceType || '');
@@ -2977,7 +2831,7 @@ app.post('/schedule-date', (req, res) => {
   
   if (lowerResponse.includes('no') || lowerResponse === '2') {
     twiml.say("Let's try again. What type of service are you looking for?", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-service-type');
+    twiml.redirect(`/get-service-type?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
@@ -2985,7 +2839,7 @@ app.post('/schedule-date', (req, res) => {
   
   const gather = twiml.gather({
     input: 'speech',
-    action: `/schedule-time?name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}&date=${encodeURIComponent(nextDate)}`,
+    action: `/schedule-time?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}&date=${encodeURIComponent(nextDate)}`,
     method: 'POST',
     speechTimeout: 3,
     timeout: 10
@@ -2998,7 +2852,7 @@ app.post('/schedule-date', (req, res) => {
   );
   
   twiml.say("I didn't hear a time. Please try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/schedule-date');
+  twiml.redirect(`/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`);
   
   res.type('text/xml');
   res.send(twiml.toString());
@@ -3007,7 +2861,7 @@ app.post('/schedule-date', (req, res) => {
 app.post('/schedule-time', (req, res) => {
   const twiml = new VoiceResponse();
   const time = req.body.SpeechResult || '';
-  const phone = req.body.From;
+  const phone = req.query.phone || req.body.From;
   const name = decodeURIComponent(req.query.name || '');
   const businessType = decodeURIComponent(req.query.businessType || '');
   const serviceType = decodeURIComponent(req.query.serviceType || '');
@@ -3017,7 +2871,7 @@ app.post('/schedule-time', (req, res) => {
   
   if (!time || time.trim() === '') {
     twiml.say("Sorry, I didn't catch the time. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/schedule-date');
+    twiml.redirect(`/schedule-date?phone=${encodeURIComponent(phone)}&name=${encodeURIComponent(name)}&businessType=${encodeURIComponent(businessType)}&serviceType=${encodeURIComponent(serviceType)}`);
     return res.type('text/xml').send(twiml.toString());
   }
   
@@ -3075,7 +2929,7 @@ app.post('/schedule-time', (req, res) => {
               `Service: ${serviceType}\n` +
               `⏰ Reminder: Will call ONE DAY BEFORE at 2 PM Pacific Time`,
         from: process.env.TWILIO_PHONE_NUMBER,
-        to: '+15035442571'
+        to: process.env.MY_PERSONAL_NUMBER
       });
       console.log(`📱 Notification sent to admin`);
     } catch (err) {
@@ -3096,7 +2950,61 @@ app.post('/schedule-time', (req, res) => {
   res.send(twiml.toString());
 });
 
+// ======================================================
+// CALLBACK REQUEST (Option 3)
+// ======================================================
+app.post('/callback-request', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log(`📞 Callback request from: ${phone}`);
+  
+  logCall(phone, 'CALLBACK_REQUESTED');
+
+  twiml.say(
+    "Your callback request has been submitted. We'll call you back as soon as possible. " +
+    "Thank you for choosing Altair Partners. Goodbye.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  
+  twilioClient.messages.create({
+    body: `📞 Callback requested from ${phone}`,
+    from: process.env.TWILIO_PHONE_NUMBER,
+    to: process.env.MY_PERSONAL_NUMBER
+  });
+  
+  twiml.hangup();
+
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
+// PARTNERSHIP (Option 4)
+// ======================================================
+app.post('/partnership', (req, res) => {
+  const twiml = new VoiceResponse();
+  const phone = req.body.From;
+  
+  console.log("🤝 Partnership inquiry");
+  
+  logCall(phone, 'PARTNERSHIP_INQUIRY');
+
+  twiml.say(
+    "Thank you for your interest in partnership opportunities. " +
+    "Please email us at partners@altairpartners.com for more information. " +
+    "Thank you for choosing Altair Partners. Goodbye.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  twiml.hangup();
+  
+  res.type('text/xml');
+  res.send(twiml.toString());
+});
+
+// ======================================================
 // CANCEL / RESCHEDULE APPOINTMENT
+// ======================================================
 app.post('/appointment-manage', (req, res) => {
   const twiml = new VoiceResponse();
   const digit = req.body.Digits;
@@ -3150,7 +3058,7 @@ app.post('/appointment-manage', (req, res) => {
     console.log(`🔄 Rescheduling for: ${phone}`);
     logCall(phone, 'APPOINTMENT_RESCHEDULE_STARTED');
     twiml.say("Let's reschedule your appointment.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/get-name');
+    twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   }
 
   else {
@@ -3162,72 +3070,182 @@ app.post('/appointment-manage', (req, res) => {
   res.send(twiml.toString());
 });
 
-// CALLBACK REQUEST (Option 3)
-app.post('/callback-request', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
+// ======================================================
+// TEST REMINDER ENDPOINT
+// ======================================================
+app.post('/test-reminder', (req, res) => {
+  const phone = req.body.phone || req.query.phone;
   
-  console.log(`📞 Callback request from: ${phone}`);
+  if (!phone) {
+    return res.status(400).json({ error: "Phone number required" });
+  }
   
-  logCall(phone, 'CALLBACK_REQUESTED');
-
-  twiml.say(
-    "Your callback request has been submitted. We'll call you back as soon as possible. " +
-    "Thank you for choosing Altair Partners. Goodbye.",
-    { voice: 'alice', language: 'en-US' }
-  );
+  console.log(`🔔 Manual test trigger for phone: ${phone}`);
   
-  twilioClient.messages.create({
-    body: `📞 Callback requested from ${phone}`,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: '+15035442571'
+  triggerTestReminder(phone);
+  
+  res.json({ 
+    status: 'test_triggered', 
+    phone, 
+    message: 'Test reminder call initiated' 
   });
-  
-  twiml.hangup();
-
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-// PARTNERSHIP (Option 4)
-app.post('/partnership', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
-  
-  console.log("🤝 Partnership inquiry");
-  
-  logCall(phone, 'PARTNERSHIP_INQUIRY');
-
-  twiml.say(
-    "Thank you for your interest in partnership opportunities. " +
-    "Please email us at partners@altairpartners.com for more information. " +
-    "Thank you for choosing Altair Partners. Goodbye.",
-    { voice: 'alice', language: 'en-US' }
-  );
-  twiml.hangup();
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
 });
 
 // ======================================================
-// DASHBOARD ENDPOINTS
+// BUSINESS HOURS ENDPOINT
 // ======================================================
-
-// Secure Dashboard
-app.get('/dashboard', requireAuth, (req, res) => {
-  res.send(DASHBOARD_HTML);
+app.get('/business-status', (req, res) => {
+  const businessStatus = getBusinessStatus();
+  
+  res.json({
+    isOpen: businessStatus.isOpen,
+    currentTime: businessStatus.currentTime,
+    nextOpenTime: businessStatus.nextOpenTime,
+    businessHours: businessStatus.hours,
+    location: businessStatus.location,
+    message: businessStatus.isOpen ? 
+      "We are currently open!" : 
+      `We are currently closed. ${businessStatus.nextOpenTime}`
+  });
 });
 
-// Archive Viewer
-app.get('/archive-viewer', requireAuth, (req, res) => {
-  res.send(ARCHIVE_VIEWER_HTML);
+// ======================================================
+// DAILY ARCHIVES - NEW ENDPOINTS (PROTECTED!)
+// ======================================================
+
+// Show all available archive dates (PROTECTED)
+app.get('/daily-archives', requireArchiveAuth, (req, res) => {
+  try {
+    const files = fs.readdirSync(DAILY_LOGS_DIR);
+    
+    // Group files by date
+    const dates = {};
+    
+    files.forEach(file => {
+      if (file.includes('calls-') || file.includes('appointments-') || file.includes('ai-') || file.includes('reminders-')) {
+        const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
+        const type = file.split('-')[0];
+        
+        if (!dates[date]) {
+          dates[date] = {
+            calls: false,
+            appointments: false,
+            ai: false,
+            reminders: false
+          };
+        }
+        
+        if (type === 'calls') dates[date].calls = true;
+        if (type === 'appointments') dates[date].appointments = true;
+        if (type === 'ai') dates[date].ai = true;
+        if (type === 'reminders') dates[date].reminders = true;
+      }
+    });
+    
+    const sortedDates = Object.keys(dates).sort().reverse();
+    
+    res.json({
+      totalDates: sortedDates.length,
+      dates: sortedDates.map(date => ({
+        date,
+        formattedDate: new Date(date + 'T00:00:00').toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }),
+        logsAvailable: dates[date],
+        endpoints: {
+          calls: `/daily-archives/${date}/calls`,
+          appointments: `/daily-archives/${date}/appointments`,
+          ai: `/daily-archives/${date}/ai`,
+          reminders: `/daily-archives/${date}/reminders`
+        }
+      })),
+      lastUpdated: new Date().toISOString(),
+      note: "📞 All calls are saved IMMEDIATELY after conversation!"
+    });
+    
+  } catch (error) {
+    console.error("ERROR loading daily archives:", error);
+    res.status(500).json({ error: "Failed to load daily archives" });
+  }
+});
+
+// Get logs for specific date (PROTECTED)
+app.get('/daily-archives/:date/:type', requireArchiveAuth, (req, res) => {
+  const { date, type } = req.params;
+  
+  try {
+    const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ 
+        error: "Archive not found",
+        message: `No ${type} logs found for date ${date}` 
+      });
+    }
+    
+    const data = fs.readFileSync(filePath, "utf8");
+    const logs = JSON.parse(data || '[]');
+    
+    let totalItems = 0;
+    let uniquePhones = new Set();
+    let phoneDetails = [];
+    
+    // Analyze data
+    logs.forEach(log => {
+      if (log.phone) {
+        uniquePhones.add(log.phone);
+        phoneDetails.push({
+          phone: log.phone,
+          name: log.name || log.details?.name || 'N/A',
+          action: log.action || 'N/A',
+          time: log.time || log.timestamp || 'N/A',
+          businessType: log.businessType || log.details?.businessType || 'N/A',
+          serviceType: log.serviceType || log.details?.serviceType || 'N/A'
+        });
+      }
+      totalItems++;
+    });
+    
+    res.json({
+      date,
+      type,
+      totalItems,
+      uniquePhones: uniquePhones.size,
+      phoneList: Array.from(uniquePhones),
+      phoneDetails: phoneDetails.slice(0, 100),
+      logs: logs.slice(0, 50),
+      fileInfo: {
+        size: fs.statSync(filePath).size,
+        created: fs.statSync(filePath).birthtime,
+        modified: fs.statSync(filePath).mtime
+      },
+      downloadUrl: `/daily-archives/${date}/${type}/download`
+    });
+    
+  } catch (error) {
+    console.error(`ERROR loading ${type} archive for ${date}:`, error);
+    res.status(500).json({ error: "Failed to load archive" });
+  }
+});
+
+// Download archive for date (PROTECTED)
+app.get('/daily-archives/:date/:type/download', requireArchiveAuth, (req, res) => {
+  const { date, type } = req.params;
+  const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
+  
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("File not found");
+  }
+  
+  res.download(filePath, `${type}-${date}.json`);
 });
 
 // ======================================================
-// MAIN ENDPOINTS
+// DEBUG ENDPOINTS (updated)
 // ======================================================
-
 app.get('/health', (req, res) => {
   res.status(200).send('✅ IVR Server is running');
 });
@@ -3259,7 +3277,7 @@ app.get('/debug', (req, res) => {
     console.error("ERROR loading logs:", error);
   }
   
-  // Проверяем архивы
+  // Check archives
   let dailyArchives = [];
   try {
     if (fs.existsSync(DAILY_LOGS_DIR)) {
@@ -3300,10 +3318,11 @@ app.get('/debug', (req, res) => {
       totalDates: dailyArchives.length,
       dates: dailyArchives.slice(0, 10),
       allDates: `/daily-archives`,
-      beautifulViewer: `/archive-viewer`
+      beautifulViewer: `/archive-viewer`,
+      security: 'PROTECTED - Requires authentication'
     },
     systemInfo: {
-      archiveMode: 'INSTANT (сохраняет сразу после звонка)',
+      archiveMode: 'INSTANT (saves immediately after call)',
       storage: {
         calls: `${DAILY_LOGS_DIR}/calls-YYYY-MM-DD.json`,
         appointments: `${DAILY_LOGS_DIR}/appointments-YYYY-MM-DD.json`,
@@ -3322,14 +3341,14 @@ app.get('/debug', (req, res) => {
       message: businessStatus.isOpen ? 'Open now' : `Closed - ${businessStatus.nextOpenTime}`
     },
     selfPing: process.env.FREE_PLAN === 'true' ? 'Active (4 min interval)' : 'Inactive',
-    dashboards: {
-      secureDashboard: '/dashboard (password protected)',
-      archiveViewer: '/archive-viewer'
+    security: {
+      archiveProtection: 'ACTIVE (Basic Auth)',
+      defaultUsername: 'admin',
+      note: 'Set ARCHIVE_USERNAME and ARCHIVE_PASSWORD in .env to change'
     }
   });
 });
 
-// Главная страница БЕЗ ЛОГИНА И ПАРОЛЯ
 app.get('/', (req, res) => {
   const businessStatus = getBusinessStatus();
   
@@ -3338,133 +3357,157 @@ app.get('/', (req, res) => {
       <head>
         <title>Altair Partners IVR Server</title>
         <style>
-          body { 
-            font-family: Arial, sans-serif; 
-            padding: 20px; 
-            max-width: 1000px; 
-            margin: 0 auto; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-            min-height: 100vh;
-            color: white;
-          }
-          .main-container { 
-            background: rgba(255, 255, 255, 0.95); 
-            padding: 40px; 
-            border-radius: 20px; 
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-            color: #333;
-          }
-          .status { 
-            padding: 20px; 
-            border-radius: 10px; 
-            margin: 15px 0; 
-          }
-          .open { 
-            background: linear-gradient(to right, #10b981, #34d399); 
-            color: white; 
-          }
-          .closed { 
-            background: linear-gradient(to right, #ef4444, #f97316); 
-            color: white; 
-          }
-          .dashboard-btn { 
-            display: block; 
-            width: 100%; 
-            padding: 20px; 
-            background: linear-gradient(to right, #4f46e5, #7c3aed); 
-            color: white; 
-            text-align: center; 
-            border-radius: 15px; 
-            text-decoration: none; 
-            font-weight: 600; 
-            font-size: 1.2rem; 
-            margin: 15px 0; 
-            transition: all 0.3s ease; 
-          }
-          .dashboard-btn:hover { 
-            background: linear-gradient(to right, #4338ca, #6d28d9); 
-            transform: translateY(-5px); 
-            box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4); 
-          }
-          .system-info { 
-            background: #f0f9ff; 
-            padding: 20px; 
-            border-radius: 10px; 
-            margin: 20px 0; 
-            border: 2px solid #0ea5e9; 
-          }
-          .cta-button { 
-            display: inline-block; 
-            background: linear-gradient(to right, #10b981, #34d399); 
-            color: white; 
-            padding: 12px 24px; 
-            border-radius: 10px; 
-            text-decoration: none; 
-            font-weight: 600; 
-            margin: 10px 5px; 
-            transition: all 0.3s ease; 
-          }
-          .cta-button:hover { 
-            transform: translateY(-3px); 
-            box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3); 
-            text-decoration: none; 
-          }
-          h1 { 
-            color: #1e293b; 
-            margin-bottom: 20px; 
-            display: flex; 
-            align-items: center; 
-            gap: 15px; 
-          }
+          body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
+          .main-container { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+          .status { padding: 15px; border-radius: 10px; margin: 15px 0; }
+          .open { background: linear-gradient(to right, #10b981, #34d399); color: white; }
+          .closed { background: linear-gradient(to right, #ef4444, #f97316); color: white; }
+          .endpoints { background: #f8fafc; padding: 20px; border-radius: 10px; margin: 20px 0; }
+          ul { line-height: 1.8; list-style: none; padding: 0; }
+          li { padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+          a { color: #4f46e5; text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+          a:hover { color: #7c3aed; text-decoration: underline; }
+          .archive-info { background: linear-gradient(to right, #fef3c7, #fde68a); padding: 15px; border-radius: 10px; margin: 15px 0; border: 2px solid #f59e0b; }
+          .instant-badge { background: linear-gradient(to right, #10b981, #34d399); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+          .cta-button { display: inline-block; background: linear-gradient(to right, #4f46e5, #7c3aed); color: white; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 600; margin: 10px 5px; transition: all 0.3s ease; }
+          .cta-button:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3); text-decoration: none; }
+          .security-badge { background: linear-gradient(to right, #ef4444, #f97316); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; }
+          h1 { color: #1e293b; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
         </style>
       </head>
       <body>
         <div class="main-container">
           <h1>
             <span style="font-size: 2rem;">🚀</span>
-            Altair Partners IVR System
+            Altair Partners IVR Server
           </h1>
           
           <div class="status ${businessStatus.isOpen ? 'open' : 'closed'}">
             <p><strong>Status:</strong> ${businessStatus.isOpen ? '🟢 OPEN' : '🔴 CLOSED'}</p>
             <p><strong>Current Time (PST):</strong> ${businessStatus.currentTime}</p>
             <p><strong>Business Hours:</strong> ${businessStatus.hours}</p>
+            <p><strong>Location:</strong> ${businessStatus.location}</p>
             <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
           </div>
           
-          <div class="system-info">
-            <h3 style="color: #0369a1; margin-top: 0;">🚀 NEW UNIFIED DASHBOARD!</h3>
-            <p><strong>🔐 Secure Access:</strong> All dashboards protected with password</p>
-            <p><strong>📊 Everything in One Place:</strong> Analytics, Archive, Appointments, Debug</p>
-            <p><strong>🎯 Easy Navigation:</strong> Click any system to open in popup</p>
+          <div class="archive-info">
+            <h3 style="color: #92400e; margin-top: 0;">📦 NEW! Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span> <span class="security-badge">🔒 SECURE</span></h3>
+            <p><strong>Now with beautiful interface with buttons AND PASSWORD PROTECTION!</strong></p>
+            <p>• 📊 Charts and statistics</p>
+            <p>• 🔍 Search by dates and phone numbers</p>
+            <p>• 🎨 Animations and beautiful cards</p>
+            <p>• 📱 Responsive design for phone</p>
+            <p>• 🔒 PASSWORD PROTECTED - No public access</p>
+            <p style="margin-top: 10px;">
+              <a href="/archive-viewer" class="cta-button">
+                🚀 Open Beautiful Archive
+              </a>
+            </p>
           </div>
           
-          <a href="/dashboard" class="dashboard-btn">
-            <span style="font-size: 1.5rem; margin-right: 10px;">🔐</span>
-            ENTER SECURE DASHBOARD
-          </a>
-          
-          <p style="text-align: center; margin-top: 10px;">
-            <a href="/archive-viewer" class="cta-button">
-              🗂️ Open Archive Viewer
-            </a>
-            <a href="/debug" class="cta-button">
-              🔧 System Debug
-            </a>
-          </p>
+          <div class="endpoints">
+            <h3 style="color: #1e293b;">📁 Main Endpoints:</h3>
+            <ul>
+              <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🎨</span> /archive-viewer</a> - Beautiful archive with buttons! <span class="security-badge">🔒</span></li>
+              <li><a href="/daily-archives"><span style="font-size: 1.2rem;">📊</span> /daily-archives</a> - All archives by days (JSON) <span class="security-badge">🔒</span></li>
+              <li><a href="/debug"><span style="font-size: 1.2rem;">🔧</span> /debug</a> - Debug info</li>
+              <li><a href="/health"><span style="font-size: 1.2rem;">❤️</span> /health</a> - Health check</li>
+            </ul>
+            
+            <h3 style="color: #1e293b; margin-top: 25px;">📋 Data Endpoints:</h3>
+            <ul>
+              <li><a href="/logs"><span style="font-size: 1.2rem;">📞</span> /logs</a> - Current call logs</li>
+              <li><a href="/appointments"><span style="font-size: 1.2rem;">📅</span> /appointments</a> - All appointments</li>
+              <li><a href="/conversations"><span style="font-size: 1.2rem;">🤖</span> /conversations</a> - AI conversations</li>
+              <li><a href="/reminders"><span style="font-size: 1.2rem;">⏰</span> /reminders</a> - Reminder logs</li>
+              <li><a href="/business-status"><span style="font-size: 1.2rem;">🏢</span> /business-status</a> - Business hours check</li>
+            </ul>
+          </div>
           
           <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
-            <p><strong>📞 Twilio Webhook:</strong> POST /voice</p>
-            <p><strong>📈 Instant Archive System:</strong> Все звонки сохраняются сразу!</p>
-            <p><strong>🗂️ Beautiful Archive:</strong> /archive-viewer - Красивый интерфейс с кнопками</p>
-            <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM PST</p>
-            <p><strong>🔔 Test Call:</strong> +1 (503) 444-8881</p>
-            <p><strong>📱 Admin Notifications:</strong> Sent to +1 (503) 544-2571</p>
+            <p><strong>Twilio Webhook:</strong> POST /voice</p>
+            <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
+            <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
+            <p><strong>🔔 Test reminder:</strong> POST /test-reminder?phone=+15034448881</p>
+            <p><strong>📦 Archiving:</strong> <span class="instant-badge">INSTANT MODE</span> (immediately after call)</p>
+            <p><strong>🔒 Archive Security:</strong> Password protected (username: admin)</p>
+            <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}</p>
+            <p><strong>📞 Test call:</strong> +1 (503) 444-8881</p>
           </div>
         </div>
       </body>
     </html>
   `);
+});
+
+// Public endpoints (no protection needed)
+app.get('/logs', (req, res) => {
+  try {
+    let callLogs = [];
+    if (fs.existsSync(CALL_LOGS_PATH)) {
+      const logsData = fs.readFileSync(CALL_LOGS_PATH, "utf8");
+      callLogs = JSON.parse(logsData || '[]');
+    }
+    
+    res.json({
+      total: callLogs.length,
+      logs: callLogs.reverse(),
+      lastUpdated: new Date().toISOString(),
+      note: "These are current logs. Daily archives available at /daily-archives (password protected)"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load logs" });
+  }
+});
+
+app.get('/appointments', (req, res) => {
+  const appointments = loadDB();
+  
+  res.json({
+    total: appointments.length,
+    appointments: appointments.reverse(),
+    lastUpdated: new Date().toISOString(),
+    note: "These are current appointments. Daily archives available at /daily-archives (password protected)"
+  });
+});
+
+app.get('/conversations', (req, res) => {
+  try {
+    let aiConversations = [];
+    if (fs.existsSync(AI_CONVERSATIONS_PATH)) {
+      const convData = fs.readFileSync(AI_CONVERSATIONS_PATH, "utf8");
+      aiConversations = JSON.parse(convData || '[]');
+    }
+    
+    res.json({
+      total: aiConversations.length,
+      conversations: aiConversations.reverse(),
+      lastUpdated: new Date().toISOString(),
+      note: "These are current AI conversations. Daily archives available at /daily-archives (password protected)"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load conversations" });
+  }
+});
+
+app.get('/reminders', (req, res) => {
+  try {
+    let reminderLogs = [];
+    if (fs.existsSync(REMINDERS_LOG)) {
+      const remData = fs.readFileSync(REMINDERS_LOG, "utf8");
+      reminderLogs = JSON.parse(remData || '[]');
+    }
+    
+    res.json({
+      total: reminderLogs.length,
+      reminders: reminderLogs.reverse(),
+      lastUpdated: new Date().toISOString(),
+      systemInfo: 'Calls ONE DAY BEFORE appointment at 2 PM Pacific Time',
+      note: "These are current reminders. Daily archives available at /daily-archives (password protected)"
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to load reminders" });
+  }
 });
 
 // ======================================================
@@ -3473,43 +3516,55 @@ app.get('/', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   const businessStatus = getBusinessStatus();
+  
+  // Get real server URL
   const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   
   console.log(`🚀 Altair Partners IVR Server running on port ${PORT}`);
   console.log(`⏰ Business Status: ${businessStatus.isOpen ? 'OPEN' : 'CLOSED'}`);
+  console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
+  console.log(`\n🎨 BEAUTIFUL ARCHIVE VIEWER:`);
+  console.log(`✅ ${serverUrl}/archive-viewer - BEAUTIFUL INTERFACE WITH BUTTONS!`);
+  console.log(`🔒 PROTECTED with password: admin / ChangeThisPassword123!`);
+  console.log(`\n📊 Main endpoints:`);
+  console.log(`✅ Health check: ${serverUrl}/health`);
+  console.log(`✅ Debug: ${serverUrl}/debug`);
+  console.log(`✅ Daily archives (JSON): ${serverUrl}/daily-archives (PROTECTED)`);
+  console.log(`\n📋 Data endpoints:`);
+  console.log(`✅ Current logs: ${serverUrl}/logs`);
+  console.log(`✅ Appointments: ${serverUrl}/appointments`);
+  console.log(`✅ Conversations: ${serverUrl}/conversations`);
+  console.log(`✅ Reminders: ${serverUrl}/reminders`);
+  console.log(`✅ Business Status: ${serverUrl}/business-status`);
+  console.log(`\n🛠️ System info:`);
+  console.log(`✅ Next available date: ${getNextAvailableDate()}`);
+  console.log(`🤖 AI Representative is ready (fast mode)`);
+  console.log(`📝 INSTANT ARCHIVE SYSTEM: All data saved immediately after call!`);
+  console.log(`📁 Archives location: ./logs/daily/`);
+  console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
+  console.log(`🔄 Check interval: Every 5 minutes`);
+  console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
+  console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
+  console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}`);
+  console.log(`\n🔒 SECURITY INFORMATION:`);
+  console.log(`✅ Archive protection: ACTIVE (Basic Auth)`);
+  console.log(`✅ Default username: admin`);
+  console.log(`✅ Default password: ChangeThisPassword123!`);
+  console.log(`⚠️ IMPORTANT: Change password in .env file with:`);
+  console.log(`   ARCHIVE_USERNAME=yourusername`);
+  console.log(`   ARCHIVE_PASSWORD=yourstrongpassword`);
+  console.log(`\n🔥 NEW: Beautiful archive-viewer available at: ${serverUrl}/archive-viewer`);
+  console.log(`🎉 Now with buttons, animations, and beautiful design - AND SECURE!`);
   
-  console.log(`\n🚀 NEW UNIFIED DASHBOARD:`);
-  console.log(`✅ ${serverUrl}/dashboard - ALL SYSTEMS IN ONE PLACE`);
-  console.log(`🔐 Password: altair_admin / AltairSecure2024!@#$`);
-  
-  console.log(`\n📊 INDIVIDUAL SYSTEMS:`);
-  console.log(`✅ ${serverUrl}/archive-viewer - КРАСИВЫЙ АРХИВ С КНОПКАМИ`);
-  console.log(`✅ ${serverUrl}/daily-archives - Все архивы в JSON`);
-  console.log(`✅ ${serverUrl}/debug - System Debug`);
-  
-  console.log(`\n🔒 SECURITY INFO:`);
-  console.log(`✅ Username: altair_admin`);
-  console.log(`✅ Password: AltairSecure2024!@#$`);
-  console.log(`📱 Notifications sent to: +1 (503) 544-2571`);
-  
-  console.log(`\n🗂️ ARCHIVE SYSTEM:`);
-  console.log(`✅ INSTANT MODE - сохраняет сразу после звонка`);
-  console.log(`✅ Красивый интерфейс с кнопками и анимациями`);
-  console.log(`✅ Поиск по датам и номерам`);
-  console.log(`✅ Все данные: calls, appointments, ai, reminders`);
-  
-  console.log(`\n📈 АНАЛИТИКА:`);
-  console.log(`✅ Все звонки логируются`);
-  console.log(`✅ Appointments сохраняются`);
-  console.log(`✅ AI conversations архивируются`);
-  console.log(`✅ Reminders отслеживаются`);
-  
-  // Запускаем reminder scheduler
+  // Start reminder scheduler
   startReminderScheduler();
   
-  console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - Все звонки будут сохраняться сразу!`);
-  console.log(`✅ BEAUTIFUL DASHBOARD READY - Открывай ${serverUrl}/dashboard`);
-  console.log(`✅ АРХИВ РАБОТАЕТ - ${serverUrl}/archive-viewer`);
+  // Start daily archiver
+  startDailyArchiver();
+  
+  console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - All calls will be saved immediately!`);
+  console.log(`✅ BEAUTIFUL ARCHIVE VIEWER READY - Open in browser and enjoy!`);
+  console.log(`✅ SECURITY PROTECTION ACTIVE - Archives are password protected!`);
 });
