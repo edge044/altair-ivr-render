@@ -1,7 +1,7 @@
 {
   "name": "altair-ivr",
   "version": "1.0.0",
-  "description": "Altair Partners IVR System with AI Assistant",
+  "description": "Altair Partners IVR System with AI Assistant and Advanced Analytics",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -21,7 +21,9 @@
     "twilio",
     "ai",
     "appointment",
-    "reminder"
+    "reminder",
+    "analytics",
+    "dashboard"
   ],
   "author": "Altair Partners",
   "license": "MIT"

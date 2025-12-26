@@ -18,8 +18,8 @@ app.use(express.json());
 // ======================================================
 
 function requireArchiveAuth(req, res, next) {
-  const AUTH_USERNAME = process.env.ARCHIVE_USERNAME || 'admin';
-  const AUTH_PASSWORD = process.env.ARCHIVE_PASSWORD || 'ChangeThisPassword123!';
+  const AUTH_USERNAME = process.env.ARCHIVE_USERNAME || 'altair_admin';
+  const AUTH_PASSWORD = process.env.ARCHIVE_PASSWORD || 'AltairSecure2024!@#$';
   
   const user = basicAuth(req);
   
@@ -140,6 +140,99 @@ function requireArchiveAuth(req, res, next) {
   
   console.log(`🔓 Authorized archive access from ${req.ip} - User: ${user.name}`);
   next();
+}
+
+// ======================================================
+// ANALYTICS FUNCTIONS - НОВАЯ АНАЛИТИКА!
+// ======================================================
+
+// Трекер пути пользователя
+const userJourneyTracker = {};
+
+function startUserJourney(phone) {
+  userJourneyTracker[phone] = {
+    startTime: new Date(),
+    path: ['MAIN_MENU'],
+    optionsSelected: [],
+    speechTranscripts: [],
+    pagesVisited: [],
+    lastActionTime: new Date(),
+    totalDuration: 0,
+    conversion: false,
+    sentiment: 'neutral',
+    callQuality: 'good',
+    deviceType: 'phone', // по умолчанию
+    location: 'unknown',
+    hangupReason: '',
+    frustrationLevel: 0
+  };
+}
+
+function trackUserAction(phone, action, details = {}) {
+  if (!userJourneyTracker[phone]) {
+    startUserJourney(phone);
+  }
+  
+  userJourneyTracker[phone].path.push(action);
+  userJourneyTracker[phone].lastActionTime = new Date();
+  
+  if (details.option) {
+    userJourneyTracker[phone].optionsSelected.push(details.option);
+  }
+  
+  if (details.speech) {
+    userJourneyTracker[phone].speechTranscripts.push({
+      text: details.speech,
+      time: new Date().toISOString()
+    });
+  }
+  
+  // Определяем настроение по словам
+  if (details.speech) {
+    const text = details.speech.toLowerCase();
+    if (text.includes('спасибо') || text.includes('отлично') || text.includes('хорошо')) {
+      userJourneyTracker[phone].sentiment = 'positive';
+    } else if (text.includes('проблем') || text.includes('жалоб') || text.includes('плох')) {
+      userJourneyTracker[phone].sentiment = 'negative';
+      userJourneyTracker[phone].frustrationLevel += 1;
+    }
+  }
+  
+  console.log(`📊 Analytics: ${phone} -> ${action}`);
+}
+
+function completeUserJourney(phone, reason = 'normal_hangup') {
+  if (!userJourneyTracker[phone]) return null;
+  
+  const journey = userJourneyTracker[phone];
+  journey.endTime = new Date();
+  journey.totalDuration = (journey.endTime - journey.startTime) / 1000; // секунды
+  journey.hangupReason = reason;
+  journey.conversion = journey.path.includes('APPOINTMENT_SCHEDULED') || 
+                      journey.path.includes('CALLBACK_REQUESTED');
+  
+  // Сохраняем аналитику
+  saveAnalytics(phone, journey);
+  
+  // Очищаем трекер
+  delete userJourneyTracker[phone];
+  
+  return journey;
+}
+
+// Определяем тип устройства по User-Agent
+function detectDevice(req) {
+  const agent = req.headers['user-agent'] || '';
+  if (agent.includes('Mobile')) return 'mobile';
+  if (agent.includes('Tablet')) return 'tablet';
+  return 'desktop';
+}
+
+// Анализируем качество звонка по длительности
+function analyzeCallQuality(duration) {
+  if (duration < 10) return 'poor'; // Слишком короткий
+  if (duration > 300) return 'excellent'; // Долгий разговор
+  return 'good';
 }
 
 // ======================================================
@@ -267,17 +360,20 @@ function getBusinessStatus() {
 const LOGS_DIR = "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
 const DAILY_LOGS_DIR = `${LOGS_DIR}/daily`;
+const ANALYTICS_DIR = `${LOGS_DIR}/analytics`;
 
 // Create folders if they don't exist
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
 if (!fs.existsSync(CURRENT_LOGS_DIR)) fs.mkdirSync(CURRENT_LOGS_DIR);
 if (!fs.existsSync(DAILY_LOGS_DIR)) fs.mkdirSync(DAILY_LOGS_DIR);
+if (!fs.existsSync(ANALYTICS_DIR)) fs.mkdirSync(ANALYTICS_DIR);
 
 // Paths to current logs
 const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const AI_CONVERSATIONS_PATH = `${CURRENT_LOGS_DIR}/ai_conversations.json`;
 const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
+const ANALYTICS_PATH = `${ANALYTICS_DIR}/call_analytics.json`;
 
 // ======================================================
 // INSTANT ARCHIVING FUNCTIONS (IMMEDIATELY AFTER CALL!)
@@ -286,6 +382,78 @@ const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
 function getTodayDateString() {
   const now = new Date();
   return now.toISOString().split('T')[0]; // "2025-12-24"
+}
+
+// НОВАЯ: Сохраняем аналитику
+function saveAnalytics(phone, journey) {
+  try {
+    const analyticsFile = `${ANALYTICS_DIR}/analytics-${getTodayDateString()}.json`;
+    
+    let existingAnalytics = [];
+    
+    if (fs.existsSync(analyticsFile)) {
+      try {
+        const fileData = fs.readFileSync(analyticsFile, "utf8");
+        if (fileData.trim() !== '') {
+          existingAnalytics = JSON.parse(fileData);
+        }
+      } catch (e) {
+        console.log(`⚠️ Creating new analytics file for today`);
+      }
+    }
+    
+    // Добавляем новую аналитику
+    existingAnalytics.push({
+      phone,
+      ...journey,
+      analyticsDate: getTodayDateString()
+    });
+    
+    // Сохраняем
+    fs.writeFileSync(analyticsFile, JSON.stringify(existingAnalytics, null, 2));
+    
+    // Также сохраняем в общий файл для быстрого доступа
+    saveToCurrentAnalytics(phone, journey);
+    
+    console.log(`📈 Analytics saved for ${phone} (${journey.totalDuration}s, conversion: ${journey.conversion})`);
+    
+  } catch (error) {
+    console.error(`❌ Error saving analytics:`, error);
+  }
+}
+
+// Сохраняем аналитику в текущие логи
+function saveToCurrentAnalytics(phone, journey) {
+  try {
+    let currentAnalytics = [];
+    
+    if (fs.existsSync(ANALYTICS_PATH)) {
+      try {
+        const fileData = fs.readFileSync(ANALYTICS_PATH, "utf8");
+        if (fileData.trim() !== '') {
+          currentAnalytics = JSON.parse(fileData);
+        }
+      } catch (e) {
+        console.log(`⚠️ Creating new current analytics file`);
+      }
+    }
+    
+    currentAnalytics.push({
+      phone,
+      ...journey,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Ограничиваем размер (последние 1000 записей)
+    if (currentAnalytics.length > 1000) {
+      currentAnalytics = currentAnalytics.slice(-1000);
+    }
+    
+    fs.writeFileSync(ANALYTICS_PATH, JSON.stringify(currentAnalytics, null, 2));
+    
+  } catch (error) {
+    console.error(`❌ Error saving to current analytics:`, error);
+  }
 }
 
 // Saves data IMMEDIATELY to daily archive
@@ -390,38 +558,147 @@ function saveToCurrentLogs(type, data) {
   }
 }
 
-// Daily archiving at 23:59 (backup)
-function archiveDailyLogs() {
+// ======================================================
+// УЛУЧШЕННОЕ ЛОГИРОВАНИЕ ЗВОНКОВ С АНАЛИТИКОЙ
+// ======================================================
+
+function logCall(phone, action, details = {}) {
   try {
-    const today = getTodayDateString();
-    console.log(`📦 Backup archive for ${today}...`);
+    // Начинаем отслеживание если еще не начато
+    if (action === 'CALL_RECEIVED') {
+      startUserJourney(phone);
+    }
     
-    // Just log that everything is OK
-    console.log(`✅ Backup archive completed for ${today}`);
+    // Трекаем действие
+    trackUserAction(phone, action, details);
+    
+    const logEntry = {
+      phone,
+      action,
+      details,
+      timestamp: new Date().toISOString(),
+      time: new Date().toLocaleString('en-US', { 
+        timeZone: 'America/Los_Angeles',
+        hour12: true,
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit'
+      }),
+      // НОВОЕ: Детальная аналитика
+      analytics: {
+        callStage: action,
+        userJourney: userJourneyTracker[phone] ? userJourneyTracker[phone].path : [],
+        optionsSelected: userJourneyTracker[phone] ? userJourneyTracker[phone].optionsSelected : [],
+        sentiment: userJourneyTracker[phone] ? userJourneyTracker[phone].sentiment : 'neutral',
+        frustrationLevel: userJourneyTracker[phone] ? userJourneyTracker[phone].frustrationLevel : 0,
+        timeInSystem: userJourneyTracker[phone] ? 
+          (new Date() - userJourneyTracker[phone].startTime) / 1000 : 0
+      }
+    };
+    
+    // INSTANT ARCHIVING to daily file
+    saveToDailyArchive('calls', logEntry);
+    
+    console.log(`📝 Call logged: ${phone} - ${action}`);
+    
+    // Если звонок завершен, сохраняем полную аналитику
+    if (action.includes('HANGUP') || action.includes('GOODBYE')) {
+      completeUserJourney(phone, action);
+    }
     
   } catch (error) {
-    console.error("❌ Backup archive error:", error);
+    console.error("ERROR logging call:", error);
   }
 }
 
-function startDailyArchiver() {
-  console.log("📦 Daily archiver started (instant mode)");
-  
-  // Archive on startup
-  archiveDailyLogs();
-  
-  // Archive every day at 23:59 PST (as backup)
-  setInterval(() => {
-    const now = new Date();
-    const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+// НОВАЯ: Логирование голосовых сообщений с транскрипцией
+function logVoiceMessage(phone, transcript, details = {}) {
+  try {
+    const logEntry = {
+      phone,
+      action: 'VOICE_MESSAGE_RECORDED',
+      transcript,
+      details,
+      timestamp: new Date().toISOString(),
+      time: new Date().toLocaleString('en-US', { 
+        timeZone: 'America/Los_Angeles',
+        hour12: true
+      }),
+      analytics: {
+        messageLength: transcript.length,
+        wordCount: transcript.split(' ').length,
+        containsKeywords: extractKeywords(transcript),
+        sentiment: analyzeSentiment(transcript),
+        urgencyLevel: checkUrgency(transcript)
+      }
+    };
     
-    const hour = pstTime.getHours();
-    const minute = pstTime.getMinutes();
+    saveToDailyArchive('voice_messages', logEntry);
+    console.log(`🎤 Voice message logged: ${phone} (${transcript.length} chars)`);
     
-    if (hour === 23 && minute === 59) {
-      archiveDailyLogs();
+  } catch (error) {
+    console.error("ERROR logging voice message:", error);
+  }
+}
+
+// Вспомогательные функции для анализа
+function extractKeywords(text) {
+  const lower = text.toLowerCase();
+  const keywords = [];
+  
+  const importantWords = [
+    'appointment', 'schedule', 'meeting', 'urgent', 'important',
+    'problem', 'issue', 'help', 'emergency', 'asap',
+    'cancel', 'reschedule', 'change', 'update',
+    'price', 'cost', 'money', 'payment', 'invoice',
+    'complaint', 'angry', 'frustrated', 'disappointed'
+  ];
+  
+  importantWords.forEach(word => {
+    if (lower.includes(word)) {
+      keywords.push(word);
     }
-  }, 60 * 1000);
+  });
+  
+  return keywords;
+}
+
+function analyzeSentiment(text) {
+  const lower = text.toLowerCase();
+  
+  const positiveWords = ['thank', 'great', 'good', 'excellent', 'happy', 'perfect', 'love'];
+  const negativeWords = ['angry', 'mad', 'bad', 'terrible', 'horrible', 'hate', 'disappointed'];
+  
+  let score = 0;
+  
+  positiveWords.forEach(word => {
+    if (lower.includes(word)) score += 1;
+  });
+  
+  negativeWords.forEach(word => {
+    if (lower.includes(word)) score -= 1;
+  });
+  
+  if (score > 0) return 'positive';
+  if (score < 0) return 'negative';
+  return 'neutral';
+}
+
+function checkUrgency(text) {
+  const lower = text.toLowerCase();
+  
+  if (lower.includes('emergency') || lower.includes('urgent') || lower.includes('asap')) {
+    return 'high';
+  }
+  
+  if (lower.includes('soon') || lower.includes('quick') || lower.includes('fast')) {
+    return 'medium';
+  }
+  
+  return 'low';
 }
 
 // ======================================================
@@ -604,18 +881,37 @@ BEHAVIOR:
 3. If about hours/location/services → answer directly
 4. If customer says goodbye → say "Goodbye" and end call
 5. Sound human but be concise
+6. ANALYZE customer mood from their words
 `;
 
 async function getRepResponse(question, phone) {
   try {
     console.log(`🤖 AI Question: ${question}`);
     
+    // Анализируем настроение
+    const sentiment = analyzeSentiment(question);
+    console.log(`📊 Customer sentiment: ${sentiment}`);
+    
+    // Трекаем что сказал пользователь
+    if (userJourneyTracker[phone]) {
+      userJourneyTracker[phone].speechTranscripts.push({
+        text: question,
+        time: new Date().toISOString(),
+        sentiment: sentiment
+      });
+      
+      if (sentiment === 'negative') {
+        userJourneyTracker[phone].frustrationLevel += 1;
+        console.log(`⚠️ Negative sentiment detected for ${phone}, frustration: ${userJourneyTracker[phone].frustrationLevel}`);
+      }
+    }
+    
     const completion = await openai.chat.completions.create({
       model: "gpt-3.5-turbo",
       messages: [
         {
           role: "system",
-          content: `${REP_CONTEXT}\n\nRespond in 5-10 words maximum.`
+          content: `${REP_CONTEXT}\n\nCustomer mood: ${sentiment}. Respond in 5-10 words maximum.`
         },
         {
           role: "user",
@@ -648,44 +944,6 @@ function isSeriousQuestion(question) {
   return seriousKeywords.some(keyword => lower.includes(keyword));
 }
 
-// ======================================================
-// LOGGING FUNCTIONS WITH INSTANT ARCHIVING
-// ======================================================
-
-function logCall(phone, action, details = {}) {
-  try {
-    const logEntry = {
-      phone,
-      action,
-      details,
-      timestamp: new Date().toISOString(),
-      time: new Date().toLocaleString('en-US', { 
-        timeZone: 'America/Los_Angeles',
-        hour12: true,
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      }),
-      callerInfo: {
-        number: phone,
-        time: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles' }),
-        date: new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles' })
-      }
-    };
-    
-    // INSTANT ARCHIVING to daily file
-    saveToDailyArchive('calls', logEntry);
-    
-    console.log(`📝 Call logged: ${phone} - ${action}`);
-    
-  } catch (error) {
-    console.error("ERROR logging call:", error);
-  }
-}
-
 function logAIConversation(phone, question, response) {
   try {
     const conversationEntry = {
@@ -702,7 +960,16 @@ function logAIConversation(phone, question, response) {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit'
-      })
+      }),
+      // НОВОЕ: Аналитика разговора
+      analytics: {
+        questionLength: question.length,
+        responseLength: response.length,
+        questionSentiment: analyzeSentiment(question),
+        responseSentiment: analyzeSentiment(response),
+        containsAppointmentKeyword: question.toLowerCase().includes('appointment'),
+        containsPriceKeyword: question.toLowerCase().includes('price') || question.toLowerCase().includes('cost')
+      }
     };
     
     // INSTANT ARCHIVING
@@ -793,6 +1060,12 @@ function addAppointment(name, phone, businessType, serviceType, date, time) {
     time
   });
   
+  // Отмечаем успешную конверсию
+  if (userJourneyTracker[phone]) {
+    userJourneyTracker[phone].conversion = true;
+    userJourneyTracker[phone].sentiment = 'positive';
+  }
+  
   return appointment;
 }
 
@@ -806,7 +1079,611 @@ function getNextAvailableDate() {
 }
 
 // ======================================================
-// BEAUTIFUL ARCHIVE VIEWER HTML
+// НОВАЯ: HTML СТРАНИЦА АНАЛИТИКИ
+// ======================================================
+
+const ANALYTICS_HTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📈 Altair Partners - Call Analytics Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            color: white;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+            overflow: hidden;
+            color: #333;
+        }
+
+        .header {
+            background: linear-gradient(to right, #4f46e5, #7c3aed);
+            color: white;
+            padding: 30px 40px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8fafc;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+            border-left: 5px solid #4f46e5;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-number {
+            font-size: 3rem;
+            font-weight: 800;
+            color: #4f46e5;
+            margin-bottom: 10px;
+        }
+
+        .charts-container {
+            padding: 30px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 30px;
+        }
+
+        .chart-box {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        .chart-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .filters {
+            padding: 20px 30px;
+            background: #e2e8f0;
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 10px 20px;
+            background: white;
+            border: 2px solid #cbd5e1;
+            border-radius: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .filter-btn.active {
+            background: #4f46e5;
+            color: white;
+            border-color: #4f46e5;
+        }
+
+        .call-list {
+            padding: 30px;
+        }
+
+        .call-item {
+            background: white;
+            margin-bottom: 15px;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #4f46e5;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+        }
+
+        .call-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .phone-number {
+            font-family: monospace;
+            background: #f1f5f9;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-weight: 600;
+        }
+
+        .sentiment {
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .sentiment-positive { background: #dcfce7; color: #166534; }
+        .sentiment-negative { background: #fee2e2; color: #991b1b; }
+        .sentiment-neutral { background: #e2e8f0; color: #475569; }
+
+        .conversion-badge {
+            background: #10b981;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        @media (max-width: 768px) {
+            .charts-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .stat-number {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-chart-line"></i> Call Analytics Dashboard</h1>
+            <p>Real-time call tracking and performance analysis</p>
+        </div>
+
+        <div class="filters">
+            <button class="filter-btn active" onclick="loadData('today')">
+                <i class="fas fa-calendar-day"></i> Today
+            </button>
+            <button class="filter-btn" onclick="loadData('week')">
+                <i class="fas fa-calendar-week"></i> This Week
+            </button>
+            <button class="filter-btn" onclick="loadData('month')">
+                <i class="fas fa-calendar-alt"></i> This Month
+            </button>
+            <button class="filter-btn" onclick="loadData('all')">
+                <i class="fas fa-database"></i> All Time
+            </button>
+        </div>
+
+        <div class="stats-grid" id="statsGrid">
+            <!-- Stats will be loaded here -->
+        </div>
+
+        <div class="charts-container">
+            <div class="chart-box">
+                <div class="chart-title"><i class="fas fa-phone"></i> Calls Over Time</div>
+                <canvas id="callsChart"></canvas>
+            </div>
+            
+            <div class="chart-box">
+                <div class="chart-title"><i class="fas fa-smile"></i> Customer Sentiment</div>
+                <canvas id="sentimentChart"></canvas>
+            </div>
+
+            <div class="chart-box">
+                <div class="chart-title"><i class="fas fa-clock"></i> Average Call Duration</div>
+                <canvas id="durationChart"></canvas>
+            </div>
+
+            <div class="chart-box">
+                <div class="chart-title"><i class="fas fa-bullseye"></i> Conversion Rate</div>
+                <canvas id="conversionChart"></canvas>
+            </div>
+        </div>
+
+        <div class="call-list" id="callList">
+            <!-- Recent calls will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        // Charts
+        let callsChart, sentimentChart, durationChart, conversionChart;
+        
+        // Load initial data
+        document.addEventListener('DOMContentLoaded', () => {
+            loadData('today');
+            setInterval(() => loadData('today'), 30000); // Auto-refresh every 30 seconds
+        });
+
+        async function loadData(timeframe) {
+            try {
+                // Update active button
+                document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+                event.target.classList.add('active');
+
+                const response = await fetch(\`/analytics/data?timeframe=\${timeframe}\`);
+                const data = await response.json();
+
+                updateStats(data.stats);
+                updateCharts(data.charts);
+                updateCallList(data.recentCalls);
+
+            } catch (error) {
+                console.error('Error loading analytics:', error);
+            }
+        }
+
+        function updateStats(stats) {
+            const statsGrid = document.getElementById('statsGrid');
+            statsGrid.innerHTML = \`
+                <div class="stat-card">
+                    <div class="stat-number">\${stats.totalCalls}</div>
+                    <div>Total Calls</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">\${stats.averageDuration}s</div>
+                    <div>Avg Duration</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">\${stats.conversionRate}%</div>
+                    <div>Conversion Rate</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">\${stats.uniqueCallers}</div>
+                    <div>Unique Callers</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">\${stats.positiveSentiment}%</div>
+                    <div>Positive Calls</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">\${stats.appointments}</div>
+                    <div>Appointments</div>
+                </div>
+            \`;
+        }
+
+        function updateCharts(chartData) {
+            // Calls over time chart
+            if (callsChart) callsChart.destroy();
+            const callsCtx = document.getElementById('callsChart').getContext('2d');
+            callsChart = new Chart(callsCtx, {
+                type: 'line',
+                data: {
+                    labels: chartData.callsOverTime.labels,
+                    datasets: [{
+                        label: 'Calls',
+                        data: chartData.callsOverTime.data,
+                        borderColor: '#4f46e5',
+                        backgroundColor: 'rgba(79, 70, 229, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                }
+            });
+
+            // Sentiment chart
+            if (sentimentChart) sentimentChart.destroy();
+            const sentimentCtx = document.getElementById('sentimentChart').getContext('2d');
+            sentimentChart = new Chart(sentimentCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Positive', 'Neutral', 'Negative'],
+                    datasets: [{
+                        data: [chartData.sentiment.positive, chartData.sentiment.neutral, chartData.sentiment.negative],
+                        backgroundColor: ['#10b981', '#94a3b8', '#ef4444']
+                    }]
+                }
+            });
+
+            // Duration chart
+            if (durationChart) durationChart.destroy();
+            const durationCtx = document.getElementById('durationChart').getContext('2d');
+            durationChart = new Chart(durationCtx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.duration.labels,
+                    datasets: [{
+                        label: 'Duration (seconds)',
+                        data: chartData.duration.data,
+                        backgroundColor: '#8b5cf6'
+                    }]
+                }
+            });
+
+            // Conversion chart
+            if (conversionChart) conversionChart.destroy();
+            const conversionCtx = document.getElementById('conversionChart').getContext('2d');
+            conversionChart = new Chart(conversionCtx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.conversion.labels,
+                    datasets: [{
+                        label: 'Conversions',
+                        data: chartData.conversion.data,
+                        backgroundColor: '#10b981'
+                    }]
+                }
+            });
+        }
+
+        function updateCallList(calls) {
+            const callList = document.getElementById('callList');
+            callList.innerHTML = '<h2 style="margin-bottom: 20px;"><i class="fas fa-list"></i> Recent Calls</h2>';
+            
+            calls.forEach(call => {
+                const sentimentClass = \`sentiment-\${call.sentiment || 'neutral'}\`;
+                callList.innerHTML += \`
+                    <div class="call-item">
+                        <div class="call-header">
+                            <div>
+                                <span class="phone-number">\${call.phone}</span>
+                                <span class="sentiment \${sentimentClass}" style="margin-left: 10px;">
+                                    \${call.sentiment || 'neutral'}
+                                </span>
+                                \${call.conversion ? '<span class="conversion-badge" style="margin-left: 10px;">CONVERTED</span>' : ''}
+                            </div>
+                            <div>\${call.time}</div>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <strong>Path:</strong> \${call.path ? call.path.join(' → ') : 'N/A'}
+                        </div>
+                        <div style="margin-bottom: 5px;">
+                            <strong>Duration:</strong> \${call.duration || 0} seconds
+                        </div>
+                        <div style="margin-bottom: 5px;">
+                            <strong>Options selected:</strong> \${call.optionsSelected ? call.optionsSelected.join(', ') : 'None'}
+                        </div>
+                        \${call.transcript ? \`
+                            <div style="margin-top: 10px; padding: 10px; background: #f8fafc; border-radius: 5px;">
+                                <strong>Last message:</strong> "\${call.transcript.length > 100 ? call.transcript.substring(0, 100) + '...' : call.transcript}"
+                            </div>
+                        \` : ''}
+                    </div>
+                \`;
+            });
+        }
+    </script>
+</body>
+</html>
+`;
+
+// ======================================================
+// НОВЫЕ ЭНДПОИНТЫ ДЛЯ АНАЛИТИКИ
+// ======================================================
+
+// Dashboard аналитики (PROTECTED)
+app.get('/analytics-dashboard', requireArchiveAuth, (req, res) => {
+  res.send(ANALYTICS_HTML);
+});
+
+// API для данных аналитики (PROTECTED)
+app.get('/analytics/data', requireArchiveAuth, (req, res) => {
+  try {
+    const timeframe = req.query.timeframe || 'today';
+    
+    // Загружаем аналитику
+    let allAnalytics = [];
+    if (fs.existsSync(ANALYTICS_PATH)) {
+      const data = fs.readFileSync(ANALYTICS_PATH, "utf8");
+      allAnalytics = JSON.parse(data || '[]');
+    }
+    
+    // Фильтруем по времени
+    const filteredAnalytics = filterByTimeframe(allAnalytics, timeframe);
+    
+    // Вычисляем статистику
+    const stats = calculateStats(filteredAnalytics);
+    const charts = prepareChartData(filteredAnalytics);
+    
+    // Получаем недавние звонки
+    const recentCalls = filteredAnalytics
+      .slice(-20)
+      .reverse()
+      .map(call => ({
+        phone: call.phone,
+        time: call.endTime ? new Date(call.endTime).toLocaleTimeString() : 'N/A',
+        duration: call.totalDuration || 0,
+        sentiment: call.sentiment || 'neutral',
+        path: call.path || [],
+        optionsSelected: call.optionsSelected || [],
+        transcript: call.speechTranscripts && call.speechTranscripts.length > 0 
+          ? call.speechTranscripts[call.speechTranscripts.length - 1].text 
+          : '',
+        conversion: call.conversion || false
+      }));
+    
+    res.json({
+      success: true,
+      timeframe,
+      totalRecords: filteredAnalytics.length,
+      stats,
+      charts,
+      recentCalls
+    });
+    
+  } catch (error) {
+    console.error("Error loading analytics data:", error);
+    res.status(500).json({ error: "Failed to load analytics" });
+  }
+});
+
+// Вспомогательные функции для аналитики
+function filterByTimeframe(data, timeframe) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  return data.filter(item => {
+    const itemDate = new Date(item.endTime || item.timestamp || item.startTime);
+    
+    switch(timeframe) {
+      case 'today':
+        return itemDate >= today;
+      case 'week':
+        const weekAgo = new Date(today);
+        weekAgo.setDate(today.getDate() - 7);
+        return itemDate >= weekAgo;
+      case 'month':
+        const monthAgo = new Date(today);
+        monthAgo.setMonth(today.getMonth() - 1);
+        return itemDate >= monthAgo;
+      default:
+        return true; // all time
+    }
+  });
+}
+
+function calculateStats(data) {
+  if (data.length === 0) {
+    return {
+      totalCalls: 0,
+      averageDuration: 0,
+      conversionRate: 0,
+      uniqueCallers: 0,
+      positiveSentiment: 0,
+      appointments: 0
+    };
+  }
+  
+  const totalCalls = data.length;
+  const totalDuration = data.reduce((sum, call) => sum + (call.totalDuration || 0), 0);
+  const averageDuration = Math.round(totalDuration / totalCalls);
+  const conversions = data.filter(call => call.conversion).length;
+  const conversionRate = Math.round((conversions / totalCalls) * 100);
+  
+  const uniquePhones = new Set(data.map(call => call.phone));
+  
+  const positiveCalls = data.filter(call => call.sentiment === 'positive').length;
+  const positiveSentiment = Math.round((positiveCalls / totalCalls) * 100);
+  
+  // Загружаем appointments для статистики
+  let appointments = 0;
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      const appointmentsData = fs.readFileSync(DB_PATH, "utf8");
+      appointments = JSON.parse(appointmentsData || '[]').length;
+    }
+  } catch (e) {
+    console.error("Error loading appointments for stats:", e);
+  }
+  
+  return {
+    totalCalls,
+    averageDuration,
+    conversionRate,
+    uniqueCallers: uniquePhones.size,
+    positiveSentiment,
+    appointments
+  };
+}
+
+function prepareChartData(data) {
+  // Группируем по часам для графика звонков
+  const callsByHour = {};
+  for (let i = 0; i < 24; i++) {
+    callsByHour[i] = 0;
+  }
+  
+  data.forEach(call => {
+    const hour = new Date(call.startTime || call.timestamp).getHours();
+    callsByHour[hour]++;
+  });
+  
+  // Сентимент
+  const sentiment = {
+    positive: data.filter(c => c.sentiment === 'positive').length,
+    neutral: data.filter(c => c.sentiment === 'neutral').length,
+    negative: data.filter(c => c.sentiment === 'negative').length
+  };
+  
+  // Длительность звонков (группируем)
+  const durationRanges = ['<30s', '30-60s', '1-3m', '3-5m', '5-10m', '>10m'];
+  const durationCounts = [0, 0, 0, 0, 0, 0];
+  
+  data.forEach(call => {
+    const duration = call.totalDuration || 0;
+    if (duration < 30) durationCounts[0]++;
+    else if (duration < 60) durationCounts[1]++;
+    else if (duration < 180) durationCounts[2]++;
+    else if (duration < 300) durationCounts[3]++;
+    else if (duration < 600) durationCounts[4]++;
+    else durationCounts[5]++;
+  });
+  
+  // Конверсии по дням (последние 7 дней)
+  const conversionByDay = {};
+  const last7Days = [];
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    last7Days.push(dateStr);
+    conversionByDay[dateStr] = 0;
+  }
+  
+  data.forEach(call => {
+    if (call.conversion) {
+      const dateStr = new Date(call.endTime || call.timestamp).toISOString().split('T')[0];
+      if (conversionByDay[dateStr] !== undefined) {
+        conversionByDay[dateStr]++;
+      }
+    }
+  });
+  
+  return {
+    callsOverTime: {
+      labels: Object.keys(callsByHour).map(h => `${h}:00`),
+      data: Object.values(callsByHour)
+    },
+    sentiment,
+    duration: {
+      labels: durationRanges,
+      data: durationCounts
+    },
+    conversion: {
+      labels: last7Days.map(d => d.split('-')[2]), // только день
+      data: last7Days.map(d => conversionByDay[d] || 0)
+    }
+  };
+}
+
+// ======================================================
+// BEAUTIFUL ARCHIVE VIEWER HTML (ОБНОВЛЕННЫЙ)
 // ======================================================
 
 const ARCHIVE_VIEWER_HTML = `
@@ -1396,6 +2273,23 @@ const ARCHIVE_VIEWER_HTML = `
                 <i class="fas fa-bolt"></i>
                 INSTANT ARCHIVE - All calls saved immediately!
             </div>
+            <div class="badge" style="background: #10b981; margin-left: 10px;">
+                <i class="fas fa-chart-line"></i>
+                NEW: Analytics Dashboard Available!
+            </div>
+        </div>
+
+        <!-- Navigation -->
+        <div style="background: #f1f5f9; padding: 15px 40px; display: flex; gap: 10px; border-bottom: 1px solid #e2e8f0;">
+            <a href="/archive-viewer" style="padding: 10px 20px; background: #4f46e5; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                <i class="fas fa-archive"></i> Archive
+            </a>
+            <a href="/analytics-dashboard" style="padding: 10px 20px; background: #10b981; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                <i class="fas fa-chart-line"></i> Analytics Dashboard
+            </a>
+            <a href="/debug" style="padding: 10px 20px; background: #64748b; color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                <i class="fas fa-cogs"></i> Debug
+            </a>
         </div>
 
         <!-- Stats Bar -->
@@ -2001,7 +2895,8 @@ app.post('/voice', (req, res) => {
   
   logCall(phone, 'CALL_RECEIVED', {
     caller: phone,
-    time: new Date().toLocaleTimeString()
+    time: new Date().toLocaleTimeString(),
+    deviceType: detectDevice(req)
   });
   
   const gather = twiml.gather({
@@ -2078,7 +2973,10 @@ app.post('/handle-key', (req, res) => {
 
   console.log(`🔘 Menu option ${digit} - Phone: ${phone}`);
   
-  logCall(phone, `MENU_OPTION_${digit}`);
+  logCall(phone, `MENU_OPTION_${digit}`, {
+    option: digit,
+    deviceType: detectDevice(req)
+  });
 
   if (!digit) {
     twiml.say("Invalid input. Please try again.", { voice: 'alice', language: 'en-US' });
@@ -2272,6 +3170,9 @@ app.post('/record-voice-message', (req, res) => {
   console.log(`📝 Message: ${message.substring(0, 100)}...`);
   
   if (message && message.trim() !== '') {
+    // Сохраняем с транскрипцией
+    logVoiceMessage(phone, message);
+    
     try {
       twilioClient.messages.create({
         body: `🎤 AFTER-HOURS VOICE MESSAGE from ${phone}:\n\n"${message.substring(0, 300)}"`,
@@ -2285,7 +3186,9 @@ app.post('/record-voice-message', (req, res) => {
     
     logCall(phone, 'VOICE_MESSAGE_RECORDED', {
       messageLength: message.length,
-      preview: message.substring(0, 100)
+      preview: message.substring(0, 100),
+      sentiment: analyzeSentiment(message),
+      urgency: checkUrgency(message)
     });
     
     twiml.say(
@@ -2551,7 +3454,9 @@ app.post('/check-creative-question', (req, res) => {
     
     logCall(phone, 'SERIOUS_QUESTION_DETECTED', {
       question,
-      category: 'legal/money'
+      category: 'legal/money',
+      sentiment: analyzeSentiment(question),
+      urgency: checkUrgency(question)
     });
     
     try {
@@ -3122,7 +4027,7 @@ app.get('/daily-archives', requireArchiveAuth, (req, res) => {
     const dates = {};
     
     files.forEach(file => {
-      if (file.includes('calls-') || file.includes('appointments-') || file.includes('ai-') || file.includes('reminders-')) {
+      if (file.includes('calls-') || file.includes('appointments-') || file.includes('ai-') || file.includes('reminders-') || file.includes('voice_messages-')) {
         const date = file.split('-').slice(1, 4).join('-').replace('.json', '');
         const type = file.split('-')[0];
         
@@ -3131,7 +4036,8 @@ app.get('/daily-archives', requireArchiveAuth, (req, res) => {
             calls: false,
             appointments: false,
             ai: false,
-            reminders: false
+            reminders: false,
+            voice_messages: false
           };
         }
         
@@ -3139,6 +4045,7 @@ app.get('/daily-archives', requireArchiveAuth, (req, res) => {
         if (type === 'appointments') dates[date].appointments = true;
         if (type === 'ai') dates[date].ai = true;
         if (type === 'reminders') dates[date].reminders = true;
+        if (type === 'voice_messages') dates[date].voice_messages = true;
       }
     });
     
@@ -3159,7 +4066,8 @@ app.get('/daily-archives', requireArchiveAuth, (req, res) => {
           calls: `/daily-archives/${date}/calls`,
           appointments: `/daily-archives/${date}/appointments`,
           ai: `/daily-archives/${date}/ai`,
-          reminders: `/daily-archives/${date}/reminders`
+          reminders: `/daily-archives/${date}/reminders`,
+          voice_messages: `/daily-archives/${date}/voice_messages`
         }
       })),
       lastUpdated: new Date().toISOString(),
@@ -3257,6 +4165,7 @@ app.get('/debug', (req, res) => {
   let callLogs = [];
   let aiConversations = [];
   let reminderLogs = [];
+  let analyticsData = [];
   
   try {
     if (fs.existsSync(CALL_LOGS_PATH)) {
@@ -3272,6 +4181,11 @@ app.get('/debug', (req, res) => {
     if (fs.existsSync(REMINDERS_LOG)) {
       const remData = fs.readFileSync(REMINDERS_LOG, "utf8");
       reminderLogs = JSON.parse(remData || '[]');
+    }
+    
+    if (fs.existsSync(ANALYTICS_PATH)) {
+      const analytics = fs.readFileSync(ANALYTICS_PATH, "utf8");
+      analyticsData = JSON.parse(analytics || '[]');
     }
   } catch (error) {
     console.error("ERROR loading logs:", error);
@@ -3295,6 +4209,13 @@ app.get('/debug', (req, res) => {
     console.error("ERROR loading daily archives:", error);
   }
   
+  // Calculate analytics stats
+  const totalCalls = analyticsData.length;
+  const successfulCalls = analyticsData.filter(a => a.conversion).length;
+  const conversionRate = totalCalls > 0 ? Math.round((successfulCalls / totalCalls) * 100) : 0;
+  const averageDuration = totalCalls > 0 ? 
+    Math.round(analyticsData.reduce((sum, a) => sum + (a.totalDuration || 0), 0) / totalCalls) : 0;
+  
   res.json({
     status: 'running',
     businessStatus,
@@ -3314,20 +4235,37 @@ app.get('/debug', (req, res) => {
       total: reminderLogs.length,
       recent: reminderLogs.slice(-10)
     },
+    analytics: {
+      totalCalls,
+      successfulCalls,
+      conversionRate: `${conversionRate}%`,
+      averageDuration: `${averageDuration}s`,
+      recentJourneys: analyticsData.slice(-10).map(a => ({
+        phone: a.phone,
+        duration: a.totalDuration,
+        conversion: a.conversion,
+        sentiment: a.sentiment,
+        path: a.path ? a.path.slice(-5) : []
+      }))
+    },
     dailyArchives: {
       totalDates: dailyArchives.length,
       dates: dailyArchives.slice(0, 10),
       allDates: `/daily-archives`,
       beautifulViewer: `/archive-viewer`,
+      analyticsDashboard: `/analytics-dashboard`,
       security: 'PROTECTED - Requires authentication'
     },
     systemInfo: {
       archiveMode: 'INSTANT (saves immediately after call)',
+      analyticsMode: 'REAL-TIME (tracks user journey)',
       storage: {
         calls: `${DAILY_LOGS_DIR}/calls-YYYY-MM-DD.json`,
         appointments: `${DAILY_LOGS_DIR}/appointments-YYYY-MM-DD.json`,
         ai: `${DAILY_LOGS_DIR}/ai-YYYY-MM-DD.json`,
-        reminders: `${DAILY_LOGS_DIR}/reminders-YYYY-MM-DD.json`
+        reminders: `${DAILY_LOGS_DIR}/reminders-YYYY-MM-DD.json`,
+        voice_messages: `${DAILY_LOGS_DIR}/voice_messages-YYYY-MM-DD.json`,
+        analytics: `${ANALYTICS_DIR}/analytics-YYYY-MM-DD.json`
       }
     },
     nextAvailableDate: getNextAvailableDate(),
@@ -3343,7 +4281,7 @@ app.get('/debug', (req, res) => {
     selfPing: process.env.FREE_PLAN === 'true' ? 'Active (4 min interval)' : 'Inactive',
     security: {
       archiveProtection: 'ACTIVE (Basic Auth)',
-      defaultUsername: 'admin',
+      defaultUsername: 'altair_admin',
       note: 'Set ARCHIVE_USERNAME and ARCHIVE_PASSWORD in .env to change'
     }
   });
@@ -3367,11 +4305,12 @@ app.get('/', (req, res) => {
           li { padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
           a { color: #4f46e5; text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 10px; }
           a:hover { color: #7c3aed; text-decoration: underline; }
-          .archive-info { background: linear-gradient(to right, #fef3c7, #fde68a); padding: 15px; border-radius: 10px; margin: 15px 0; border: 2px solid #f59e0b; }
+          .analytics-info { background: linear-gradient(to right, #dbeafe, #93c5fd); padding: 15px; border-radius: 10px; margin: 15px 0; border: 2px solid #3b82f6; }
           .instant-badge { background: linear-gradient(to right, #10b981, #34d399); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
           .cta-button { display: inline-block; background: linear-gradient(to right, #4f46e5, #7c3aed); color: white; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 600; margin: 10px 5px; transition: all 0.3s ease; }
           .cta-button:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3); text-decoration: none; }
           .security-badge { background: linear-gradient(to right, #ef4444, #f97316); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; }
+          .analytics-badge { background: linear-gradient(to right, #8b5cf6, #a78bfa); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; }
           h1 { color: #1e293b; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
         </style>
       </head>
@@ -3390,28 +4329,37 @@ app.get('/', (req, res) => {
             <p>${businessStatus.isOpen ? '✅ Currently open' : '⏰ ' + businessStatus.nextOpenTime}</p>
           </div>
           
-          <div class="archive-info">
-            <h3 style="color: #92400e; margin-top: 0;">📦 NEW! Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span> <span class="security-badge">🔒 SECURE</span></h3>
-            <p><strong>Now with beautiful interface with buttons AND PASSWORD PROTECTION!</strong></p>
-            <p>• 📊 Charts and statistics</p>
-            <p>• 🔍 Search by dates and phone numbers</p>
-            <p>• 🎨 Animations and beautiful cards</p>
-            <p>• 📱 Responsive design for phone</p>
-            <p>• 🔒 PASSWORD PROTECTED - No public access</p>
+          <div class="analytics-info">
+            <h3 style="color: #1e40af; margin-top: 0;">📈 NEW! Advanced Analytics Dashboard <span class="analytics-badge">📊 ANALYTICS</span></h3>
+            <p><strong>Real-time call tracking and user journey analysis!</strong></p>
+            <p>• 📊 Charts and statistics in real-time</p>
+            <p>• 🎯 Conversion rate tracking</p>
+            <p>• 😊 Customer sentiment analysis</p>
+            <p>• ⏱️ Call duration analytics</p>
+            <p>• 🗺️ User journey visualization</p>
             <p style="margin-top: 10px;">
-              <a href="/archive-viewer" class="cta-button">
-                🚀 Open Beautiful Archive
+              <a href="/analytics-dashboard" class="cta-button">
+                📈 Open Analytics Dashboard
+              </a>
+              <a href="/archive-viewer" class="cta-button" style="background: linear-gradient(to right, #10b981, #34d399);">
+                🗂️ Open Archive Viewer
               </a>
             </p>
           </div>
           
           <div class="endpoints">
-            <h3 style="color: #1e293b;">📁 Main Endpoints:</h3>
+            <h3 style="color: #1e293b;">📊 Analytics Endpoints:</h3>
             <ul>
-              <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🎨</span> /archive-viewer</a> - Beautiful archive with buttons! <span class="security-badge">🔒</span></li>
+              <li><a href="/analytics-dashboard"><span style="font-size: 1.2rem;">📈</span> /analytics-dashboard</a> - Advanced analytics with charts! <span class="security-badge">🔒</span></li>
+              <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🗂️</span> /archive-viewer</a> - Beautiful archive with buttons! <span class="security-badge">🔒</span></li>
               <li><a href="/daily-archives"><span style="font-size: 1.2rem;">📊</span> /daily-archives</a> - All archives by days (JSON) <span class="security-badge">🔒</span></li>
+            </ul>
+            
+            <h3 style="color: #1e293b; margin-top: 25px;">🔧 System Endpoints:</h3>
+            <ul>
               <li><a href="/debug"><span style="font-size: 1.2rem;">🔧</span> /debug</a> - Debug info</li>
               <li><a href="/health"><span style="font-size: 1.2rem;">❤️</span> /health</a> - Health check</li>
+              <li><a href="/business-status"><span style="font-size: 1.2rem;">🏢</span> /business-status</a> - Business hours check</li>
             </ul>
             
             <h3 style="color: #1e293b; margin-top: 25px;">📋 Data Endpoints:</h3>
@@ -3420,19 +4368,21 @@ app.get('/', (req, res) => {
               <li><a href="/appointments"><span style="font-size: 1.2rem;">📅</span> /appointments</a> - All appointments</li>
               <li><a href="/conversations"><span style="font-size: 1.2rem;">🤖</span> /conversations</a> - AI conversations</li>
               <li><a href="/reminders"><span style="font-size: 1.2rem;">⏰</span> /reminders</a> - Reminder logs</li>
-              <li><a href="/business-status"><span style="font-size: 1.2rem;">🏢</span> /business-status</a> - Business hours check</li>
             </ul>
           </div>
           
           <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
             <p><strong>Twilio Webhook:</strong> POST /voice</p>
+            <p><strong>📈 Analytics System:</strong> Tracks user journey, sentiment, conversions</p>
             <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
             <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
             <p><strong>🔔 Test reminder:</strong> POST /test-reminder?phone=+15034448881</p>
             <p><strong>📦 Archiving:</strong> <span class="instant-badge">INSTANT MODE</span> (immediately after call)</p>
-            <p><strong>🔒 Archive Security:</strong> Password protected (username: admin)</p>
+            <p><strong>📊 Analytics:</strong> <span class="instant-badge">REAL-TIME</span> (user journey tracking)</p>
+            <p><strong>🔒 Archive Security:</strong> Password protected (username: altair_admin)</p>
             <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}</p>
             <p><strong>📞 Test call:</strong> +1 (503) 444-8881</p>
+            <p><strong>🔑 Default password:</strong> altair_admin / AltairSecure2024!@#$</p>
           </div>
         </div>
       </body>
@@ -3525,9 +4475,12 @@ app.listen(PORT, () => {
   console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
-  console.log(`\n🎨 BEAUTIFUL ARCHIVE VIEWER:`);
+  console.log(`\n📊 ADVANCED ANALYTICS DASHBOARD:`);
+  console.log(`✅ ${serverUrl}/analytics-dashboard - REAL-TIME CHARTS & STATISTICS!`);
+  console.log(`📈 Features: Conversion tracking, sentiment analysis, user journey`);
+  console.log(`\n🗂️ BEAUTIFUL ARCHIVE VIEWER:`);
   console.log(`✅ ${serverUrl}/archive-viewer - BEAUTIFUL INTERFACE WITH BUTTONS!`);
-  console.log(`🔒 PROTECTED with password: admin / ChangeThisPassword123!`);
+  console.log(`🔒 PROTECTED with password: altair_admin / AltairSecure2024!@#$`);
   console.log(`\n📊 Main endpoints:`);
   console.log(`✅ Health check: ${serverUrl}/health`);
   console.log(`✅ Debug: ${serverUrl}/debug`);
@@ -3542,7 +4495,9 @@ app.listen(PORT, () => {
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
   console.log(`🤖 AI Representative is ready (fast mode)`);
   console.log(`📝 INSTANT ARCHIVE SYSTEM: All data saved immediately after call!`);
+  console.log(`📊 ADVANCED ANALYTICS: Real-time user journey tracking!`);
   console.log(`📁 Archives location: ./logs/daily/`);
+  console.log(`📈 Analytics location: ./logs/analytics/`);
   console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
   console.log(`🔄 Check interval: Every 5 minutes`);
   console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
@@ -3550,21 +4505,23 @@ app.listen(PORT, () => {
   console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}`);
   console.log(`\n🔒 SECURITY INFORMATION:`);
   console.log(`✅ Archive protection: ACTIVE (Basic Auth)`);
-  console.log(`✅ Default username: admin`);
-  console.log(`✅ Default password: ChangeThisPassword123!`);
+  console.log(`✅ Default username: altair_admin`);
+  console.log(`✅ Default password: AltairSecure2024!@#$`);
   console.log(`⚠️ IMPORTANT: Change password in .env file with:`);
   console.log(`   ARCHIVE_USERNAME=yourusername`);
   console.log(`   ARCHIVE_PASSWORD=yourstrongpassword`);
-  console.log(`\n🔥 NEW: Beautiful archive-viewer available at: ${serverUrl}/archive-viewer`);
-  console.log(`🎉 Now with buttons, animations, and beautiful design - AND SECURE!`);
+  console.log(`\n🔥 NEW FEATURES:`);
+  console.log(`✅ Advanced Analytics Dashboard with real-time charts`);
+  console.log(`✅ User journey tracking and sentiment analysis`);
+  console.log(`✅ Conversion rate tracking and call duration analytics`);
+  console.log(`✅ Voice message transcription and analysis`);
+  console.log(`✅ Beautiful responsive design for all devices`);
   
   // Start reminder scheduler
   startReminderScheduler();
   
-  // Start daily archiver
-  startDailyArchiver();
-  
   console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - All calls will be saved immediately!`);
-  console.log(`✅ BEAUTIFUL ARCHIVE VIEWER READY - Open in browser and enjoy!`);
+  console.log(`✅ ADVANCED ANALYTICS READY - Real-time tracking and analysis!`);
+  console.log(`✅ BEAUTIFUL DASHBOARDS READY - Open in browser and enjoy!`);
   console.log(`✅ SECURITY PROTECTION ACTIVE - Archives are password protected!`);
 });
