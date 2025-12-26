@@ -14,10 +14,10 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // ======================================================
-// SECURITY: PASSWORD PROTECTION FOR ARCHIVES
+// SECURITY: PASSWORD PROTECTION FOR ALL DASHBOARDS
 // ======================================================
 
-function requireArchiveAuth(req, res, next) {
+function requireAuth(req, res, next) {
   const AUTH_USERNAME = process.env.ARCHIVE_USERNAME || 'altair_admin';
   const AUTH_PASSWORD = process.env.ARCHIVE_PASSWORD || 'AltairSecure2024!@#$';
   
@@ -26,11 +26,11 @@ function requireArchiveAuth(req, res, next) {
   if (!user || user.name !== AUTH_USERNAME || user.pass !== AUTH_PASSWORD) {
     console.log(`🔒 Unauthorized access attempt from IP: ${req.ip} - User: ${user ? user.name : 'none'}`);
     
-    res.set('WWW-Authenticate', 'Basic realm="Altair Partners Archive - Secure Access"');
+    res.set('WWW-Authenticate', 'Basic realm="Altair Partners - Secure Dashboard Access"');
     return res.status(401).send(`
       <html>
         <head>
-          <title>🔒 401 - Secure Archive Access</title>
+          <title>🔒 401 - Secure Dashboard Access</title>
           <style>
             body { 
               font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -111,36 +111,1852 @@ function requireArchiveAuth(req, res, next) {
         <body>
           <div class="auth-box">
             <div class="lock-icon">🔒</div>
-            <h1>Secure Archive Access</h1>
-            <p class="subtitle">This archive contains confidential call data and is password protected</p>
-            
-            <div class="credentials">
-              <div class="cred-item">
-                <span class="label">Username:</span>
-                <span class="value">${AUTH_USERNAME}</span>
-              </div>
-              <div class="cred-item">
-                <span class="label">Password:</span>
-                <span class="value">•••••••••••</span>
-              </div>
-            </div>
+            <h1>Secure Dashboard Access</h1>
+            <p class="subtitle">All dashboards are password protected for security</p>
             
             <div class="warning">
-              ⚠️ <strong>SECURITY NOTICE:</strong> All access attempts are logged and monitored.
+              ⚠️ <strong>SECURITY NOTICE:</strong> Change default credentials in .env file!
               Unauthorized access is strictly prohibited.
             </div>
             
             <p class="note">Access restricted to Altair Partners authorized personnel only.</p>
-            <p class="note">Please contact the system administrator if you need credentials.</p>
+            <p class="note">Contact system administrator for credentials.</p>
           </div>
         </body>
       </html>
     `);
   }
   
-  console.log(`🔓 Authorized archive access from ${req.ip} - User: ${user.name}`);
+  console.log(`🔓 Authorized dashboard access from ${req.ip} - User: ${user.name}`);
   next();
 }
+
+// ======================================================
+// ЕДИНЫЙ SECURE DASHBOARD (ВСЕ В ОДНОМ ОКНЕ)
+// ======================================================
+
+app.get('/dashboard', requireAuth, (req, res) => {
+  const dashboardHTML = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>📊 Altair Partners - Secure Dashboard</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+      <style>
+          * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+          }
+
+          body {
+              background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+              min-height: 100vh;
+              padding: 20px;
+              color: white;
+          }
+
+          .container {
+              max-width: 1400px;
+              margin: 0 auto;
+              background: rgba(255, 255, 255, 0.95);
+              border-radius: 20px;
+              box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+              overflow: hidden;
+              color: #333;
+          }
+
+          .header {
+              background: linear-gradient(to right, #4f46e5, #7c3aed);
+              color: white;
+              padding: 30px 40px;
+              border-bottom: 1px solid rgba(255,255,255,0.1);
+          }
+
+          .header h1 {
+              font-size: 2.5rem;
+              margin-bottom: 10px;
+              display: flex;
+              align-items: center;
+              gap: 15px;
+          }
+
+          .security-banner {
+              background: #fee2e2;
+              color: #991b1b;
+              padding: 15px;
+              border-radius: 10px;
+              margin: 20px 0;
+              border: 2px solid #ef4444;
+              text-align: center;
+              font-weight: 600;
+          }
+
+          .dashboard-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+              gap: 25px;
+              padding: 30px;
+          }
+
+          .dashboard-card {
+              background: white;
+              padding: 30px;
+              border-radius: 15px;
+              box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+              transition: all 0.3s ease;
+              border: 2px solid #e2e8f0;
+              text-align: center;
+          }
+
+          .dashboard-card:hover {
+              transform: translateY(-10px);
+              box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+          }
+
+          .card-icon {
+              font-size: 3.5rem;
+              margin-bottom: 20px;
+              height: 80px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+          }
+
+          .card-title {
+              font-size: 1.8rem;
+              font-weight: 700;
+              margin-bottom: 15px;
+              color: #1e293b;
+          }
+
+          .card-description {
+              color: #64748b;
+              margin-bottom: 25px;
+              line-height: 1.6;
+          }
+
+          .card-btn {
+              display: inline-block;
+              padding: 12px 30px;
+              background: linear-gradient(to right, #4f46e5, #7c3aed);
+              color: white;
+              text-decoration: none;
+              border-radius: 10px;
+              font-weight: 600;
+              font-size: 1.1rem;
+              transition: all 0.3s ease;
+              border: none;
+              cursor: pointer;
+              width: 100%;
+          }
+
+          .card-btn:hover {
+              background: linear-gradient(to right, #4338ca, #6d28d9);
+              transform: translateY(-2px);
+              box-shadow: 0 5px 15px rgba(79, 70, 229, 0.4);
+          }
+
+          .system-status {
+              background: #f8fafc;
+              padding: 25px;
+              border-radius: 15px;
+              margin: 30px;
+              border-left: 5px solid #10b981;
+          }
+
+          .status-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+              gap: 15px;
+              margin-top: 15px;
+          }
+
+          .status-item {
+              background: white;
+              padding: 15px;
+              border-radius: 10px;
+              text-align: center;
+              border: 1px solid #e2e8f0;
+          }
+
+          .status-label {
+              color: #64748b;
+              font-size: 0.9rem;
+              margin-bottom: 5px;
+          }
+
+          .status-value {
+              color: #1e293b;
+              font-size: 1.3rem;
+              font-weight: 700;
+          }
+
+          .active {
+              color: #10b981;
+          }
+
+          .inactive {
+              color: #ef4444;
+          }
+
+          .logout-btn {
+              display: block;
+              width: 200px;
+              margin: 30px auto;
+              padding: 12px;
+              background: #64748b;
+              color: white;
+              text-align: center;
+              border-radius: 10px;
+              text-decoration: none;
+              font-weight: 600;
+              transition: all 0.3s ease;
+          }
+
+          .logout-btn:hover {
+              background: #475569;
+          }
+
+          .iframe-container {
+              display: none;
+              position: fixed;
+              top: 0;
+              left: 0;
+              width: 100%;
+              height: 100%;
+              background: rgba(0,0,0,0.9);
+              z-index: 1000;
+              padding: 20px;
+          }
+
+          .iframe-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              background: #1e293b;
+              color: white;
+              padding: 15px 20px;
+              border-radius: 10px 10px 0 0;
+          }
+
+          .close-btn {
+              background: #ef4444;
+              color: white;
+              border: none;
+              padding: 8px 15px;
+              border-radius: 5px;
+              cursor: pointer;
+              font-weight: 600;
+          }
+
+          .iframe-content {
+              background: white;
+              height: calc(100vh - 100px);
+              border-radius: 0 0 10px 10px;
+              overflow: hidden;
+          }
+
+          iframe {
+              width: 100%;
+              height: 100%;
+              border: none;
+          }
+
+          @media (max-width: 768px) {
+              .dashboard-grid {
+                  grid-template-columns: 1fr;
+                  padding: 15px;
+              }
+              
+              .header h1 {
+                  font-size: 2rem;
+              }
+              
+              .card-title {
+                  font-size: 1.5rem;
+              }
+          }
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <!-- Header -->
+          <div class="header">
+              <h1>
+                  <i class="fas fa-shield-alt"></i>
+                  Altair Partners - Secure Dashboard
+              </h1>
+              <p>All systems in one secure location</p>
+          </div>
+
+          <!-- Security Banner -->
+          <div class="security-banner">
+              🔒 SECURE ACCESS | Username: altair_admin | Password: AltairSecure2024!@#$ | Change in .env file
+          </div>
+
+          <!-- Dashboard Grid -->
+          <div class="dashboard-grid">
+              <!-- Analytics Card -->
+              <div class="dashboard-card">
+                  <div class="card-icon" style="color: #4f46e5;">
+                      <i class="fas fa-chart-line"></i>
+                  </div>
+                  <div class="card-title">📈 Analytics Dashboard</div>
+                  <div class="card-description">
+                      Real-time call analytics, charts, and statistics. Track conversions, sentiment, and performance.
+                  </div>
+                  <button class="card-btn" onclick="openDashboard('analytics')">
+                      <i class="fas fa-external-link-alt"></i> Open Analytics
+                  </button>
+              </div>
+
+              <!-- Callbacks Card -->
+              <div class="dashboard-card">
+                  <div class="card-icon" style="color: #10b981;">
+                      <i class="fas fa-phone"></i>
+                  </div>
+                  <div class="card-title">📞 Callback Requests</div>
+                  <div class="card-description">
+                      View and manage all callback requests from customers. Mark as completed, call back, or delete.
+                  </div>
+                  <button class="card-btn" onclick="openDashboard('callbacks')">
+                      <i class="fas fa-external-link-alt"></i> View Callbacks
+                  </button>
+              </div>
+
+              <!-- Voicemails Card -->
+              <div class="dashboard-card">
+                  <div class="card-icon" style="color: #0d9488;">
+                      <i class="fas fa-microphone"></i>
+                  </div>
+                  <div class="card-title">🎤 Voicemail Dashboard</div>
+                  <div class="card-description">
+                      Listen to voicemail recordings from customers. Play audio, read transcripts, manage messages.
+                  </div>
+                  <button class="card-btn" onclick="openDashboard('voicemails')">
+                      <i class="fas fa-external-link-alt"></i> View Voicemails
+                  </button>
+              </div>
+
+              <!-- Archive Card -->
+              <div class="dashboard-card">
+                  <div class="card-icon" style="color: #8b5cf6;">
+                      <i class="fas fa-archive"></i>
+                  </div>
+                  <div class="card-title">🗂️ Archive Viewer</div>
+                  <div class="card-description">
+                      Browse all call logs, appointments, and system archives. Search and filter historical data.
+                  </div>
+                  <button class="card-btn" onclick="openDashboard('archive')">
+                      <i class="fas fa-external-link-alt"></i> Open Archive
+                  </button>
+              </div>
+
+              <!-- Debug Card -->
+              <div class="dashboard-card">
+                  <div class="card-icon" style="color: #f59e0b;">
+                      <i class="fas fa-cogs"></i>
+                  </div>
+                  <div class="card-title">🔧 System Debug</div>
+                  <div class="card-description">
+                      Technical dashboard for system monitoring, logs, and debugging. Check server status and errors.
+                  </div>
+                  <button class="card-btn" onclick="openDashboard('debug')">
+                      <i class="fas fa-external-link-alt"></i> Open Debug
+                  </button>
+              </div>
+
+              <!-- Appointments Card -->
+              <div class="dashboard-card">
+                  <div class="card-icon" style="color: #ef4444;">
+                      <i class="fas fa-calendar-check"></i>
+                  </div>
+                  <div class="card-title">📅 Appointments</div>
+                  <div class="card-description">
+                      View all scheduled appointments. See upcoming meetings, dates, times, and client information.
+                  </div>
+                  <button class="card-btn" onclick="openDashboard('appointments')">
+                      <i class="fas fa-external-link-alt"></i> View Appointments
+                  </button>
+              </div>
+          </div>
+
+          <!-- System Status -->
+          <div class="system-status">
+              <h3 style="color: #1e293b; margin-bottom: 15px;"><i class="fas fa-server"></i> System Status</h3>
+              <div class="status-grid" id="systemStatus">
+                  <div class="status-item">
+                      <div class="status-label">Server</div>
+                      <div class="status-value active">ONLINE</div>
+                  </div>
+                  <div class="status-item">
+                      <div class="status-label">IVR System</div>
+                      <div class="status-value active">RUNNING</div>
+                  </div>
+                  <div class="status-item">
+                      <div class="status-label">Database</div>
+                      <div class="status-value active">ACTIVE</div>
+                  </div>
+                  <div class="status-item">
+                      <div class="status-label">SMS Alerts</div>
+                      <div class="status-value active">ENABLED</div>
+                  </div>
+              </div>
+          </div>
+
+          <!-- Logout -->
+          <a href="/" class="logout-btn">
+              <i class="fas fa-sign-out-alt"></i> Back to Main Page
+          </a>
+      </div>
+
+      <!-- Dashboard Container (Hidden until clicked) -->
+      <div class="iframe-container" id="dashboardContainer">
+          <div class="iframe-header">
+              <div id="dashboardTitle">Dashboard</div>
+              <button class="close-btn" onclick="closeDashboard()">
+                  <i class="fas fa-times"></i> Close
+              </button>
+          </div>
+          <div class="iframe-content">
+              <iframe id="dashboardFrame" src=""></iframe>
+          </div>
+      </div>
+
+      <script>
+          // Dashboard URLs mapping
+          const dashboardUrls = {
+              'analytics': '/analytics-dashboard',
+              'callbacks': '/callbacks-dashboard',
+              'voicemails': '/voicemails-dashboard',
+              'archive': '/archive-viewer',
+              'debug': '/debug',
+              'appointments': '/appointments-viewer'
+          };
+
+          const dashboardTitles = {
+              'analytics': '📈 Analytics Dashboard',
+              'callbacks': '📞 Callback Requests',
+              'voicemails': '🎤 Voicemail Dashboard',
+              'archive': '🗂️ Archive Viewer',
+              'debug': '🔧 System Debug',
+              'appointments': '📅 Appointments'
+          };
+
+          function openDashboard(type) {
+              const url = dashboardUrls[type];
+              const title = dashboardTitles[type];
+              
+              if (!url) {
+                  alert('Dashboard not available');
+                  return;
+              }
+
+              document.getElementById('dashboardTitle').textContent = title;
+              document.getElementById('dashboardFrame').src = url;
+              document.getElementById('dashboardContainer').style.display = 'block';
+              document.body.style.overflow = 'hidden';
+          }
+
+          function closeDashboard() {
+              document.getElementById('dashboardContainer').style.display = 'none';
+              document.getElementById('dashboardFrame').src = '';
+              document.body.style.overflow = 'auto';
+          }
+
+          // Close with ESC key
+          document.addEventListener('keydown', function(event) {
+              if (event.key === 'Escape') {
+                  closeDashboard();
+              }
+          });
+
+          // Check system status on load
+          window.addEventListener('load', function() {
+              fetch('/health')
+                  .then(response => {
+                      if (!response.ok) {
+                          document.querySelectorAll('.status-value')[0].textContent = 'OFFLINE';
+                          document.querySelectorAll('.status-value')[0].className = 'status-value inactive';
+                      }
+                  })
+                  .catch(error => {
+                      document.querySelectorAll('.status-value')[0].textContent = 'OFFLINE';
+                      document.querySelectorAll('.status-value')[0].className = 'status-value inactive';
+                  });
+          });
+      </script>
+  </body>
+  </html>
+  `;
+  
+  res.send(dashboardHTML);
+});
+
+// ======================================================
+// ARCHIVE VIEWER (РАБОТАЮЩИЙ)
+// ======================================================
+
+app.get('/archive-viewer', requireAuth, (req, res) => {
+  const archiveHTML = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>🗂️ Archive Viewer - Altair Partners</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+      <style>
+          * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+          }
+
+          body {
+              background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+              min-height: 100vh;
+              padding: 20px;
+              color: white;
+          }
+
+          .container {
+              max-width: 1400px;
+              margin: 0 auto;
+              background: rgba(255, 255, 255, 0.95);
+              border-radius: 20px;
+              box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+              overflow: hidden;
+              color: #333;
+          }
+
+          .header {
+              background: linear-gradient(to right, #8b5cf6, #a78bfa);
+              color: white;
+              padding: 30px 40px;
+              border-bottom: 1px solid rgba(255,255,255,0.1);
+          }
+
+          .header h1 {
+              font-size: 2.5rem;
+              margin-bottom: 10px;
+              display: flex;
+              align-items: center;
+              gap: 15px;
+          }
+
+          .back-btn {
+              position: absolute;
+              top: 30px;
+              right: 40px;
+              padding: 10px 20px;
+              background: white;
+              color: #8b5cf6;
+              border-radius: 10px;
+              text-decoration: none;
+              font-weight: 600;
+              transition: all 0.3s ease;
+          }
+
+          .back-btn:hover {
+              background: #f8fafc;
+              transform: translateY(-2px);
+          }
+
+          .archive-tabs {
+              display: flex;
+              background: #f1f5f9;
+              padding: 0;
+              border-bottom: 1px solid #e2e8f0;
+              flex-wrap: wrap;
+          }
+
+          .tab {
+              padding: 15px 30px;
+              background: transparent;
+              border: none;
+              font-size: 1rem;
+              font-weight: 600;
+              color: #64748b;
+              cursor: pointer;
+              transition: all 0.3s ease;
+              border-bottom: 3px solid transparent;
+          }
+
+          .tab:hover {
+              background: #e2e8f0;
+              color: #475569;
+          }
+
+          .tab.active {
+              background: white;
+              color: #8b5cf6;
+              border-bottom: 3px solid #8b5cf6;
+          }
+
+          .content-area {
+              padding: 30px;
+              min-height: 500px;
+          }
+
+          .loading {
+              text-align: center;
+              padding: 60px;
+              color: #64748b;
+              font-size: 1.2rem;
+          }
+
+          .loader {
+              width: 50px;
+              height: 50px;
+              border: 4px solid #e2e8f0;
+              border-top: 4px solid #8b5cf6;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+              margin: 0 auto 20px;
+          }
+
+          @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+          }
+
+          .data-table {
+              width: 100%;
+              border-collapse: collapse;
+              background: white;
+              border-radius: 10px;
+              overflow: hidden;
+              box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+          }
+
+          .data-table th {
+              background: #8b5cf6;
+              color: white;
+              padding: 15px;
+              text-align: left;
+              font-weight: 600;
+          }
+
+          .data-table td {
+              padding: 12px 15px;
+              border-bottom: 1px solid #e2e8f0;
+          }
+
+          .data-table tr:hover {
+              background: #f8fafc;
+          }
+
+          .no-data {
+              text-align: center;
+              padding: 60px;
+              color: #64748b;
+              font-size: 1.2rem;
+          }
+
+          .date-picker {
+              padding: 10px 15px;
+              border: 2px solid #cbd5e1;
+              border-radius: 10px;
+              margin: 0 10px;
+              font-size: 1rem;
+          }
+
+          .search-box {
+              padding: 10px 15px;
+              border: 2px solid #cbd5e1;
+              border-radius: 10px;
+              font-size: 1rem;
+              min-width: 300px;
+              margin: 0 10px;
+          }
+
+          .controls {
+              padding: 20px;
+              background: white;
+              border-bottom: 1px solid #e2e8f0;
+              display: flex;
+              gap: 10px;
+              align-items: center;
+              flex-wrap: wrap;
+          }
+
+          .action-btn {
+              padding: 10px 20px;
+              background: #8b5cf6;
+              color: white;
+              border: none;
+              border-radius: 10px;
+              font-weight: 600;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              transition: all 0.3s ease;
+          }
+
+          .action-btn:hover {
+              background: #7c3aed;
+              transform: translateY(-2px);
+          }
+
+          @media (max-width: 768px) {
+              .header h1 {
+                  font-size: 2rem;
+              }
+              
+              .archive-tabs {
+                  flex-direction: column;
+              }
+              
+              .tab {
+                  width: 100%;
+                  text-align: left;
+              }
+              
+              .search-box {
+                  min-width: 200px;
+              }
+          }
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <!-- Header -->
+          <div class="header">
+              <h1>
+                  <i class="fas fa-archive"></i>
+                  Archive Viewer
+              </h1>
+              <p>Browse all call logs, appointments, and system archives</p>
+              <a href="/dashboard" class="back-btn">
+                  <i class="fas fa-arrow-left"></i> Back to Dashboard
+              </a>
+          </div>
+
+          <!-- Tabs -->
+          <div class="archive-tabs">
+              <button class="tab active" onclick="loadArchive('calls')">
+                  <i class="fas fa-phone"></i> Call Logs
+              </button>
+              <button class="tab" onclick="loadArchive('appointments')">
+                  <i class="fas fa-calendar"></i> Appointments
+              </button>
+              <button class="tab" onclick="loadArchive('ai')">
+                  <i class="fas fa-robot"></i> AI Conversations
+              </button>
+              <button class="tab" onclick="loadArchive('reminders')">
+                  <i class="fas fa-bell"></i> Reminders
+              </button>
+          </div>
+
+          <!-- Controls -->
+          <div class="controls">
+              <input type="date" class="date-picker" id="datePicker">
+              <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search...">
+              <button class="action-btn" onclick="loadCurrentArchive()">
+                  <i class="fas fa-sync-alt"></i> Refresh
+              </button>
+              <button class="action-btn" onclick="exportArchive()">
+                  <i class="fas fa-download"></i> Export CSV
+              </button>
+          </div>
+
+          <!-- Content Area -->
+          <div class="content-area" id="contentArea">
+              <div class="loading">
+                  <div class="loader"></div>
+                  Loading archive data...
+              </div>
+          </div>
+      </div>
+
+      <script>
+          let currentArchiveType = 'calls';
+          let archiveData = [];
+
+          // Load on page load
+          document.addEventListener('DOMContentLoaded', () => {
+              loadArchive('calls');
+          });
+
+          function loadArchive(type) {
+              currentArchiveType = type;
+              
+              // Update tabs
+              document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+              event.target.classList.add('active');
+              
+              // Show loading
+              document.getElementById('contentArea').innerHTML = \`
+                  <div class="loading">
+                      <div class="loader"></div>
+                      Loading \${type} archive...
+                  </div>
+              \`;
+              
+              // Load data
+              fetch(\`/api/archive/\${type}\`)
+                  .then(response => response.json())
+                  .then(data => {
+                      if (data.success) {
+                          archiveData = data.data || [];
+                          renderArchive(archiveData);
+                      } else {
+                          throw new Error(data.error || 'Failed to load archive');
+                      }
+                  })
+                  .catch(error => {
+                      console.error('Error loading archive:', error);
+                      document.getElementById('contentArea').innerHTML = \`
+                          <div class="no-data">
+                              <i class="fas fa-exclamation-triangle" style="font-size: 3rem; margin-bottom: 20px;"></i>
+                              <h3>Error Loading Archive</h3>
+                              <p>\${error.message}</p>
+                          </div>
+                      \`;
+                  });
+          }
+
+          function loadCurrentArchive() {
+              loadArchive(currentArchiveType);
+          }
+
+          function renderArchive(data) {
+              if (!data || data.length === 0) {
+                  document.getElementById('contentArea').innerHTML = \`
+                      <div class="no-data">
+                          <i class="fas fa-inbox" style="font-size: 3rem; margin-bottom: 20px;"></i>
+                          <h3>No Data Found</h3>
+                          <p>No \${currentArchiveType} records available</p>
+                      </div>
+                  \`;
+                  return;
+              }
+
+              let html = '';
+              
+              switch(currentArchiveType) {
+                  case 'calls':
+                      html = renderCallsTable(data);
+                      break;
+                  case 'appointments':
+                      html = renderAppointmentsTable(data);
+                      break;
+                  case 'ai':
+                      html = renderAITable(data);
+                      break;
+                  case 'reminders':
+                      html = renderRemindersTable(data);
+                      break;
+                  default:
+                      html = renderGenericTable(data);
+              }
+              
+              document.getElementById('contentArea').innerHTML = html;
+          }
+
+          function renderCallsTable(calls) {
+              return \`
+                  <table class="data-table">
+                      <thead>
+                          <tr>
+                              <th>Phone</th>
+                              <th>Action</th>
+                              <th>Time</th>
+                              <th>Duration</th>
+                              <th>Sentiment</th>
+                              <th>Result</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          \${calls.map(call => \`
+                              <tr>
+                                  <td>\${call.phone || 'N/A'}</td>
+                                  <td>\${call.action || 'N/A'}</td>
+                                  <td>\${call.time || 'N/A'}</td>
+                                  <td>\${call.duration || 0}s</td>
+                                  <td>\${call.sentiment || 'neutral'}</td>
+                                  <td>\${call.result || 'N/A'}</td>
+                              </tr>
+                          \`).join('')}
+                      </tbody>
+                  </table>
+              \`;
+          }
+
+          function renderAppointmentsTable(appointments) {
+              return \`
+                  <table class="data-table">
+                      <thead>
+                          <tr>
+                              <th>Name</th>
+                              <th>Phone</th>
+                              <th>Business</th>
+                              <th>Service</th>
+                              <th>Date</th>
+                              <th>Time</th>
+                              <th>Created</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          \${appointments.map(apt => \`
+                              <tr>
+                                  <td>\${apt.name || 'N/A'}</td>
+                                  <td>\${apt.phone || 'N/A'}</td>
+                                  <td>\${apt.businessType || 'N/A'}</td>
+                                  <td>\${apt.serviceType || 'N/A'}</td>
+                                  <td>\${apt.date || 'N/A'}</td>
+                                  <td>\${apt.time || 'N/A'}</td>
+                                  <td>\${apt.timestamp || 'N/A'}</td>
+                              </tr>
+                          \`).join('')}
+                      </tbody>
+                  </table>
+              \`;
+          }
+
+          function renderAITable(conversations) {
+              return \`
+                  <table class="data-table">
+                      <thead>
+                          <tr>
+                              <th>Phone</th>
+                              <th>Question</th>
+                              <th>Response</th>
+                              <th>Time</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          \${conversations.map(conv => \`
+                              <tr>
+                                  <td>\${conv.phone || 'N/A'}</td>
+                                  <td>\${conv.question ? (conv.question.length > 50 ? conv.question.substring(0, 50) + '...' : conv.question) : 'N/A'}</td>
+                                  <td>\${conv.response ? (conv.response.length > 50 ? conv.response.substring(0, 50) + '...' : conv.response) : 'N/A'}</td>
+                                  <td>\${conv.time || 'N/A'}</td>
+                              </tr>
+                          \`).join('')}
+                      </tbody>
+                  </table>
+              \`;
+          }
+
+          function renderRemindersTable(reminders) {
+              return \`
+                  <table class="data-table">
+                      <thead>
+                          <tr>
+                              <th>Phone</th>
+                              <th>Appointment</th>
+                              <th>Action</th>
+                              <th>Time</th>
+                          </tr>
+                      </thead>
+                      <tbody>
+                          \${reminders.map(rem => \`
+                              <tr>
+                                  <td>\${rem.phone || 'N/A'}</td>
+                                  <td>\${rem.appointment ? \`\${rem.appointment.date} at \${rem.appointment.time}\` : 'N/A'}</td>
+                                  <td>\${rem.action || 'N/A'}</td>
+                                  <td>\${rem.time || 'N/A'}</td>
+                              </tr>
+                          \`).join('')}
+                      </tbody>
+                  </table>
+              \`;
+          }
+
+          function renderGenericTable(data) {
+              return \`
+                  <table class="data-table">
+                      <thead>
+                          <tr>
+                              \${Object.keys(data[0] || {}).map(key => \`<th>\${key}</th>\`).join('')}
+                          </tr>
+                      </thead>
+                      <tbody>
+                          \${data.map(item => \`
+                              <tr>
+                                  \${Object.values(item).map(val => \`<td>\${val}</td>\`).join('')}
+                              </tr>
+                          \`).join('')}
+                      </tbody>
+                  </table>
+              \`;
+          }
+
+          function exportArchive() {
+              if (archiveData.length === 0) {
+                  alert('No data to export');
+                  return;
+              }
+
+              const headers = Object.keys(archiveData[0]);
+              const csvContent = [
+                  headers.join(','),
+                  ...archiveData.map(row => headers.map(header => JSON.stringify(row[header] || '')).join(','))
+              ].join('\\n');
+
+              const blob = new Blob([csvContent], { type: 'text/csv' });
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = \`altair-\${currentArchiveType}-\${new Date().toISOString().split('T')[0]}.csv\`;
+              a.click();
+          }
+
+          // Search functionality
+          document.getElementById('searchBox').addEventListener('input', function() {
+              const searchTerm = this.value.toLowerCase();
+              if (!searchTerm) {
+                  renderArchive(archiveData);
+                  return;
+              }
+
+              const filtered = archiveData.filter(item => {
+                  return JSON.stringify(item).toLowerCase().includes(searchTerm);
+              });
+
+              renderArchive(filtered);
+          });
+
+          // Date filter
+          document.getElementById('datePicker').addEventListener('change', function() {
+              const selectedDate = this.value;
+              if (!selectedDate) {
+                  renderArchive(archiveData);
+                  return;
+              }
+
+              const filtered = archiveData.filter(item => {
+                  const itemDate = new Date(item.timestamp || item.time || item.created);
+                  return itemDate.toISOString().split('T')[0] === selectedDate;
+              });
+
+              renderArchive(filtered);
+          });
+      </script>
+  </body>
+  </html>
+  `;
+  
+  res.send(archiveHTML);
+});
+
+// ======================================================
+// APPOINTMENTS VIEWER
+// ======================================================
+
+app.get('/appointments-viewer', requireAuth, (req, res) => {
+  const appointmentsHTML = `
+  <!DOCTYPE html>
+  <html lang="en">
+  <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>📅 Appointments - Altair Partners</title>
+      <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+      <style>
+          * {
+              margin: 0;
+              padding: 0;
+              box-sizing: border-box;
+              font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+          }
+
+          body {
+              background: linear-gradient(135deg, #ef4444 0%, #f97316 100%);
+              min-height: 100vh;
+              padding: 20px;
+              color: white;
+          }
+
+          .container {
+              max-width: 1400px;
+              margin: 0 auto;
+              background: rgba(255, 255, 255, 0.95);
+              border-radius: 20px;
+              box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+              overflow: hidden;
+              color: #333;
+          }
+
+          .header {
+              background: linear-gradient(to right, #ef4444, #f97316);
+              color: white;
+              padding: 30px 40px;
+              border-bottom: 1px solid rgba(255,255,255,0.1);
+          }
+
+          .header h1 {
+              font-size: 2.5rem;
+              margin-bottom: 10px;
+              display: flex;
+              align-items: center;
+              gap: 15px;
+          }
+
+          .back-btn {
+              position: absolute;
+              top: 30px;
+              right: 40px;
+              padding: 10px 20px;
+              background: white;
+              color: #ef4444;
+              border-radius: 10px;
+              text-decoration: none;
+              font-weight: 600;
+              transition: all 0.3s ease;
+          }
+
+          .back-btn:hover {
+              background: #f8fafc;
+              transform: translateY(-2px);
+          }
+
+          .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+              gap: 20px;
+              padding: 30px;
+              background: #f8fafc;
+          }
+
+          .stat-card {
+              background: white;
+              padding: 25px;
+              border-radius: 15px;
+              box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+              text-align: center;
+              transition: transform 0.3s ease;
+              border-left: 5px solid #ef4444;
+          }
+
+          .stat-card:hover {
+              transform: translateY(-5px);
+          }
+
+          .stat-number {
+              font-size: 2.5rem;
+              font-weight: 800;
+              color: #ef4444;
+              margin-bottom: 10px;
+          }
+
+          .controls {
+              padding: 20px 30px;
+              background: white;
+              border-bottom: 1px solid #e2e8f0;
+              display: flex;
+              gap: 15px;
+              align-items: center;
+              flex-wrap: wrap;
+          }
+
+          .filter-btn {
+              padding: 10px 20px;
+              background: #f1f5f9;
+              border: 2px solid #cbd5e1;
+              border-radius: 10px;
+              font-weight: 600;
+              cursor: pointer;
+              transition: all 0.3s ease;
+          }
+
+          .filter-btn.active {
+              background: #ef4444;
+              color: white;
+              border-color: #ef4444;
+          }
+
+          .search-box {
+              flex: 1;
+              min-width: 300px;
+              padding: 10px 15px;
+              border: 2px solid #cbd5e1;
+              border-radius: 10px;
+              font-size: 1rem;
+          }
+
+          .action-btn {
+              padding: 10px 20px;
+              background: #10b981;
+              color: white;
+              border: none;
+              border-radius: 10px;
+              font-weight: 600;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              transition: all 0.3s ease;
+          }
+
+          .action-btn:hover {
+              background: #059669;
+              transform: translateY(-2px);
+          }
+
+          .appointments-list {
+              padding: 30px;
+          }
+
+          .appointment-item {
+              background: white;
+              margin-bottom: 15px;
+              padding: 25px;
+              border-radius: 10px;
+              border-left: 4px solid #ef4444;
+              box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+              transition: all 0.3s ease;
+          }
+
+          .appointment-item:hover {
+              transform: translateX(5px);
+              box-shadow: 0 5px 15px rgba(239, 68, 68, 0.2);
+          }
+
+          .appointment-header {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              margin-bottom: 15px;
+          }
+
+          .client-name {
+              font-size: 1.3rem;
+              font-weight: 700;
+              color: #1e293b;
+          }
+
+          .phone-number {
+              font-family: monospace;
+              background: #fee2e2;
+              padding: 5px 10px;
+              border-radius: 5px;
+              font-weight: 600;
+              color: #991b1b;
+          }
+
+          .appointment-date {
+              background: #f0f9ff;
+              color: #0369a1;
+              padding: 5px 15px;
+              border-radius: 20px;
+              font-weight: 600;
+              display: inline-flex;
+              align-items: center;
+              gap: 8px;
+          }
+
+          .business-info {
+              margin: 10px 0;
+              padding: 15px;
+              background: #f8fafc;
+              border-radius: 10px;
+          }
+
+          .info-row {
+              display: flex;
+              margin-bottom: 8px;
+          }
+
+          .info-label {
+              font-weight: 600;
+              color: #475569;
+              min-width: 120px;
+          }
+
+          .info-value {
+              color: #1e293b;
+          }
+
+          .actions {
+              display: flex;
+              gap: 10px;
+              margin-top: 20px;
+              flex-wrap: wrap;
+          }
+
+          .call-btn {
+              padding: 8px 15px;
+              background: #10b981;
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-weight: 600;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 5px;
+              text-decoration: none;
+          }
+
+          .sms-btn {
+              padding: 8px 15px;
+              background: #3b82f6;
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-weight: 600;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 5px;
+          }
+
+          .cancel-btn {
+              padding: 8px 15px;
+              background: #ef4444;
+              color: white;
+              border: none;
+              border-radius: 8px;
+              font-weight: 600;
+              cursor: pointer;
+              display: flex;
+              align-items: center;
+              gap: 5px;
+          }
+
+          .loading {
+              text-align: center;
+              padding: 60px;
+              color: #64748b;
+              font-size: 1.2rem;
+          }
+
+          .loader {
+              width: 50px;
+              height: 50px;
+              border: 4px solid #e2e8f0;
+              border-top: 4px solid #ef4444;
+              border-radius: 50%;
+              animation: spin 1s linear infinite;
+              margin: 0 auto 20px;
+          }
+
+          @keyframes spin {
+              0% { transform: rotate(0deg); }
+              100% { transform: rotate(360deg); }
+          }
+
+          .no-data {
+              text-align: center;
+              padding: 60px;
+              color: #64748b;
+              font-size: 1.2rem;
+          }
+
+          @media (max-width: 768px) {
+              .header h1 {
+                  font-size: 2rem;
+              }
+              
+              .appointment-header {
+                  flex-direction: column;
+                  align-items: flex-start;
+                  gap: 10px;
+              }
+              
+              .search-box {
+                  min-width: 200px;
+              }
+              
+              .actions {
+                  flex-direction: column;
+              }
+          }
+      </style>
+  </head>
+  <body>
+      <div class="container">
+          <!-- Header -->
+          <div class="header">
+              <h1>
+                  <i class="fas fa-calendar-check"></i>
+                  Appointments Dashboard
+              </h1>
+              <p>View and manage all scheduled appointments</p>
+              <a href="/dashboard" class="back-btn">
+                  <i class="fas fa-arrow-left"></i> Back to Dashboard
+              </a>
+          </div>
+
+          <!-- Stats -->
+          <div class="stats-grid" id="statsGrid">
+              <!-- Stats will be loaded here -->
+          </div>
+
+          <!-- Controls -->
+          <div class="controls">
+              <button class="filter-btn active" onclick="filterAppointments('all')">All</button>
+              <button class="filter-btn" onclick="filterAppointments('today')">Today</button>
+              <button class="filter-btn" onclick="filterAppointments('tomorrow')">Tomorrow</button>
+              <button class="filter-btn" onclick="filterAppointments('upcoming')">Upcoming</button>
+              
+              <input type="text" class="search-box" id="searchBox" placeholder="🔍 Search by name, phone, or business..." oninput="searchAppointments()">
+              
+              <button class="action-btn" onclick="loadAppointments()">
+                  <i class="fas fa-sync-alt"></i> Refresh
+              </button>
+          </div>
+
+          <!-- Loading -->
+          <div class="loading" id="loading">
+              <div class="loader"></div>
+              Loading appointments...
+          </div>
+
+          <!-- Appointments List -->
+          <div class="appointments-list" id="appointmentsList">
+              <!-- Appointments will be loaded here -->
+          </div>
+
+          <!-- No Data -->
+          <div class="no-data" id="noData" style="display: none;">
+              <i class="fas fa-calendar-times" style="font-size: 3rem; margin-bottom: 20px;"></i>
+              <h3>No Appointments Found</h3>
+              <p>When appointments are scheduled, they will appear here.</p>
+          </div>
+      </div>
+
+      <script>
+          let allAppointments = [];
+          let currentFilter = 'all';
+          let searchTerm = '';
+
+          // Load on page load
+          document.addEventListener('DOMContentLoaded', () => {
+              loadAppointments();
+          });
+
+          // Load appointments data
+          async function loadAppointments() {
+              showLoading();
+              
+              try {
+                  const response = await fetch('/api/appointments');
+                  const data = await response.json();
+                  
+                  if (data.success) {
+                      allAppointments = data.appointments || [];
+                      updateStats(allAppointments);
+                      renderAppointments(allAppointments);
+                      hideLoading();
+                  } else {
+                      throw new Error(data.error || 'Failed to load appointments');
+                  }
+              } catch (error) {
+                  console.error('Error loading appointments:', error);
+                  showError('Failed to load appointments');
+                  hideLoading();
+              }
+          }
+
+          // Update statistics
+          function updateStats(appointments) {
+              const total = appointments.length;
+              
+              const today = new Date().toISOString().split('T')[0];
+              const todayCount = appointments.filter(apt => apt.date === today).length;
+              
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              const tomorrowStr = tomorrow.toISOString().split('T')[0];
+              const tomorrowCount = appointments.filter(apt => apt.date === tomorrowStr).length;
+              
+              const upcoming = appointments.filter(apt => new Date(apt.date) >= new Date()).length;
+              
+              document.getElementById('statsGrid').innerHTML = \`
+                  <div class="stat-card">
+                      <div class="stat-number">\${total}</div>
+                      <div>Total Appointments</div>
+                  </div>
+                  <div class="stat-card">
+                      <div class="stat-number">\${todayCount}</div>
+                      <div>Today</div>
+                  </div>
+                  <div class="stat-card">
+                      <div class="stat-number">\${tomorrowCount}</div>
+                      <div>Tomorrow</div>
+                  </div>
+                  <div class="stat-card">
+                      <div class="stat-number">\${upcoming}</div>
+                      <div>Upcoming</div>
+                  </div>
+              \`;
+              
+              // Animate numbers
+              animateStats();
+          }
+
+          // Animate stats numbers
+          function animateStats() {
+              const statNumbers = document.querySelectorAll('.stat-number');
+              statNumbers.forEach(stat => {
+                  const target = parseInt(stat.textContent);
+                  let current = 0;
+                  const increment = target / 20;
+                  
+                  const timer = setInterval(() => {
+                      current += increment;
+                      if (current >= target) {
+                          current = target;
+                          clearInterval(timer);
+                      }
+                      stat.textContent = Math.floor(current);
+                  }, 50);
+              });
+          }
+
+          // Filter appointments
+          function filterAppointments(filter) {
+              currentFilter = filter;
+              document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+              event.target.classList.add('active');
+              renderAppointments(allAppointments);
+          }
+
+          // Search appointments
+          function searchAppointments() {
+              searchTerm = document.getElementById('searchBox').value.toLowerCase();
+              renderAppointments(allAppointments);
+          }
+
+          // Render appointments
+          function renderAppointments(appointments) {
+              let filtered = [...appointments];
+              
+              // Apply filter
+              const today = new Date().toISOString().split('T')[0];
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              const tomorrowStr = tomorrow.toISOString().split('T')[0];
+              
+              if (currentFilter === 'today') {
+                  filtered = filtered.filter(apt => apt.date === today);
+              } else if (currentFilter === 'tomorrow') {
+                  filtered = filtered.filter(apt => apt.date === tomorrowStr);
+              } else if (currentFilter === 'upcoming') {
+                  filtered = filtered.filter(apt => new Date(apt.date) >= new Date());
+              }
+              
+              // Apply search
+              if (searchTerm) {
+                  filtered = filtered.filter(apt => 
+                      (apt.name && apt.name.toLowerCase().includes(searchTerm)) ||
+                      (apt.phone && apt.phone.includes(searchTerm)) ||
+                      (apt.businessType && apt.businessType.toLowerCase().includes(searchTerm)) ||
+                      (apt.serviceType && apt.serviceType.toLowerCase().includes(searchTerm))
+                  );
+              }
+              
+              // Sort by date (soonest first)
+              filtered.sort((a, b) => new Date(a.date) - new Date(b.date));
+              
+              const appointmentsList = document.getElementById('appointmentsList');
+              
+              if (filtered.length === 0) {
+                  document.getElementById('noData').style.display = 'block';
+                  appointmentsList.innerHTML = '';
+                  return;
+              }
+              
+              document.getElementById('noData').style.display = 'none';
+              
+              let html = '';
+              
+              filtered.forEach(appointment => {
+                  const isToday = appointment.date === today;
+                  const isTomorrow = appointment.date === tomorrowStr;
+                  
+                  html += \`
+                      <div class="appointment-item">
+                          <div class="appointment-header">
+                              <div>
+                                  <span class="client-name">\${appointment.name || 'No Name'}</span>
+                                  <span class="phone-number" style="margin-left: 10px;">\${appointment.phone || 'No Phone'}</span>
+                              </div>
+                              <div class="appointment-date">
+                                  <i class="fas fa-calendar-alt"></i>
+                                  \${appointment.date} at \${appointment.time}
+                                  \${isToday ? ' (TODAY)' : isTomorrow ? ' (TOMORROW)' : ''}
+                              </div>
+                          </div>
+                          
+                          <div class="business-info">
+                              <div class="info-row">
+                                  <span class="info-label">Business Type:</span>
+                                  <span class="info-value">\${appointment.businessType || 'Not specified'}</span>
+                              </div>
+                              <div class="info-row">
+                                  <span class="info-label">Service Needed:</span>
+                                  <span class="info-value">\${appointment.serviceType || 'Not specified'}</span>
+                              </div>
+                              <div class="info-row">
+                                  <span class="info-label">Scheduled:</span>
+                                  <span class="info-value">\${appointment.timestamp || 'Unknown'}</span>
+                              </div>
+                          </div>
+                          
+                          <div class="actions">
+                              <a href="tel:\${appointment.phone}" class="call-btn">
+                                  <i class="fas fa-phone"></i> Call Client
+                              </a>
+                              
+                              <button class="sms-btn" onclick="sendSMS('\${appointment.phone}', '\${appointment.name}')">
+                                  <i class="fas fa-comment-sms"></i> Send SMS
+                              </button>
+                              
+                              <button class="cancel-btn" onclick="cancelAppointment('\${appointment.phone}')">
+                                  <i class="fas fa-times"></i> Cancel
+                              </button>
+                              
+                              <button class="sms-btn" style="background: #8b5cf6;" onclick="sendReminder('\${appointment.phone}')">
+                                  <i class="fas fa-bell"></i> Send Reminder
+                              </button>
+                          </div>
+                      </div>
+                  \`;
+              });
+              
+              appointmentsList.innerHTML = html;
+          }
+
+          // Send SMS to client
+          function sendSMS(phone, name) {
+              const message = prompt(\`Enter SMS message for \${name} (\${phone}):\`, "Hello from Altair Partners! This is a reminder about your upcoming appointment.");
+              
+              if (message) {
+                  fetch('/api/send-sms', {
+                      method: 'POST',
+                      headers: {
+                          'Content-Type': 'application/json',
+                      },
+                      body: JSON.stringify({ phone, message })
+                  })
+                  .then(response => response.json())
+                  .then(data => {
+                      if (data.success) {
+                          alert('SMS sent successfully!');
+                      } else {
+                          alert('Failed to send SMS: ' + data.error);
+                      }
+                  })
+                  .catch(error => {
+                      alert('Error sending SMS: ' + error.message);
+                  });
+              }
+          }
+
+          // Cancel appointment
+          async function cancelAppointment(phone) {
+              if (!confirm('Cancel this appointment?')) return;
+              
+              try {
+                  const response = await fetch(\`/api/appointments/\${phone}\`, {
+                      method: 'DELETE'
+                  });
+                  
+                  const data = await response.json();
+                  
+                  if (data.success) {
+                      alert('Appointment cancelled!');
+                      loadAppointments(); // Reload the list
+                  } else {
+                      throw new Error(data.error || 'Failed to cancel appointment');
+                  }
+              } catch (error) {
+                  console.error('Error cancelling appointment:', error);
+                  alert('Failed to cancel: ' + error.message);
+              }
+          }
+
+          // Send reminder
+          function sendReminder(phone) {
+              if (!confirm('Send reminder call to this client?')) return;
+              
+              fetch(\`/test-reminder?phone=\${phone}\`, { method: 'POST' })
+                  .then(response => response.json())
+                  .then(data => {
+                      if (data.status === 'test_triggered') {
+                          alert('Reminder call initiated!');
+                      } else {
+                          alert('Failed to send reminder');
+                      }
+                  })
+                  .catch(error => {
+                      alert('Error sending reminder: ' + error.message);
+                  });
+          }
+
+          // Utility functions
+          function showLoading() {
+              document.getElementById('loading').style.display = 'block';
+              document.getElementById('appointmentsList').style.display = 'none';
+          }
+
+          function hideLoading() {
+              document.getElementById('loading').style.display = 'none';
+              document.getElementById('appointmentsList').style.display = 'block';
+          }
+
+          function showError(message) {
+              alert('Error: ' + message);
+          }
+      </script>
+  </body>
+  </html>
+  `;
+  
+  res.send(appointmentsHTML);
+});
+
+// ======================================================
+// API ENDPOINTS FOR ARCHIVE DATA
+// ======================================================
+
+app.get('/api/archive/:type', requireAuth, (req, res) => {
+  try {
+    const type = req.params.type;
+    let data = [];
+    
+    switch(type) {
+      case 'calls':
+        // Load call analytics
+        if (fs.existsSync(ANALYTICS_PATH)) {
+          const analyticsData = fs.readFileSync(ANALYTICS_PATH, "utf8");
+          const analytics = JSON.parse(analyticsData || '[]');
+          data = analytics.map(a => ({
+            phone: a.phone,
+            action: a.callResult || 'unknown',
+            time: a.timestamp || a.endTime || 'N/A',
+            duration: a.totalDuration || 0,
+            sentiment: a.sentiment || 'neutral',
+            result: a.callResult || 'unknown'
+          }));
+        }
+        break;
+        
+      case 'appointments':
+        // Load appointments
+        const db = loadDB();
+        data = db.map(apt => ({
+          name: apt.name,
+          phone: apt.phone,
+          businessType: apt.businessType,
+          serviceType: apt.serviceType,
+          date: apt.date,
+          time: apt.time,
+          timestamp: apt.timestamp || apt.created
+        }));
+        break;
+        
+      case 'ai':
+        // Load AI conversations from daily archives
+        const today = getTodayDateString();
+        const aiFile = `${DAILY_LOGS_DIR}/ai-${today}.json`;
+        if (fs.existsSync(aiFile)) {
+          const aiData = fs.readFileSync(aiFile, "utf8");
+          data = JSON.parse(aiData || '[]');
+        }
+        break;
+        
+      case 'reminders':
+        // Load reminders from daily archives
+        const reminderFile = `${DAILY_LOGS_DIR}/reminders-${today}.json`;
+        if (fs.existsSync(reminderFile)) {
+          const reminderData = fs.readFileSync(reminderFile, "utf8");
+          data = JSON.parse(reminderData || '[]');
+        }
+        break;
+        
+      default:
+        return res.status(400).json({ success: false, error: "Invalid archive type" });
+    }
+    
+    res.json({
+      success: true,
+      type,
+      count: data.length,
+      data: data.reverse() // Newest first
+    });
+    
+  } catch (error) {
+    console.error("Error loading archive:", error);
+    res.status(500).json({ success: false, error: "Failed to load archive data" });
+  }
+});
+
+app.get('/api/appointments', requireAuth, (req, res) => {
+  try {
+    const db = loadDB();
+    
+    res.json({
+      success: true,
+      count: db.length,
+      appointments: db.reverse() // Newest first
+    });
+    
+  } catch (error) {
+    console.error("Error loading appointments:", error);
+    res.status(500).json({ success: false, error: "Failed to load appointments" });
+  }
+});
+
+app.delete('/api/appointments/:phone', requireAuth, (req, res) => {
+  try {
+    const { phone } = req.params;
+    const db = loadDB();
+    
+    const initialLength = db.length;
+    const filteredDB = db.filter(apt => apt.phone !== phone);
+    
+    if (filteredDB.length === initialLength) {
+      return res.status(404).json({ success: false, error: "Appointment not found" });
+    }
+    
+    saveDB(filteredDB);
+    
+    res.json({ success: true, message: "Appointment cancelled" });
+    
+  } catch (error) {
+    console.error("Error cancelling appointment:", error);
+    res.status(500).json({ success: false, error: "Failed to cancel appointment" });
+  }
+});
+
+app.post('/api/send-sms', requireAuth, async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    
+    if (!phone || !message) {
+      return res.status(400).json({ success: false, error: "Phone and message required" });
+    }
+    
+    await twilioClient.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: phone
+    });
+    
+    res.json({ success: true, message: "SMS sent successfully" });
+    
+  } catch (error) {
+    console.error("Error sending SMS:", error);
+    res.status(500).json({ success: false, error: "Failed to send SMS" });
+  }
+});
+
+// ======================================================
+// ДОБАВЬ СЮДА ВЕСЬ ТВОЙ СТАРЫЙ КОД ОТСЮДА:
+// (Вставь сюда весь твой предыдущий код начиная с ANALYTICS FUNCTIONS)
+// ======================================================
 
 // ======================================================
 // ANALYTICS FUNCTIONS - УЛУЧШЕННАЯ АНАЛИТИКА!
@@ -1144,39 +2960,22 @@ const CALLBACKS_HTML = `
             gap: 15px;
         }
 
-        .nav-buttons {
-            background: #f1f5f9;
-            padding: 15px 40px;
-            display: flex;
-            gap: 10px;
-            border-bottom: 1px solid #e2e8f0;
-            flex-wrap: wrap;
-        }
-
-        .nav-btn {
+        .back-btn {
+            position: absolute;
+            top: 30px;
+            right: 40px;
             padding: 10px 20px;
             background: white;
-            border: 2px solid #cbd5e1;
+            color: #ef4444;
             border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
             text-decoration: none;
-            color: #475569;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
         }
 
-        .nav-btn:hover {
-            background: #e2e8f0;
+        .back-btn:hover {
+            background: #f8fafc;
             transform: translateY(-2px);
-        }
-
-        .nav-btn.active {
-            background: linear-gradient(to right, #ef4444, #f97316);
-            color: white;
-            border-color: #ef4444;
         }
 
         .stats-grid {
@@ -1427,24 +3226,8 @@ const CALLBACKS_HTML = `
                 Callback Requests Dashboard
             </h1>
             <p>Track and manage all callback requests from customers</p>
-        </div>
-
-        <!-- Navigation -->
-        <div class="nav-buttons">
-            <a href="/analytics-dashboard" class="nav-btn">
-                <i class="fas fa-chart-line"></i> Analytics
-            </a>
-            <a href="/archive-viewer" class="nav-btn">
-                <i class="fas fa-archive"></i> Archive
-            </a>
-            <a href="/callbacks-dashboard" class="nav-btn active">
-                <i class="fas fa-phone"></i> Callbacks
-            </a>
-            <a href="/voicemails-dashboard" class="nav-btn">
-                <i class="fas fa-microphone"></i> Voicemails
-            </a>
-            <a href="/debug" class="nav-btn">
-                <i class="fas fa-cogs"></i> Debug
+            <a href="/dashboard" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
             </a>
         </div>
 
@@ -1797,39 +3580,22 @@ const VOICEMAILS_HTML = `
             gap: 15px;
         }
 
-        .nav-buttons {
-            background: #f1f5f9;
-            padding: 15px 40px;
-            display: flex;
-            gap: 10px;
-            border-bottom: 1px solid #e2e8f0;
-            flex-wrap: wrap;
-        }
-
-        .nav-btn {
+        .back-btn {
+            position: absolute;
+            top: 30px;
+            right: 40px;
             padding: 10px 20px;
             background: white;
-            border: 2px solid #cbd5e1;
+            color: #0d9488;
             border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
             text-decoration: none;
-            color: #475569;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
         }
 
-        .nav-btn:hover {
-            background: #e2e8f0;
+        .back-btn:hover {
+            background: #f8fafc;
             transform: translateY(-2px);
-        }
-
-        .nav-btn.active {
-            background: linear-gradient(to right, #0d9488, #14b8a6);
-            color: white;
-            border-color: #0d9488;
         }
 
         .stats-grid {
@@ -2096,24 +3862,8 @@ const VOICEMAILS_HTML = `
                 Voicemail Dashboard
             </h1>
             <p>Listen to and manage all voicemail recordings from customers</p>
-        </div>
-
-        <!-- Navigation -->
-        <div class="nav-buttons">
-            <a href="/analytics-dashboard" class="nav-btn">
-                <i class="fas fa-chart-line"></i> Analytics
-            </a>
-            <a href="/archive-viewer" class="nav-btn">
-                <i class="fas fa-archive"></i> Archive
-            </a>
-            <a href="/callbacks-dashboard" class="nav-btn">
-                <i class="fas fa-phone"></i> Callbacks
-            </a>
-            <a href="/voicemails-dashboard" class="nav-btn active">
-                <i class="fas fa-microphone"></i> Voicemails
-            </a>
-            <a href="/debug" class="nav-btn">
-                <i class="fas fa-cogs"></i> Debug
+            <a href="/dashboard" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
             </a>
         </div>
 
@@ -2473,39 +4223,22 @@ const ANALYTICS_HTML = `
             gap: 15px;
         }
 
-        .nav-buttons {
-            background: #f1f5f9;
-            padding: 15px 40px;
-            display: flex;
-            gap: 10px;
-            border-bottom: 1px solid #e2e8f0;
-            flex-wrap: wrap;
-        }
-
-        .nav-btn {
+        .back-btn {
+            position: absolute;
+            top: 30px;
+            right: 40px;
             padding: 10px 20px;
             background: white;
-            border: 2px solid #cbd5e1;
+            color: #4f46e5;
             border-radius: 10px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
             text-decoration: none;
-            color: #475569;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
         }
 
-        .nav-btn:hover {
-            background: #e2e8f0;
+        .back-btn:hover {
+            background: #f8fafc;
             transform: translateY(-2px);
-        }
-
-        .nav-btn.active {
-            background: linear-gradient(to right, #4f46e5, #7c3aed);
-            color: white;
-            border-color: #4f46e5;
         }
 
         .stats-grid {
@@ -2737,24 +4470,8 @@ const ANALYTICS_HTML = `
                 Real-time Call Analytics Dashboard
             </h1>
             <p>Live tracking of all calls, conversions, and customer journeys</p>
-        </div>
-
-        <!-- Navigation -->
-        <div class="nav-buttons">
-            <a href="/analytics-dashboard" class="nav-btn active">
-                <i class="fas fa-chart-line"></i> Analytics
-            </a>
-            <a href="/archive-viewer" class="nav-btn">
-                <i class="fas fa-archive"></i> Archive
-            </a>
-            <a href="/callbacks-dashboard" class="nav-btn">
-                <i class="fas fa-phone"></i> Callbacks
-            </a>
-            <a href="/voicemails-dashboard" class="nav-btn">
-                <i class="fas fa-microphone"></i> Voicemails
-            </a>
-            <a href="/debug" class="nav-btn">
-                <i class="fas fa-cogs"></i> Debug
+            <a href="/dashboard" class="back-btn">
+                <i class="fas fa-arrow-left"></i> Back to Dashboard
             </a>
         </div>
 
@@ -3052,22 +4769,22 @@ const ANALYTICS_HTML = `
 // ======================================================
 
 // Callbacks Dashboard (PROTECTED)
-app.get('/callbacks-dashboard', requireArchiveAuth, (req, res) => {
+app.get('/callbacks-dashboard', requireAuth, (req, res) => {
   res.send(CALLBACKS_HTML);
 });
 
 // Voicemails Dashboard (PROTECTED)
-app.get('/voicemails-dashboard', requireArchiveAuth, (req, res) => {
+app.get('/voicemails-dashboard', requireAuth, (req, res) => {
   res.send(VOICEMAILS_HTML);
 });
 
 // Analytics Dashboard (PROTECTED)
-app.get('/analytics-dashboard', requireArchiveAuth, (req, res) => {
+app.get('/analytics-dashboard', requireAuth, (req, res) => {
   res.send(ANALYTICS_HTML);
 });
 
 // API: Получить callbacks
-app.get('/api/callbacks', requireArchiveAuth, (req, res) => {
+app.get('/api/callbacks', requireAuth, (req, res) => {
   try {
     let callbacks = [];
     
@@ -3090,7 +4807,7 @@ app.get('/api/callbacks', requireArchiveAuth, (req, res) => {
 });
 
 // API: Отметить callback как выполненный
-app.post('/api/callbacks/:phone/complete', requireArchiveAuth, async (req, res) => {
+app.post('/api/callbacks/:phone/complete', requireAuth, async (req, res) => {
   try {
     const { phone } = req.params;
     const completed = markCallbackAsCompleted(phone);
@@ -3108,7 +4825,7 @@ app.post('/api/callbacks/:phone/complete', requireArchiveAuth, async (req, res) 
 });
 
 // API: Удалить callback
-app.delete('/api/callbacks/:phone', requireArchiveAuth, (req, res) => {
+app.delete('/api/callbacks/:phone', requireAuth, (req, res) => {
   try {
     const { phone } = req.params;
     
@@ -3137,7 +4854,7 @@ app.delete('/api/callbacks/:phone', requireArchiveAuth, (req, res) => {
 });
 
 // API: Получить voicemails
-app.get('/api/voicemails', requireArchiveAuth, (req, res) => {
+app.get('/api/voicemails', requireAuth, (req, res) => {
   try {
     const voicemailFile = `${VOICEMAILS_DIR}/voicemails.json`;
     let voicemails = [];
@@ -3161,7 +4878,7 @@ app.get('/api/voicemails', requireArchiveAuth, (req, res) => {
 });
 
 // API: Отметить voicemail как прослушанный
-app.post('/api/voicemails/:phone/:timestamp/listen', requireArchiveAuth, async (req, res) => {
+app.post('/api/voicemails/:phone/:timestamp/listen', requireAuth, async (req, res) => {
   try {
     const { phone, timestamp } = req.params;
     const voicemailFile = `${VOICEMAILS_DIR}/voicemails.json`;
@@ -3197,7 +4914,7 @@ app.post('/api/voicemails/:phone/:timestamp/listen', requireArchiveAuth, async (
 });
 
 // API: Удалить voicemail
-app.delete('/api/voicemails/:phone/:timestamp', requireArchiveAuth, (req, res) => {
+app.delete('/api/voicemails/:phone/:timestamp', requireAuth, (req, res) => {
   try {
     const { phone, timestamp } = req.params;
     const voicemailFile = `${VOICEMAILS_DIR}/voicemails.json`;
@@ -3227,7 +4944,7 @@ app.delete('/api/voicemails/:phone/:timestamp', requireArchiveAuth, (req, res) =
 });
 
 // API: Получить аналитику
-app.get('/api/analytics', requireArchiveAuth, (req, res) => {
+app.get('/api/analytics', requireAuth, (req, res) => {
   try {
     const timeframe = req.query.timeframe || 'today';
     
@@ -4635,7 +6352,7 @@ app.get('/health', (req, res) => {
   res.status(200).send('✅ IVR Server is running');
 });
 
-app.get('/debug', (req, res) => {
+app.get('/debug', requireAuth, (req, res) => {
   const appointments = loadDB();
   const businessStatus = getBusinessStatus();
   
@@ -4723,10 +6440,12 @@ app.get('/debug', (req, res) => {
       reminderSystem: 'ACTIVE (calls one day before at 2 PM PST)'
     },
     dashboards: {
+      main: '/dashboard',
       analytics: '/analytics-dashboard',
       callbacks: '/callbacks-dashboard',
       voicemails: '/voicemails-dashboard',
-      archive: '/archive-viewer'
+      archive: '/archive-viewer',
+      appointments: '/appointments-viewer'
     },
     security: {
       protection: 'ACTIVE (Basic Auth)',
@@ -4749,15 +6468,10 @@ app.get('/', (req, res) => {
           .status { padding: 15px; border-radius: 10px; margin: 15px 0; }
           .open { background: linear-gradient(to right, #10b981, #34d399); color: white; }
           .closed { background: linear-gradient(to right, #ef4444, #f97316); color: white; }
-          .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 30px 0; }
-          .dashboard-card { background: #f8fafc; padding: 25px; border-radius: 15px; text-align: center; transition: all 0.3s ease; border: 2px solid #e2e8f0; }
-          .dashboard-card:hover { transform: translateY(-5px); box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-          .card-title { font-size: 1.5rem; margin-bottom: 15px; color: #1e293b; display: flex; align-items: center; justify-content: center; gap: 10px; }
-          .card-desc { color: #64748b; margin-bottom: 20px; }
-          .card-btn { display: inline-block; padding: 12px 24px; background: #4f46e5; color: white; text-decoration: none; border-radius: 10px; font-weight: 600; transition: all 0.3s ease; }
-          .card-btn:hover { background: #4338ca; transform: translateY(-2px); }
-          .security-note { background: #fee2e2; color: #991b1b; padding: 15px; border-radius: 10px; margin: 20px 0; border: 2px solid #ef4444; }
+          .dashboard-btn { display: block; width: 100%; padding: 20px; background: linear-gradient(to right, #4f46e5, #7c3aed); color: white; text-align: center; border-radius: 15px; text-decoration: none; font-weight: 600; font-size: 1.2rem; margin: 15px 0; transition: all 0.3s ease; }
+          .dashboard-btn:hover { background: linear-gradient(to right, #4338ca, #6d28d9); transform: translateY(-5px); box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4); }
           .system-info { background: #f0f9ff; padding: 20px; border-radius: 10px; margin: 20px 0; border: 2px solid #0ea5e9; }
+          .security-note { background: #fee2e2; color: #991b1b; padding: 15px; border-radius: 10px; margin: 20px 0; border: 2px solid #ef4444; text-align: center; }
         </style>
       </head>
       <body>
@@ -4775,57 +6489,22 @@ app.get('/', (req, res) => {
           </div>
           
           <div class="system-info">
-            <h3 style="color: #0369a1; margin-top: 0;">🚀 NEW FEATURES ACTIVATED!</h3>
-            <p><strong>🎤 Voicemail System:</strong> Records messages and sends notifications to your phone</p>
-            <p><strong>📞 Callback Dashboard:</strong> Track and manage all callback requests</p>
-            <p><strong>📈 Real-time Analytics:</strong> Live charts update every 30 seconds</p>
-            <p><strong>📱 SMS Notifications:</strong> Immediate alerts to +1 (503) 544-2571</p>
-          </div>
-          
-          <div class="dashboard-grid">
-            <div class="dashboard-card">
-              <div class="card-title">
-                <span style="font-size: 2rem;">📈</span>
-                Analytics Dashboard
-              </div>
-              <p class="card-desc">Real-time call analytics with charts and statistics</p>
-              <a href="/analytics-dashboard" class="card-btn">Open Dashboard</a>
-            </div>
-            
-            <div class="dashboard-card">
-              <div class="card-title">
-                <span style="font-size: 2rem;">📞</span>
-                Callback Requests
-              </div>
-              <p class="card-desc">View and manage all callback requests from customers</p>
-              <a href="/callbacks-dashboard" class="card-btn">View Callbacks</a>
-            </div>
-            
-            <div class="dashboard-card">
-              <div class="card-title">
-                <span style="font-size: 2rem;">🎤</span>
-                Voicemail Dashboard
-              </div>
-              <p class="card-desc">Listen to voicemail recordings from customers</p>
-              <a href="/voicemails-dashboard" class="card-btn">View Voicemails</a>
-            </div>
-            
-            <div class="dashboard-card">
-              <div class="card-title">
-                <span style="font-size: 2rem;">🗂️</span>
-                Archive Viewer
-              </div>
-              <p class="card-desc">Browse all call logs and appointments</p>
-              <a href="/archive-viewer" class="card-btn">Open Archive</a>
-            </div>
+            <h3 style="color: #0369a1; margin-top: 0;">🚀 NEW UNIFIED DASHBOARD!</h3>
+            <p><strong>🔐 Secure Access:</strong> All dashboards protected with password</p>
+            <p><strong>📊 Everything in One Place:</strong> Analytics, Callbacks, Voicemails, Archive, Appointments</p>
+            <p><strong>🎯 Easy Navigation:</strong> Click any system to open in popup</p>
           </div>
           
           <div class="security-note">
-            <p><strong>🔒 SECURITY NOTE:</strong> All dashboards are password protected</p>
-            <p><strong>Username:</strong> altair_admin</p>
-            <p><strong>Password:</strong> AltairSecure2024!@#$</p>
+            <p><strong>🔒 SECURE DASHBOARD ACCESS</strong></p>
+            <p><strong>Username:</strong> altair_admin | <strong>Password:</strong> AltairSecure2024!@#$</p>
             <p><em>Change these in your .env file for production</em></p>
           </div>
+          
+          <a href="/dashboard" class="dashboard-btn">
+            <span style="font-size: 1.5rem; margin-right: 10px;">🔐</span>
+            ENTER SECURE DASHBOARD
+          </a>
           
           <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid #e2e8f0;">
             <p><strong>📞 Twilio Webhook:</strong> POST /voice</p>
@@ -4855,11 +6534,17 @@ app.listen(PORT, () => {
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
   
-  console.log(`\n🚀 NEW DASHBOARDS ACTIVATED:`);
+  console.log(`\n🚀 NEW UNIFIED DASHBOARD ACTIVATED:`);
+  console.log(`✅ ${serverUrl}/dashboard - ALL SYSTEMS IN ONE PLACE`);
+  console.log(`🔐 Password: altair_admin / AltairSecure2024!@#$`);
+  
+  console.log(`\n📊 INDIVIDUAL DASHBOARDS:`);
   console.log(`✅ ${serverUrl}/analytics-dashboard - REAL-TIME ANALYTICS`);
   console.log(`✅ ${serverUrl}/callbacks-dashboard - CALLBACK REQUESTS`);
   console.log(`✅ ${serverUrl}/voicemails-dashboard - VOICEMAIL RECORDINGS`);
   console.log(`✅ ${serverUrl}/archive-viewer - BEAUTIFUL ARCHIVE`);
+  console.log(`✅ ${serverUrl}/appointments-viewer - APPOINTMENTS`);
+  console.log(`✅ ${serverUrl}/debug - SYSTEM DEBUG`);
   
   console.log(`\n🔒 SECURITY INFO:`);
   console.log(`✅ Username: altair_admin`);
@@ -4880,6 +6565,11 @@ app.listen(PORT, () => {
   console.log(`✅ Real-time updates every 30 seconds`);
   console.log(`✅ Charts and statistics`);
   console.log(`✅ User journey tracking`);
+  
+  console.log(`\n🗂️ ARCHIVE SYSTEM:`);
+  console.log(`✅ Browse all call logs, appointments, AI conversations`);
+  console.log(`✅ Search and filter functionality`);
+  console.log(`✅ Export to CSV`);
   
   // Start reminder scheduler
   startReminderScheduler();
