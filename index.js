@@ -7,16 +7,146 @@ const twilioClient = require('twilio')(
   process.env.TWILIO_AUTH_TOKEN
 );
 const { OpenAI } = require('openai');
+const basicAuth = require('basic-auth');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // ======================================================
-// SELF-PING SYSTEM (чтобы сервер не спал на Free плане)
+// SECURITY: PASSWORD PROTECTION FOR ARCHIVES
+// ======================================================
+
+function requireArchiveAuth(req, res, next) {
+  const AUTH_USERNAME = process.env.ARCHIVE_USERNAME || 'admin';
+  const AUTH_PASSWORD = process.env.ARCHIVE_PASSWORD || 'ChangeThisPassword123!';
+  
+  const user = basicAuth(req);
+  
+  if (!user || user.name !== AUTH_USERNAME || user.pass !== AUTH_PASSWORD) {
+    console.log(`🔒 Unauthorized access attempt from IP: ${req.ip} - User: ${user ? user.name : 'none'}`);
+    
+    res.set('WWW-Authenticate', 'Basic realm="Altair Partners Archive - Secure Access"');
+    return res.status(401).send(`
+      <html>
+        <head>
+          <title>🔒 401 - Secure Archive Access</title>
+          <style>
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+              padding: 40px; 
+              text-align: center;
+              background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+              min-height: 100vh;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+            }
+            .auth-box {
+              background: white;
+              padding: 40px;
+              border-radius: 20px;
+              box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+              max-width: 500px;
+              width: 100%;
+            }
+            .lock-icon {
+              font-size: 4rem;
+              color: #4f46e5;
+              margin-bottom: 20px;
+            }
+            h1 { 
+              color: #1e293b; 
+              margin-bottom: 10px;
+              font-size: 2rem;
+            }
+            .subtitle {
+              color: #64748b;
+              margin-bottom: 30px;
+              font-size: 1.1rem;
+            }
+            .credentials {
+              background: #f8fafc;
+              padding: 20px;
+              border-radius: 10px;
+              margin: 20px 0;
+              text-align: left;
+            }
+            .cred-item {
+              display: flex;
+              justify-content: space-between;
+              padding: 10px 0;
+              border-bottom: 1px solid #e2e8f0;
+            }
+            .cred-item:last-child {
+              border-bottom: none;
+            }
+            .label {
+              color: #475569;
+              font-weight: 600;
+            }
+            .value {
+              font-family: 'SF Mono', Monaco, monospace;
+              background: #f1f5f9;
+              padding: 4px 12px;
+              border-radius: 6px;
+              color: #1e293b;
+            }
+            .warning {
+              background: #fef3c7;
+              border: 2px solid #f59e0b;
+              padding: 15px;
+              border-radius: 10px;
+              margin: 20px 0;
+              color: #92400e;
+              font-size: 0.9rem;
+            }
+            .note {
+              color: #64748b;
+              font-size: 0.9rem;
+              margin-top: 20px;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="auth-box">
+            <div class="lock-icon">🔒</div>
+            <h1>Secure Archive Access</h1>
+            <p class="subtitle">This archive contains confidential call data and is password protected</p>
+            
+            <div class="credentials">
+              <div class="cred-item">
+                <span class="label">Username:</span>
+                <span class="value">${AUTH_USERNAME}</span>
+              </div>
+              <div class="cred-item">
+                <span class="label">Password:</span>
+                <span class="value">•••••••••••</span>
+              </div>
+            </div>
+            
+            <div class="warning">
+              ⚠️ <strong>SECURITY NOTICE:</strong> All access attempts are logged and monitored.
+              Unauthorized access is strictly prohibited.
+            </div>
+            
+            <p class="note">Access restricted to Altair Partners authorized personnel only.</p>
+            <p class="note">Please contact the system administrator if you need credentials.</p>
+          </div>
+        </body>
+      </html>
+    `);
+  }
+  
+  console.log(`🔓 Authorized archive access from ${req.ip} - User: ${user.name}`);
+  next();
+}
+
+// ======================================================
+// SELF-PING SYSTEM (to keep server awake on Free plan)
 // ======================================================
 if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
-  const PING_INTERVAL = 4 * 60 * 1000; // 4 минуты
+  const PING_INTERVAL = 4 * 60 * 1000; // 4 minutes
   
   console.log(`🔄 Self-ping system activated (every ${PING_INTERVAL/60000} minutes)`);
   
@@ -35,7 +165,7 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
   
   setInterval(selfPing, PING_INTERVAL);
   
-  // Первый ping сразу при старте
+  // First ping immediately after startup
   setTimeout(selfPing, 5000);
 }
 
@@ -130,27 +260,27 @@ function getBusinessStatus() {
 }
 
 // ======================================================
-// JSON DATABASE & LOGGING С МГНОВЕННОЙ АРХИВАЦИЕЙ
+// JSON DATABASE & LOGGING WITH INSTANT ARCHIVING
 // ======================================================
 
-// Папки для логов
+// Logs folders
 const LOGS_DIR = "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
 const DAILY_LOGS_DIR = `${LOGS_DIR}/daily`;
 
-// Создаем папки если их нет
+// Create folders if they don't exist
 if (!fs.existsSync(LOGS_DIR)) fs.mkdirSync(LOGS_DIR);
 if (!fs.existsSync(CURRENT_LOGS_DIR)) fs.mkdirSync(CURRENT_LOGS_DIR);
 if (!fs.existsSync(DAILY_LOGS_DIR)) fs.mkdirSync(DAILY_LOGS_DIR);
 
-// Пути к текущим логам
+// Paths to current logs
 const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const AI_CONVERSATIONS_PATH = `${CURRENT_LOGS_DIR}/ai_conversations.json`;
 const REMINDERS_LOG = `${CURRENT_LOGS_DIR}/reminders_log.json`;
 
 // ======================================================
-// ФУНКЦИИ МГНОВЕННОЙ АРХИВАЦИИ (СРАЗУ ПОСЛЕ ЗВОНКА!)
+// INSTANT ARCHIVING FUNCTIONS (IMMEDIATELY AFTER CALL!)
 // ======================================================
 
 function getTodayDateString() {
@@ -158,7 +288,7 @@ function getTodayDateString() {
   return now.toISOString().split('T')[0]; // "2025-12-24"
 }
 
-// Сохраняет данные СРАЗУ в daily архив
+// Saves data IMMEDIATELY to daily archive
 function saveToDailyArchive(type, data) {
   try {
     const today = getTodayDateString();
@@ -166,7 +296,7 @@ function saveToDailyArchive(type, data) {
     
     let existingData = [];
     
-    // 1. Загружаем существующие данные если файл есть
+    // 1. Load existing data if file exists
     if (fs.existsSync(archiveFile)) {
       try {
         const fileData = fs.readFileSync(archiveFile, "utf8");
@@ -178,26 +308,26 @@ function saveToDailyArchive(type, data) {
       }
     }
     
-    // 2. Добавляем новые данные
+    // 2. Add new data
     if (Array.isArray(data)) {
-      // Если пришел массив - добавляем все элементы
+      // If array came - add all elements
       existingData.push(...data);
     } else {
-      // Если пришел объект - добавляем его
+      // If object came - add it
       existingData.push(data);
     }
     
-    // 3. Ограничиваем размер (последние 2000 записей)
+    // 3. Limit size (last 2000 records)
     if (existingData.length > 2000) {
       existingData = existingData.slice(-2000);
     }
     
-    // 4. Сохраняем в daily файл
+    // 4. Save to daily file
     fs.writeFileSync(archiveFile, JSON.stringify(existingData, null, 2));
     
     console.log(`✅ Instant archive: ${type} saved for ${today} (${existingData.length} records)`);
     
-    // 5. Также сохраняем в current logs для быстрого доступа
+    // 5. Also save to current logs for quick access
     saveToCurrentLogs(type, data);
     
   } catch (error) {
@@ -205,12 +335,12 @@ function saveToDailyArchive(type, data) {
   }
 }
 
-// Сохраняет в current logs
+// Saves to current logs
 function saveToCurrentLogs(type, data) {
   try {
     let filePath, currentData = [];
     
-    // Определяем путь к файлу
+    // Determine file path
     switch(type) {
       case 'calls':
         filePath = CALL_LOGS_PATH;
@@ -228,7 +358,7 @@ function saveToCurrentLogs(type, data) {
         return;
     }
     
-    // Загружаем существующие данные
+    // Load existing data
     if (fs.existsSync(filePath)) {
       try {
         const fileData = fs.readFileSync(filePath, "utf8");
@@ -240,19 +370,19 @@ function saveToCurrentLogs(type, data) {
       }
     }
     
-    // Добавляем новые данные
+    // Add new data
     if (Array.isArray(data)) {
       currentData.push(...data);
     } else {
       currentData.push(data);
     }
     
-    // Ограничиваем размер
+    // Limit size
     if (currentData.length > 1000) {
       currentData = currentData.slice(-1000);
     }
     
-    // Сохраняем
+    // Save
     fs.writeFileSync(filePath, JSON.stringify(currentData, null, 2));
     
   } catch (error) {
@@ -260,13 +390,13 @@ function saveToCurrentLogs(type, data) {
   }
 }
 
-// Ежедневная архивация в 23:59 (резервная)
+// Daily archiving at 23:59 (backup)
 function archiveDailyLogs() {
   try {
     const today = getTodayDateString();
     console.log(`📦 Backup archive for ${today}...`);
     
-    // Просто логируем что все ок
+    // Just log that everything is OK
     console.log(`✅ Backup archive completed for ${today}`);
     
   } catch (error) {
@@ -277,10 +407,10 @@ function archiveDailyLogs() {
 function startDailyArchiver() {
   console.log("📦 Daily archiver started (instant mode)");
   
-  // Архивируем при старте
+  // Archive on startup
   archiveDailyLogs();
   
-  // Архивируем каждый день в 23:59 PST (как резерв)
+  // Archive every day at 23:59 PST (as backup)
   setInterval(() => {
     const now = new Date();
     const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
@@ -321,7 +451,7 @@ function logReminder(phone, appointment, action) {
       })
     };
     
-    // МГНОВЕННАЯ АРХИВАЦИЯ
+    // INSTANT ARCHIVING
     saveToDailyArchive('reminders', logEntry);
     
     console.log(`⏰ Reminder logged: ${phone} - ${action}`);
@@ -519,7 +649,7 @@ function isSeriousQuestion(question) {
 }
 
 // ======================================================
-// LOGGING FUNCTIONS С МГНОВЕННОЙ АРХИВАЦИЕЙ
+// LOGGING FUNCTIONS WITH INSTANT ARCHIVING
 // ======================================================
 
 function logCall(phone, action, details = {}) {
@@ -546,7 +676,7 @@ function logCall(phone, action, details = {}) {
       }
     };
     
-    // МГНОВЕННАЯ АРХИВАЦИЯ в daily файл
+    // INSTANT ARCHIVING to daily file
     saveToDailyArchive('calls', logEntry);
     
     console.log(`📝 Call logged: ${phone} - ${action}`);
@@ -575,7 +705,7 @@ function logAIConversation(phone, question, response) {
       })
     };
     
-    // МГНОВЕННАЯ АРХИВАЦИЯ
+    // INSTANT ARCHIVING
     saveToDailyArchive('ai', conversationEntry);
     
     console.log(`🤖 AI conversation logged: ${phone}`);
@@ -650,7 +780,7 @@ function addAppointment(name, phone, businessType, serviceType, date, time) {
   
   saveDB(filteredDB);
   
-  // МГНОВЕННАЯ АРХИВАЦИЯ appointments
+  // INSTANT ARCHIVING appointments
   saveToDailyArchive('appointments', appointment);
   
   console.log(`✅ Appointment added: ${name} - ${date} at ${time}`);
@@ -1264,7 +1394,7 @@ const ARCHIVE_VIEWER_HTML = `
             <p>Instant call logging system • View all calls, appointments, and conversations • Real-time updates</p>
             <div class="badge">
                 <i class="fas fa-bolt"></i>
-                INSTANT ARCHIVE - Все звонки сохраняются сразу!
+                INSTANT ARCHIVE - All calls saved immediately!
             </div>
         </div>
 
@@ -1854,9 +1984,9 @@ const ARCHIVE_VIEWER_HTML = `
 `;
 
 // ======================================================
-// BEAUTIFUL ARCHIVE VIEWER ENDPOINT
+// BEAUTIFUL ARCHIVE VIEWER ENDPOINT (PROTECTED!)
 // ======================================================
-app.get('/archive-viewer', (req, res) => {
+app.get('/archive-viewer', requireArchiveAuth, (req, res) => {
   res.send(ARCHIVE_VIEWER_HTML);
 });
 
@@ -2174,7 +2304,7 @@ app.post('/record-voice-message', (req, res) => {
 });
 
 // ======================================================
-// REPRESENTATIVE (Option 2) - БЫСТРЫЙ AI
+// REPRESENTATIVE (Option 2) - FAST AI
 // ======================================================
 app.post('/connect-representative', (req, res) => {
   const twiml = new VoiceResponse();
@@ -2980,15 +3110,15 @@ app.get('/business-status', (req, res) => {
 });
 
 // ======================================================
-// ДНЕВНЫЕ АРХИВЫ - НОВЫЕ ENDPOINTS
+// DAILY ARCHIVES - NEW ENDPOINTS (PROTECTED!)
 // ======================================================
 
-// Показать все доступные даты архивов
-app.get('/daily-archives', (req, res) => {
+// Show all available archive dates (PROTECTED)
+app.get('/daily-archives', requireArchiveAuth, (req, res) => {
   try {
     const files = fs.readdirSync(DAILY_LOGS_DIR);
     
-    // Группируем файлы по дате
+    // Group files by date
     const dates = {};
     
     files.forEach(file => {
@@ -3033,7 +3163,7 @@ app.get('/daily-archives', (req, res) => {
         }
       })),
       lastUpdated: new Date().toISOString(),
-      note: "📞 Все звонки сохраняются СРАЗУ после разговора!"
+      note: "📞 All calls are saved IMMEDIATELY after conversation!"
     });
     
   } catch (error) {
@@ -3042,8 +3172,8 @@ app.get('/daily-archives', (req, res) => {
   }
 });
 
-// Получить логи за конкретную дату
-app.get('/daily-archives/:date/:type', (req, res) => {
+// Get logs for specific date (PROTECTED)
+app.get('/daily-archives/:date/:type', requireArchiveAuth, (req, res) => {
   const { date, type } = req.params;
   
   try {
@@ -3063,7 +3193,7 @@ app.get('/daily-archives/:date/:type', (req, res) => {
     let uniquePhones = new Set();
     let phoneDetails = [];
     
-    // Анализируем данные
+    // Analyze data
     logs.forEach(log => {
       if (log.phone) {
         uniquePhones.add(log.phone);
@@ -3101,8 +3231,8 @@ app.get('/daily-archives/:date/:type', (req, res) => {
   }
 });
 
-// Скачать архив за дату
-app.get('/daily-archives/:date/:type/download', (req, res) => {
+// Download archive for date (PROTECTED)
+app.get('/daily-archives/:date/:type/download', requireArchiveAuth, (req, res) => {
   const { date, type } = req.params;
   const filePath = `${DAILY_LOGS_DIR}/${type}-${date}.json`;
   
@@ -3114,7 +3244,7 @@ app.get('/daily-archives/:date/:type/download', (req, res) => {
 });
 
 // ======================================================
-// DEBUG ENDPOINTS (обновленные)
+// DEBUG ENDPOINTS (updated)
 // ======================================================
 app.get('/health', (req, res) => {
   res.status(200).send('✅ IVR Server is running');
@@ -3147,7 +3277,7 @@ app.get('/debug', (req, res) => {
     console.error("ERROR loading logs:", error);
   }
   
-  // Проверяем архивы
+  // Check archives
   let dailyArchives = [];
   try {
     if (fs.existsSync(DAILY_LOGS_DIR)) {
@@ -3188,10 +3318,11 @@ app.get('/debug', (req, res) => {
       totalDates: dailyArchives.length,
       dates: dailyArchives.slice(0, 10),
       allDates: `/daily-archives`,
-      beautifulViewer: `/archive-viewer`
+      beautifulViewer: `/archive-viewer`,
+      security: 'PROTECTED - Requires authentication'
     },
     systemInfo: {
-      archiveMode: 'INSTANT (сохраняет сразу после звонка)',
+      archiveMode: 'INSTANT (saves immediately after call)',
       storage: {
         calls: `${DAILY_LOGS_DIR}/calls-YYYY-MM-DD.json`,
         appointments: `${DAILY_LOGS_DIR}/appointments-YYYY-MM-DD.json`,
@@ -3209,7 +3340,12 @@ app.get('/debug', (req, res) => {
       open: businessStatus.isOpen,
       message: businessStatus.isOpen ? 'Open now' : `Closed - ${businessStatus.nextOpenTime}`
     },
-    selfPing: process.env.FREE_PLAN === 'true' ? 'Active (4 min interval)' : 'Inactive'
+    selfPing: process.env.FREE_PLAN === 'true' ? 'Active (4 min interval)' : 'Inactive',
+    security: {
+      archiveProtection: 'ACTIVE (Basic Auth)',
+      defaultUsername: 'admin',
+      note: 'Set ARCHIVE_USERNAME and ARCHIVE_PASSWORD in .env to change'
+    }
   });
 });
 
@@ -3235,6 +3371,7 @@ app.get('/', (req, res) => {
           .instant-badge { background: linear-gradient(to right, #10b981, #34d399); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
           .cta-button { display: inline-block; background: linear-gradient(to right, #4f46e5, #7c3aed); color: white; padding: 12px 24px; border-radius: 10px; text-decoration: none; font-weight: 600; margin: 10px 5px; transition: all 0.3s ease; }
           .cta-button:hover { transform: translateY(-3px); box-shadow: 0 10px 20px rgba(79, 70, 229, 0.3); text-decoration: none; }
+          .security-badge { background: linear-gradient(to right, #ef4444, #f97316); color: white; padding: 5px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; }
           h1 { color: #1e293b; margin-bottom: 20px; display: flex; align-items: center; gap: 15px; }
         </style>
       </head>
@@ -3254,15 +3391,16 @@ app.get('/', (req, res) => {
           </div>
           
           <div class="archive-info">
-            <h3 style="color: #92400e; margin-top: 0;">📦 NEW! Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span></h3>
-            <p><strong>Теперь с красивым интерфейсом с кнопками!</strong></p>
-            <p>• 📊 Графики и статистика</p>
-            <p>• 🔍 Поиск по датам и номерам</p>
-            <p>• 🎨 Анимации и красивые карточки</p>
-            <p>• 📱 Адаптивный дизайн для телефона</p>
+            <h3 style="color: #92400e; margin-top: 0;">📦 NEW! Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span> <span class="security-badge">🔒 SECURE</span></h3>
+            <p><strong>Now with beautiful interface with buttons AND PASSWORD PROTECTION!</strong></p>
+            <p>• 📊 Charts and statistics</p>
+            <p>• 🔍 Search by dates and phone numbers</p>
+            <p>• 🎨 Animations and beautiful cards</p>
+            <p>• 📱 Responsive design for phone</p>
+            <p>• 🔒 PASSWORD PROTECTED - No public access</p>
             <p style="margin-top: 10px;">
               <a href="/archive-viewer" class="cta-button">
-                🚀 Открыть Красивый Архив
+                🚀 Open Beautiful Archive
               </a>
             </p>
           </div>
@@ -3270,16 +3408,16 @@ app.get('/', (req, res) => {
           <div class="endpoints">
             <h3 style="color: #1e293b;">📁 Main Endpoints:</h3>
             <ul>
-              <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🎨</span> /archive-viewer</a> - Красивый архив с кнопками!</li>
-              <li><a href="/daily-archives"><span style="font-size: 1.2rem;">📊</span> /daily-archives</a> - Все архивы по дням (JSON)</li>
+              <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🎨</span> /archive-viewer</a> - Beautiful archive with buttons! <span class="security-badge">🔒</span></li>
+              <li><a href="/daily-archives"><span style="font-size: 1.2rem;">📊</span> /daily-archives</a> - All archives by days (JSON) <span class="security-badge">🔒</span></li>
               <li><a href="/debug"><span style="font-size: 1.2rem;">🔧</span> /debug</a> - Debug info</li>
               <li><a href="/health"><span style="font-size: 1.2rem;">❤️</span> /health</a> - Health check</li>
             </ul>
             
             <h3 style="color: #1e293b; margin-top: 25px;">📋 Data Endpoints:</h3>
             <ul>
-              <li><a href="/logs"><span style="font-size: 1.2rem;">📞</span> /logs</a> - Текущие логи звонков</li>
-              <li><a href="/appointments"><span style="font-size: 1.2rem;">📅</span> /appointments</a> - Все appointments</li>
+              <li><a href="/logs"><span style="font-size: 1.2rem;">📞</span> /logs</a> - Current call logs</li>
+              <li><a href="/appointments"><span style="font-size: 1.2rem;">📅</span> /appointments</a> - All appointments</li>
               <li><a href="/conversations"><span style="font-size: 1.2rem;">🤖</span> /conversations</a> - AI conversations</li>
               <li><a href="/reminders"><span style="font-size: 1.2rem;">⏰</span> /reminders</a> - Reminder logs</li>
               <li><a href="/business-status"><span style="font-size: 1.2rem;">🏢</span> /business-status</a> - Business hours check</li>
@@ -3291,9 +3429,10 @@ app.get('/', (req, res) => {
             <p><strong>⏰ Reminder System:</strong> Calls ONE DAY BEFORE appointment at 2 PM Pacific Time</p>
             <p><strong>🔄 Check interval:</strong> Every 5 minutes</p>
             <p><strong>🔔 Test reminder:</strong> POST /test-reminder?phone=+15034448881</p>
-            <p><strong>📦 Архивация:</strong> <span class="instant-badge">INSTANT MODE</span> (сразу после звонка)</p>
-            <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}</p>
-            <p><strong>📞 Тестовый звонок:</strong> +1 (503) 444-8881</p>
+            <p><strong>📦 Archiving:</strong> <span class="instant-badge">INSTANT MODE</span> (immediately after call)</p>
+            <p><strong>🔒 Archive Security:</strong> Password protected (username: admin)</p>
+            <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}</p>
+            <p><strong>📞 Test call:</strong> +1 (503) 444-8881</p>
           </div>
         </div>
       </body>
@@ -3301,6 +3440,7 @@ app.get('/', (req, res) => {
   `);
 });
 
+// Public endpoints (no protection needed)
 app.get('/logs', (req, res) => {
   try {
     let callLogs = [];
@@ -3313,7 +3453,7 @@ app.get('/logs', (req, res) => {
       total: callLogs.length,
       logs: callLogs.reverse(),
       lastUpdated: new Date().toISOString(),
-      note: "Это текущие логи. Архивы по дням доступны по /daily-archives"
+      note: "These are current logs. Daily archives available at /daily-archives (password protected)"
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load logs" });
@@ -3327,7 +3467,7 @@ app.get('/appointments', (req, res) => {
     total: appointments.length,
     appointments: appointments.reverse(),
     lastUpdated: new Date().toISOString(),
-    note: "Это текущие appointments. Архивы по дням доступны по /daily-archives"
+    note: "These are current appointments. Daily archives available at /daily-archives (password protected)"
   });
 });
 
@@ -3343,7 +3483,7 @@ app.get('/conversations', (req, res) => {
       total: aiConversations.length,
       conversations: aiConversations.reverse(),
       lastUpdated: new Date().toISOString(),
-      note: "Это текущие AI разговоры. Архивы по дням доступны по /daily-archives"
+      note: "These are current AI conversations. Daily archives available at /daily-archives (password protected)"
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load conversations" });
@@ -3363,7 +3503,7 @@ app.get('/reminders', (req, res) => {
       reminders: reminderLogs.reverse(),
       lastUpdated: new Date().toISOString(),
       systemInfo: 'Calls ONE DAY BEFORE appointment at 2 PM Pacific Time',
-      note: "Это текущие reminders. Архивы по дням доступны по /daily-archives"
+      note: "These are current reminders. Daily archives available at /daily-archives (password protected)"
     });
   } catch (error) {
     res.status(500).json({ error: "Failed to load reminders" });
@@ -3377,7 +3517,7 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   const businessStatus = getBusinessStatus();
   
-  // Получаем реальный URL сервера
+  // Get real server URL
   const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   
   console.log(`🚀 Altair Partners IVR Server running on port ${PORT}`);
@@ -3385,12 +3525,13 @@ app.listen(PORT, () => {
   console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
-  console.log(`\n🎨 КРАСИВЫЙ АРХИВ-ВЬЮВЕР:`);
-  console.log(`✅ ${serverUrl}/archive-viewer - КРАСИВЫЙ ИНТЕРФЕЙС С КНОПКАМИ!`);
-  console.log(`\n📊 Основные endpoints:`);
+  console.log(`\n🎨 BEAUTIFUL ARCHIVE VIEWER:`);
+  console.log(`✅ ${serverUrl}/archive-viewer - BEAUTIFUL INTERFACE WITH BUTTONS!`);
+  console.log(`🔒 PROTECTED with password: admin / ChangeThisPassword123!`);
+  console.log(`\n📊 Main endpoints:`);
   console.log(`✅ Health check: ${serverUrl}/health`);
   console.log(`✅ Debug: ${serverUrl}/debug`);
-  console.log(`✅ Daily archives (JSON): ${serverUrl}/daily-archives`);
+  console.log(`✅ Daily archives (JSON): ${serverUrl}/daily-archives (PROTECTED)`);
   console.log(`\n📋 Data endpoints:`);
   console.log(`✅ Current logs: ${serverUrl}/logs`);
   console.log(`✅ Appointments: ${serverUrl}/appointments`);
@@ -3400,22 +3541,30 @@ app.listen(PORT, () => {
   console.log(`\n🛠️ System info:`);
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
   console.log(`🤖 AI Representative is ready (fast mode)`);
-  console.log(`📝 INSTANT ARCHIVE SYSTEM: Все данные сохраняются сразу после звонка!`);
+  console.log(`📝 INSTANT ARCHIVE SYSTEM: All data saved immediately after call!`);
   console.log(`📁 Archives location: ./logs/daily/`);
   console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
   console.log(`🔄 Check interval: Every 5 minutes`);
   console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
   console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
-  console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (каждые 4 минуты)' : 'Inactive'}`);
-  console.log(`\n🔥 НОВОЕ: Красивый архив-вьювер доступен по: ${serverUrl}/archive-viewer`);
-  console.log(`🎉 Теперь с кнопками, анимациями и красивым дизайном!`);
+  console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}`);
+  console.log(`\n🔒 SECURITY INFORMATION:`);
+  console.log(`✅ Archive protection: ACTIVE (Basic Auth)`);
+  console.log(`✅ Default username: admin`);
+  console.log(`✅ Default password: ChangeThisPassword123!`);
+  console.log(`⚠️ IMPORTANT: Change password in .env file with:`);
+  console.log(`   ARCHIVE_USERNAME=yourusername`);
+  console.log(`   ARCHIVE_PASSWORD=yourstrongpassword`);
+  console.log(`\n🔥 NEW: Beautiful archive-viewer available at: ${serverUrl}/archive-viewer`);
+  console.log(`🎉 Now with buttons, animations, and beautiful design - AND SECURE!`);
   
-  // Запускаем reminder scheduler
+  // Start reminder scheduler
   startReminderScheduler();
   
-  // Запускаем daily archiver
+  // Start daily archiver
   startDailyArchiver();
   
-  console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - Все звонки будут сохраняться сразу!`);
-  console.log(`✅ BEAUTIFUL ARCHIVE VIEWER READY - Открывай в браузере и наслаждайся!`);
+  console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - All calls will be saved immediately!`);
+  console.log(`✅ BEAUTIFUL ARCHIVE VIEWER READY - Open in browser and enjoy!`);
+  console.log(`✅ SECURITY PROTECTION ACTIVE - Archives are password protected!`);
 });
