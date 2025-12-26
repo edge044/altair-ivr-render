@@ -1,14 +1,18 @@
 {
   "name": "altair-ivr",
-  "version": "1.0.0",
-  "description": "Altair Partners IVR System with AI Assistant and Advanced Analytics",
+  "version": "2.0.0",
+  "description": "Altair Partners IVR System with Voicemail, Callback Tracking & Real-time Analytics",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "test": "echo \"No tests specified\" && exit 0",
+    "setup": "npm install",
+    "deploy": "git add . && git commit -m 'Deploy update' && git push origin main"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
   },
   "dependencies": {
     "express": "^4.22.1",
@@ -16,15 +20,30 @@
     "twilio": "^4.23.0",
     "basic-auth": "^2.0.1"
   },
+  "devDependencies": {
+    "nodemon": "^3.0.0"
+  },
   "keywords": [
     "ivr",
     "twilio",
     "ai",
+    "voicemail",
+    "callback",
+    "analytics",
+    "dashboard",
     "appointment",
     "reminder",
-    "analytics",
-    "dashboard"
+    "real-time"
   ],
   "author": "Altair Partners",
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/altair-ivr-render.git"
+  },
+  "homepage": "https://altair-ivr-render-1.onrender.com",
+  "bugs": {
+    "url": "https://github.com/yourusername/altair-ivr-render/issues"
+  },
+  "private": true
 }
