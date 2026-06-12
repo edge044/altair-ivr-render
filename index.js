@@ -6,7 +6,6 @@ const twilioClient = require('twilio')(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
-const { OpenAI } = require('openai');
 const basicAuth = require('basic-auth');
 
 const app = express();
@@ -50,9 +49,8 @@ function requireAuth(req, res, next) {
 }
 
 // ======================================================
-// SELF-PING & BUSINESS HOURS
+// SELF-PING SYSTEM
 // ======================================================
-
 if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
   const PING_INTERVAL = 4 * 60 * 1000;
   const selfPing = async () => {
@@ -64,27 +62,11 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
   setTimeout(selfPing, 5000);
 }
 
-function isWithinBusinessHours() {
-  try {
-    const now = new Date();
-    const pstTime = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-    const day = pstTime.getDay();
-    const hour = pstTime.getHours();
-    const minutes = pstTime.getMinutes();
-    const currentTime = hour * 100 + minutes;
-    const isWeekday = day >= 1 && day <= 5;
-    const isWithinHours = currentTime >= 1000 && currentTime <= 1700;
-    return isWeekday && isWithinHours;
-  } catch (error) {
-    return true;
-  }
-}
-
 // ======================================================
 // DATA STORAGE
 // ======================================================
 
-const LOGS_DIR = "./logs";
+const LOGS_DIR = process.env.LOGS_DIR || "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
 const DAILY_LOGS_DIR = `${LOGS_DIR}/daily`;
 
@@ -547,6 +529,7 @@ const ADMIN_CSS = `
     color: var(--muted);
     border-bottom: 2px solid transparent;
     font-size: 0.9rem;
+    text-decoration: none;
   }
   
   .tab.active {
@@ -569,13 +552,14 @@ const ADMIN_CSS = `
     padding: 16px;
     cursor: pointer;
     border-bottom: 1px solid var(--border);
+    display: block;
   }
   
   .message-item:hover { background: var(--soft); }
   .message-item.active { background: var(--soft); }
   
   .message-item .name { font-weight: bold; margin-bottom: 4px; }
-  .message-item .preview { color: var(--muted); font-size: 0.85rem; }
+  .message-item .preview { color: var(--muted); font-size: 0.85rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   
   .message-conversation {
     flex: 1;
@@ -854,7 +838,6 @@ app.get('/appointments-admin', requireAuth, (req, res) => {
         </main>
       </div>
       
-      <!-- Approve Modal -->
       <div class="modal" id="approveModal">
         <div class="modal-content">
           <div class="modal-title">Approve Appointment</div>
@@ -889,7 +872,6 @@ app.get('/appointments-admin', requireAuth, (req, res) => {
         </div>
       </div>
       
-      <!-- Create Modal -->
       <div class="modal" id="createModal">
         <div class="modal-content">
           <div class="modal-title">Create Appointment</div>
@@ -1023,13 +1005,39 @@ app.get('/messages', requireAuth, (req, res) => {
           <h1 class="page-title">Messages</h1>
           <p class="page-subtitle">Text clients directly from this page.</p>
           
+          <div class="card">
+            <div class="card-title">New Message</div>
+            <p style="color: var(--muted); font-size: 0.9rem; margin-bottom: 16px;">
+              Send a text to any client by phone number. Use this for appointment-related communication only.
+            </p>
+
+            <form method="POST" action="/send-sms" style="display: grid; gap: 12px;">
+              <div class="form-group">
+                <label>Phone Number</label>
+                <input type="tel" name="phone" placeholder="+15035551234" required>
+              </div>
+
+              <div class="form-group">
+                <label>Message</label>
+                <textarea name="message" rows="4" placeholder="Write your message..." required></textarea>
+              </div>
+
+              <label style="display:flex; gap:8px; align-items:flex-start; color: var(--muted); font-size: 0.85rem; line-height: 1.4;">
+                <input type="checkbox" name="includeOptOut" value="true" checked style="width:auto; margin-top:3px;">
+                Add "Reply STOP to opt out." to this message.
+              </label>
+
+              <button type="submit" class="btn btn-primary" style="width: fit-content;">Send Message</button>
+            </form>
+          </div>
+          
           <div class="message-thread">
             <div class="message-list">
               ${threads.map(t => `
                 <a href="?phone=${encodeURIComponent(t.phone)}" style="text-decoration:none; color:inherit;">
                   <div class="message-item ${selectedPhone.replace(/\\D/g,'') === t.phone.replace(/\\D/g,'') ? 'active' : ''}">
                     <div class="name">${t.phone}</div>
-                    <div class="preview">${(t.lastMessage || '').substring(0, 40)}...</div>
+                    <div class="preview">${(t.lastMessage || '').substring(0, 40)}</div>
                   </div>
                 </a>
               `).join('')}
@@ -1051,11 +1059,14 @@ app.get('/messages', requireAuth, (req, res) => {
                   <button class="btn btn-sm btn-secondary" onclick="setTemplate('approved')">Approved</button>
                   <button class="btn btn-sm btn-secondary" onclick="setTemplate('rejected')">Rejected</button>
                   <button class="btn btn-sm btn-secondary" onclick="setTemplate('canceled')">Canceled</button>
+                  <button class="btn btn-sm btn-secondary" onclick="setTemplate('details')">Need Details</button>
+                  <button class="btn btn-sm btn-secondary" onclick="setTemplate('privacy')">Privacy</button>
                 </div>
                 
                 <form method="POST" action="/send-sms" class="message-input">
                   <input type="hidden" name="phone" value="${selectedPhone}">
                   <input type="text" name="message" id="messageInput" placeholder="Write message..." required>
+                  <input type="hidden" name="includeOptOut" value="false">
                   <button type="submit" class="btn btn-primary">Send</button>
                 </form>
               ` : '<p style="padding: 40px; color: var(--muted); text-align: center;">Select a conversation to start messaging.</p>'}
@@ -1069,7 +1080,9 @@ app.get('/messages', requireAuth, (req, res) => {
           const templates = {
             approved: 'Your appointment with Manet Creative has been approved. Date and time have been confirmed. You may receive a reminder call. For our privacy policy, visit https://manet.agency.',
             rejected: 'Thank you for your interest in Manet Creative. At this time, we are unable to confirm your appointment request because the project may not meet our current minimum budget requirement.',
-            canceled: 'Your appointment request with Manet Creative has been canceled. For emergencies or general inquiries, please email mila@meetmanet.com.'
+            canceled: 'Your appointment request with Manet Creative has been canceled. For emergencies or general inquiries, please email mila@meetmanet.com.',
+            details: 'Hi, this is Manet Creative. Please send us a few more details about your project so our team can review your appointment request.',
+            privacy: 'For our privacy policy, please visit https://manet.agency.'
           };
           document.getElementById('messageInput').value = templates[type] || '';
         }
@@ -1567,39 +1580,62 @@ app.post('/admin-send-reminder-now', requireAuth, (req, res) => {
 // SMS ENDPOINTS
 // ======================================================
 
-app.post('/send-sms', requireAuth, (req, res) => {
-  const { phone, message } = req.body;
+app.post('/send-sms', requireAuth, async (req, res) => {
+  const { phone, message, includeOptOut } = req.body;
   
-  if (!phone || !message) return res.redirect('/messages');
-  
-  twilioClient.messages.create({
-    body: message,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: phone
-  }).then(() => {
-    saveMessage({ phone, direction: 'outbound', body: message });
-    console.log(`📱 SMS sent to ${phone}`);
-  }).catch(err => {
+  if (!phone || !message) {
+    return res.redirect('/messages');
+  }
+
+  const cleanedPhone = phone.trim();
+  let cleanedMessage = message.trim();
+
+  if (includeOptOut === 'true' && !cleanedMessage.toLowerCase().includes('stop')) {
+    cleanedMessage += '\n\nReply STOP to opt out.';
+  }
+
+  try {
+    await twilioClient.messages.create({
+      body: cleanedMessage,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: cleanedPhone
+    });
+
+    saveMessage({
+      phone: cleanedPhone,
+      direction: 'outbound',
+      body: cleanedMessage
+    });
+
+    console.log(`📱 SMS sent to ${cleanedPhone}`);
+    
+  } catch (err) {
     console.error("ERROR sending SMS:", err);
-  });
+  }
   
-  res.redirect(`/messages?phone=${encodeURIComponent(phone)}`);
+  res.redirect(`/messages?phone=${encodeURIComponent(cleanedPhone)}`);
 });
 
 app.post('/sms', (req, res) => {
-  const phone = req.body.From;
-  const message = req.body.Body;
+  const phone = req.body.From || '';
+  const message = req.body.Body || '';
   
   console.log(`📱 SMS received from ${phone}: ${message}`);
   
-  saveMessage({ phone, direction: 'inbound', body: message });
+  if (phone && message) {
+    saveMessage({
+      phone,
+      direction: 'inbound',
+      body: message
+    });
+  }
   
   res.type('text/xml');
   res.send('<Response></Response>');
 });
 
 // ======================================================
-// PHONE SYSTEM (unchanged from previous version)
+// PHONE SYSTEM
 // ======================================================
 
 app.post('/voice', (req, res) => {
@@ -1943,16 +1979,48 @@ app.get('/', (req, res) => {
       <head>
         <title>Manet Creative</title>
         <style>
-          body { font-family: Georgia, serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f7f3ed; margin: 0; }
-          .box { text-align: center; }
-          h1 { font-size: 2rem; font-weight: normal; color: #161616; }
-          p { color: #77716a; }
+          body {
+            font-family: Georgia, serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f7f3ed;
+            margin: 0;
+            color: #161616;
+          }
+          .box {
+            text-align: center;
+            background: #fff;
+            border: 1px solid #e2dcd3;
+            padding: 54px;
+            max-width: 420px;
+            width: 90%;
+          }
+          h1 {
+            font-size: 2rem;
+            font-weight: normal;
+            margin-bottom: 8px;
+          }
+          p {
+            color: #77716a;
+            margin-bottom: 26px;
+          }
+          a {
+            display: inline-block;
+            background: #161616;
+            color: white;
+            padding: 12px 22px;
+            text-decoration: none;
+            font-size: 0.95rem;
+          }
         </style>
       </head>
       <body>
         <div class="box">
           <h1>Manet Creative</h1>
           <p>Phone system is running.</p>
+          <a href="/admin">Open Admin</a>
         </div>
       </body>
     </html>
