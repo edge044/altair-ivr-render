@@ -26,7 +26,7 @@ function requireArchiveAuth(req, res, next) {
   if (!user || user.name !== AUTH_USERNAME || user.pass !== AUTH_PASSWORD) {
     console.log(`🔒 Unauthorized access attempt from IP: ${req.ip} - User: ${user ? user.name : 'none'}`);
     
-    res.set('WWW-Authenticate', 'Basic realm="Altair Partners Archive - Secure Access"');
+    res.set('WWW-Authenticate', 'Basic realm="Manet Creative Archive - Secure Access"');
     return res.status(401).send(`
       <html>
         <head>
@@ -130,7 +130,7 @@ function requireArchiveAuth(req, res, next) {
               Unauthorized access is strictly prohibited.
             </div>
             
-            <p class="note">Access restricted to Altair Partners authorized personnel only.</p>
+            <p class="note">Access restricted to Manet Creative authorized personnel only.</p>
             <p class="note">Please contact the system administrator if you need credentials.</p>
           </div>
         </body>
@@ -468,9 +468,9 @@ function triggerTestReminder(phone) {
     twilioClient.calls.create({
       twiml: `<Response>
         <Say voice="alice" language="en-US">
-          Hello, this is Altair Partners calling to remind you about your TEST appointment. 
+          Hello, this is Manet Creative calling to remind you about your TEST appointment. 
           This is a test reminder call. Please call us if you need to reschedule. 
-          Thank you for choosing Altair Partners!
+          Thank you for choosing Manet Creative!
         </Say>
         <Hangup/>
       </Response>`,
@@ -494,10 +494,10 @@ function sendReminderCall(phone, appointment) {
     twilioClient.calls.create({
       twiml: `<Response>
         <Say voice="alice" language="en-US">
-          Hello, this is Altair Partners calling to remind you about your appointment 
+          Hello, this is Manet Creative calling to remind you about your appointment 
           scheduled for ${appointment.date} at ${appointment.time}. 
           Please call us if you need to reschedule. 
-          Thank you for choosing Altair Partners!
+          Thank you for choosing Manet Creative!
         </Say>
         <Hangup/>
       </Response>`,
@@ -590,13 +590,15 @@ const openai = new OpenAI({
 });
 
 const REP_CONTEXT = `
-You work at Altair Partners - a creative agency in Portland.
+You work at Manet Creative - a creative agency in Portland.
 
 BUSINESS INFO:
 - Hours: Monday to Friday, 10 AM to 5 PM Pacific Time
 - Location: Portland, Oregon
 - Services: Creative design, branding, marketing campaigns, video production
 - For appointments: Say "I'll transfer you to our booking system"
+- For emergencies or general inquiries: Email mila@meetmanet.com
+- Privacy policy: https://manet.agency
 
 BEHAVIOR:
 1. Keep answers VERY SHORT (max 10 words)
@@ -799,7 +801,7 @@ function addAppointment(name, phone, businessType, serviceType, date, time) {
 function getNextAvailableDate() {
   const today = new Date();
   const nextDate = new Date(today);
-  nextDate.setDate(today.getDate() + 3);
+  nextDate.setDate(today.getDate() + 7);
   
   const options = { weekday: 'long', month: 'long', day: 'numeric' };
   return nextDate.toLocaleDateString('en-US', options);
@@ -815,7 +817,7 @@ const ARCHIVE_VIEWER_HTML = `
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>📊 Altair Partners - Beautiful Archive Viewer</title>
+    <title>📊 Manet Creative - Beautiful Archive Viewer</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
@@ -1389,7 +1391,7 @@ const ARCHIVE_VIEWER_HTML = `
         <div class="header">
             <h1>
                 <i class="fas fa-archive"></i>
-                Altair Partners Call Archive
+                Manet Creative Call Archive
             </h1>
             <p>Instant call logging system • View all calls, appointments, and conversations • Real-time updates</p>
             <div class="badge">
@@ -1991,15 +1993,209 @@ app.get('/archive-viewer', requireArchiveAuth, (req, res) => {
 });
 
 // ======================================================
-// MAIN MENU (5 OPTIONS)
+// APPOINTMENT ADMIN PAGE - CANCEL QUIETLY OR WITH SMS
+// ======================================================
+app.get('/appointments-admin', requireArchiveAuth, (req, res) => {
+  const appointments = loadDB();
+
+  const rows = appointments.map((appt, index) => {
+    return `
+      <tr>
+        <td>${appt.name || ''}</td>
+        <td>${appt.phone || ''}</td>
+        <td>${appt.date || ''}</td>
+        <td>${appt.time || ''}</td>
+        <td>${appt.businessType || ''}</td>
+        <td>${appt.serviceType || ''}</td>
+        <td>
+          <form method="POST" action="/admin-cancel-appointment" onsubmit="return confirm('Cancel this appointment quietly?');">
+            <input type="hidden" name="phone" value="${appt.phone || ''}">
+            <input type="hidden" name="notify" value="false">
+            <button class="quiet" type="submit">Cancel quietly</button>
+          </form>
+
+          <form method="POST" action="/admin-cancel-appointment" onsubmit="return confirm('Cancel this appointment and send SMS to client?');">
+            <input type="hidden" name="phone" value="${appt.phone || ''}">
+            <input type="hidden" name="notify" value="true">
+            <button class="notify" type="submit">Cancel + text client</button>
+          </form>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  res.send(`
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <title>Manet Creative Appointments</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            padding: 30px;
+            background: #f6f6f6;
+          }
+          h1 {
+            margin-bottom: 10px;
+          }
+          .note {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ddd;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+          }
+          th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+          }
+          th {
+            background: #111;
+            color: white;
+          }
+          button {
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 3px 0;
+            width: 150px;
+          }
+          .quiet {
+            background: #555;
+          }
+          .notify {
+            background: #c0392b;
+          }
+          .empty {
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Manet Creative Appointment Requests</h1>
+        <div class="note">
+          <strong>How this works:</strong><br>
+          Cancel quietly = removes the appointment only.<br>
+          Cancel + text client = removes the appointment and sends the client an SMS cancellation notice.
+        </div>
+
+        ${
+          appointments.length === 0
+          ? `<div class="empty">No appointment requests found.</div>`
+          : `
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Phone</th>
+                  <th>Date</th>
+                  <th>Time</th>
+                  <th>Business</th>
+                  <th>Service</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows}
+              </tbody>
+            </table>
+          `
+        }
+      </body>
+    </html>
+  `);
+});
+
+app.post('/admin-cancel-appointment', requireArchiveAuth, (req, res) => {
+  const phone = req.body.phone;
+  const notify = req.body.notify === 'true';
+
+  if (!phone) {
+    return res.status(400).send("Phone number is required.");
+  }
+
+  let db = loadDB();
+  const normalizedPhone = phone.replace(/\D/g, '');
+
+  const appointment = db.find(a => {
+    const normalizedApptPhone = a.phone.replace(/\D/g, '');
+    return normalizedApptPhone === normalizedPhone;
+  });
+
+  if (!appointment) {
+    return res.send(`
+      <p>No appointment found for ${phone}.</p>
+      <p><a href="/appointments-admin">Back to appointments</a></p>
+    `);
+  }
+
+  db = db.filter(a => {
+    const normalizedApptPhone = a.phone.replace(/\D/g, '');
+    return normalizedApptPhone !== normalizedPhone;
+  });
+
+  saveDB(db);
+
+  logCall(phone, notify ? 'ADMIN_CANCELLED_APPOINTMENT_WITH_SMS' : 'ADMIN_CANCELLED_APPOINTMENT_QUIETLY', {
+    appointment,
+    notify
+  });
+
+  if (notify) {
+    try {
+      twilioClient.messages.create({
+        body:
+          `Manet Creative appointment update:\n\n` +
+          `Your appointment request for ${appointment.date} at ${appointment.time} has been canceled.\n\n` +
+          `For our privacy policy, please visit https://manet.agency.\n\n` +
+          `For emergencies or general inquiries, please email mila@meetmanet.com.`,
+        from: process.env.TWILIO_PHONE_NUMBER,
+        to: phone
+      });
+
+      console.log(`📱 Cancellation SMS sent to ${phone}`);
+    } catch (err) {
+      console.log("ERROR sending cancellation SMS:", err);
+    }
+  }
+
+  res.send(`
+    <html>
+      <body style="font-family: Arial, sans-serif; padding: 30px;">
+        <h2>Appointment canceled</h2>
+        <p><strong>Name:</strong> ${appointment.name || ''}</p>
+        <p><strong>Phone:</strong> ${appointment.phone || ''}</p>
+        <p><strong>Date:</strong> ${appointment.date || ''}</p>
+        <p><strong>Time:</strong> ${appointment.time || ''}</p>
+        <p><strong>Client SMS sent:</strong> ${notify ? 'Yes' : 'No'}</p>
+        <p><a href="/appointments-admin">Back to appointments</a></p>
+      </body>
+    </html>
+  `);
+});
+
+// ======================================================
+// MAIN MENU - APPOINTMENTS ONLY (WITH RECORDING NOTICE)
 // ======================================================
 app.post('/voice', (req, res) => {
   const twiml = new VoiceResponse();
   const phone = req.body.From;
   
-  console.log("📞 Main menu - Caller:", phone);
+  console.log("📞 Appointment-only menu - Caller:", phone);
   
-  logCall(phone, 'CALL_RECEIVED', {
+  logCall(phone, 'CALL_RECEIVED_APPOINTMENT_ONLY', {
     caller: phone,
     time: new Date().toLocaleTimeString()
   });
@@ -2012,17 +2208,19 @@ app.post('/voice', (req, res) => {
   });
 
   gather.say(
-    "Thank you for choosing Altair Partners. This call may be monitored for quality assurance. " +
-    "Press 1 to schedule an appointment. " +
-    "Press 2 to speak with a representative. " +
-    "Press 3 to request a callback. " +
-    "Press 4 for partnership opportunities. " +
-    "Press 7 to talk with a creative director.",
+    "Thank you for calling Manet Creative. " +
+    "This call may be recorded and stored for appointment records and quality purposes. " +
+    "For emergencies or general inquiries, please email us at mila at meetmanet dot com. " +
+    "This phone number is provided for your convenience to get information about your appointments, and to schedule, reschedule, or cancel appointments only. " +
+    "Please press 1 for appointment assistance.",
     { voice: 'alice', language: 'en-US' }
   );
 
-  twiml.say("Please select an option.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/voice');
+  twiml.say(
+    "No selection was made. This phone number is for appointments only. Goodbye.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  twiml.hangup();
 
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2059,8 +2257,11 @@ app.post('/transfer-to-appointment', (req, res) => {
     twiml.redirect('/voice');
 
   } else {
-    twiml.say("I don't see you in our appointment database. Let me ask you a few questions to schedule an appointment.", 
-      { voice: 'alice', language: 'en-US' });
+    twiml.say(
+      "I don't see you in our appointment database. Let me ask you a few questions to request an appointment. " +
+      "For our privacy policy, please visit our website at manet dot agency.",
+      { voice: 'alice', language: 'en-US' }
+    );
     twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   }
   
@@ -2069,25 +2270,19 @@ app.post('/transfer-to-appointment', (req, res) => {
 });
 
 // ======================================================
-// HANDLE MAIN MENU
+// HANDLE MAIN MENU - APPOINTMENTS ONLY
 // ======================================================
 app.post('/handle-key', (req, res) => {
   const twiml = new VoiceResponse();
   const digit = req.body.Digits;
   const phone = req.body.From;
 
-  console.log(`🔘 Menu option ${digit} - Phone: ${phone}`);
+  console.log(`🔘 Appointment menu option ${digit} - Phone: ${phone}`);
   
-  logCall(phone, `MENU_OPTION_${digit}`);
-
-  if (!digit) {
-    twiml.say("Invalid input. Please try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
-    return res.type('text/xml').send(twiml.toString());
-  }
+  logCall(phone, `APPOINTMENT_MENU_OPTION_${digit}`);
 
   if (digit === '1') {
-    console.log("📅 Option 1 - Schedule appointment");
+    console.log("📅 Appointment assistance selected");
     const appt = findAppointment(phone);
 
     if (appt) {
@@ -2099,86 +2294,28 @@ app.post('/handle-key', (req, res) => {
       });
 
       gather.say(
-        `I see you have an appointment scheduled on ${appt.date} at ${appt.time}. ` +
-        "Press 1 to cancel this appointment. Press 2 to reschedule.",
+        `I see you have an appointment request scheduled on ${appt.date} at ${appt.time}. ` +
+        "Press 1 to cancel this appointment request. Press 2 to reschedule.",
         { voice: 'alice', language: 'en-US' }
       );
 
-      twiml.say("No selection made. Returning to main menu.", { voice: 'alice', language: 'en-US' });
-      twiml.redirect('/voice');
+      twiml.say("No selection made. Goodbye.", { voice: 'alice', language: 'en-US' });
+      twiml.hangup();
 
     } else {
-      twiml.say("I don't see you in our appointment database. Let me ask you a few questions to schedule an appointment.", 
-        { voice: 'alice', language: 'en-US' });
+      twiml.say(
+        "I don't see you in our appointment database. Let me ask you a few questions to request an appointment. " +
+        "For our privacy policy, please visit our website at manet dot agency.",
+        { voice: 'alice', language: 'en-US' }
+      );
       twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
     }
-  }
-
-  else if (digit === '2') {
-    console.log("👤 Option 2 - Representative");
-    
-    if (isWithinBusinessHours()) {
-      twiml.redirect('/connect-representative');
-    } else {
-      const nextOpenTime = getTimeUntilOpen();
-      const gather = twiml.gather({
-        numDigits: 1,
-        action: '/closed-hours-options',
-        method: 'POST',
-        timeout: 10
-      });
-
-      gather.say(
-        `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
-        "To request a callback, press 1. To leave a voice message, press 2. " +
-        "To return to the main menu, press 9.",
-        { voice: 'alice', language: 'en-US' }
-      );
-
-      twiml.say("No selection made. Goodbye.", { voice: 'alice', language: 'en-US' });
-      twiml.hangup();
-    }
-  }
-
-  else if (digit === '3') {
-    console.log("📞 Option 3 - Callback request");
-    twiml.redirect('/callback-request');
-  }
-
-  else if (digit === '4') {
-    console.log("🤝 Option 4 - Partnership");
-    twiml.redirect('/partnership');
-  }
-
-  else if (digit === '7') {
-    console.log("🎨 Option 7 - Creative Director");
-    
-    if (isWithinBusinessHours()) {
-      twiml.redirect('/creative-director');
-    } else {
-      const nextOpenTime = getTimeUntilOpen();
-      const gather = twiml.gather({
-        numDigits: 1,
-        action: '/closed-hours-options',
-        method: 'POST',
-        timeout: 10
-      });
-
-      gather.say(
-        `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
-        "To request a callback, press 1. To leave a voice message, press 2. " +
-        "To return to the main menu, press 9.",
-        { voice: 'alice', language: 'en-US' }
-      );
-
-      twiml.say("No selection made. Goodbye.", { voice: 'alice', language: 'en-US' });
-      twiml.hangup();
-    }
-  }
-
-  else {
-    twiml.say("Invalid option. Please try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
+  } else {
+    twiml.say(
+      "This phone number is only for appointment information, scheduling, rescheduling, or canceling appointments. For emergencies or general inquiries, please email mila at meetmanet dot com. Goodbye.",
+      { voice: 'alice', language: 'en-US' }
+    );
+    twiml.hangup();
   }
 
   res.type('text/xml');
@@ -2186,78 +2323,20 @@ app.post('/handle-key', (req, res) => {
 });
 
 // ======================================================
-// CLOSED HOURS OPTIONS
+// CLOSED HOURS OPTIONS DISABLED - APPOINTMENTS ONLY
 // ======================================================
 app.post('/closed-hours-options', (req, res) => {
   const twiml = new VoiceResponse();
-  const digit = req.body.Digits;
   const phone = req.body.From;
 
-  console.log(`🔘 Closed hours option ${digit} - Phone: ${phone}`);
-  
-  logCall(phone, `CLOSED_HOURS_OPTION_${digit}`);
+  console.log(`⏰ Closed-hours route reached, redirecting to appointment menu: ${phone}`);
+  logCall(phone, 'CLOSED_HOURS_REDIRECTED_TO_APPOINTMENTS_ONLY');
 
-  if (!digit) {
-    twiml.say("No selection made. Goodbye.", { voice: 'alice', language: 'en-US' });
-    twiml.hangup();
-    return res.type('text/xml').send(twiml.toString());
-  }
-
-  if (digit === '1') {
-    console.log("📞 Callback request during closed hours");
-    
-    twiml.say(
-      "Your callback request has been submitted. We'll call you back during our next business hours. " +
-      "Thank you for calling Altair Partners. Goodbye.",
-      { voice: 'alice', language: 'en-US' }
-    );
-    
-    try {
-      twilioClient.messages.create({
-        body: `📞 AFTER-HOURS Callback requested from ${phone} (Closed hours)`,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: process.env.MY_PERSONAL_NUMBER
-      });
-      console.log(`📱 After-hours callback notification sent to admin`);
-    } catch (err) {
-      console.log("ERROR sending admin notification:", err);
-    }
-    
-    logCall(phone, 'AFTER_HOURS_CALLBACK_REQUESTED');
-    twiml.hangup();
-  }
-
-  else if (digit === '2') {
-    console.log("🎤 Voice message during closed hours");
-    
-    const gather = twiml.gather({
-      input: 'speech',
-      action: '/record-voice-message',
-      method: 'POST',
-      speechTimeout: 10,
-      timeout: 30,
-      speechModel: 'phone_call',
-      enhanced: true
-    });
-    
-    gather.say(
-      "Please leave your voice message after the beep. When you are finished, simply hang up or press the pound key.",
-      { voice: 'alice', language: 'en-US' }
-    );
-    
-    twiml.say("I didn't hear your message. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/closed-hours-options');
-  }
-
-  else if (digit === '9') {
-    twiml.say("Returning to main menu.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
-  }
-
-  else {
-    twiml.say("Invalid option. Goodbye.", { voice: 'alice', language: 'en-US' });
-    twiml.hangup();
-  }
+  twiml.say(
+    "This phone number is for appointment information, scheduling, rescheduling, or canceling appointments only. Returning to the appointment menu.",
+    { voice: 'alice', language: 'en-US' }
+  );
+  twiml.redirect('/voice');
 
   res.type('text/xml');
   res.send(twiml.toString());
@@ -2301,328 +2380,6 @@ app.post('/record-voice-message', (req, res) => {
   
   twiml.hangup();
   res.type('text/xml').send(twiml.toString());
-});
-
-// ======================================================
-// REPRESENTATIVE (Option 2) - FAST AI
-// ======================================================
-app.post('/connect-representative', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
-  
-  console.log("👤 Representative - asking for reason");
-  
-  if (!isWithinBusinessHours()) {
-    const nextOpenTime = getTimeUntilOpen();
-    twiml.say(
-      `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
-      "Please call back during business hours. Goodbye.",
-      { voice: 'alice', language: 'en-US' }
-    );
-    twiml.hangup();
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  logCall(phone, 'REPRESENTATIVE_SELECTED');
-
-  const gather = twiml.gather({
-    input: 'speech',
-    action: '/confirm-reason',
-    method: 'POST',
-    speechTimeout: 5,
-    timeout: 10,
-    speechModel: 'phone_call',
-    enhanced: true
-  });
-  
-  gather.say(
-    "Before I connect you with a representative, please tell me the reason for your call.",
-    { voice: 'alice', language: 'en-US' }
-  );
-  
-  twiml.say("I didn't hear your reason. Let's try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/connect-representative');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-app.post('/confirm-reason', (req, res) => {
-  const twiml = new VoiceResponse();
-  const reason = req.body.SpeechResult || '';
-  const phone = req.body.From;
-  
-  console.log(`❓ Call reason: ${reason}`);
-  
-  if (!reason || reason.trim() === '') {
-    twiml.say("I didn't hear your reason. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/connect-representative');
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  const gather = twiml.gather({
-    input: 'speech dtmf',
-    action: `/start-rings?reason=${encodeURIComponent(reason)}`,
-    method: 'POST',
-    speechTimeout: 3,
-    timeout: 10
-  });
-  
-  gather.say(`You are calling about: ${reason}. Is this correct? Say yes or no.`, 
-    { voice: 'alice', language: 'en-US' });
-  
-  twiml.say("No response received. Let's start over.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/connect-representative');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-app.post('/start-rings', (req, res) => {
-  const twiml = new VoiceResponse();
-  const response = req.body.SpeechResult || req.body.Digits || '';
-  const reason = req.query.reason;
-  const phone = req.body.From;
-  
-  console.log(`✅ Reason confirmed: ${reason} - Response: ${response}`);
-  
-  const lowerResponse = response.toLowerCase();
-  
-  if (lowerResponse.includes('no') || lowerResponse === '2') {
-    twiml.say("Let's try again. Please tell me the reason for your call.", 
-      { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/connect-representative');
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  twiml.say("Okay, wait while I transfer you. Please hold.", 
-    { voice: 'alice', language: 'en-US' });
-  
-  for (let i = 0; i < 3; i++) {
-    twiml.play({ digits: 'w' });
-    twiml.play({ digits: '1' });
-    twiml.pause({ length: 1 });
-  }
-  
-  twiml.say(
-    "The wait time is greater than average, so I will help you with that. ",
-    { voice: 'alice', language: 'en-US' }
-  );
-  
-  const gather = twiml.gather({
-    input: 'speech',
-    action: '/process-rep-question',
-    method: 'POST',
-    speechTimeout: 2,
-    timeout: 8,
-    speechModel: 'phone_call',
-    enhanced: true
-  });
-  
-  gather.say("What would you like to know?", { voice: 'alice', language: 'en-US' });
-  
-  twiml.say("I didn't hear your question. Let me transfer you back to the main menu.");
-  twiml.redirect('/voice');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-app.post('/process-rep-question', async (req, res) => {
-  const twiml = new VoiceResponse();
-  const question = req.body.SpeechResult || '';
-  const phone = req.body.From;
-  
-  console.log(`🤖 Processing question: ${question}`);
-  
-  if (!question || question.trim() === '') {
-    twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/process-rep-question');
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  const aiResponse = await getRepResponse(question, phone);
-  
-  logAIConversation(phone, question, aiResponse);
-  
-  twiml.say(aiResponse, { voice: 'alice', language: 'en-US' });
-  
-  const lowerQuestion = question.toLowerCase();
-  
-  if (lowerQuestion.includes('appointment') || 
-      lowerQuestion.includes('book') || 
-      lowerQuestion.includes('schedule') ||
-      lowerQuestion.includes('meeting') ||
-      lowerQuestion.includes('appoint')) {
-    
-    twiml.pause({ length: 0.5 });
-    twiml.say("Transferring you to our booking system now.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/transfer-to-appointment');
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  if (lowerQuestion.includes('bye') || 
-      lowerQuestion.includes('thank you') || 
-      lowerQuestion.includes('thanks') ||
-      lowerQuestion.includes('goodbye') ||
-      lowerQuestion.includes('that\'s all')) {
-    
-    twiml.say("Thank you for calling Altair Partners. Goodbye!", { voice: 'alice', language: 'en-US' });
-    twiml.hangup();
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  const gather = twiml.gather({
-    input: 'speech',
-    action: '/process-rep-question',
-    method: 'POST',
-    speechTimeout: 2,
-    timeout: 8
-  });
-  
-  gather.say("What else can I help you with?", { voice: 'alice', language: 'en-US' });
-  
-  twiml.say("Or press any key to return to main menu.");
-  twiml.redirect('/voice');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-// ======================================================
-// CREATIVE DIRECTOR (Option 7)
-// ======================================================
-app.post('/creative-director', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
-  
-  console.log("🎨 Creative Director - asking for details");
-  
-  if (!isWithinBusinessHours()) {
-    const nextOpenTime = getTimeUntilOpen();
-    twiml.say(
-      `I'm sorry, but we are currently closed. ${nextOpenTime}. ` +
-      "Please call back during business hours. Goodbye.",
-      { voice: 'alice', language: 'en-US' }
-    );
-    twiml.hangup();
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  logCall(phone, 'CREATIVE_DIRECTOR_SELECTED');
-
-  const gather = twiml.gather({
-    input: 'speech',
-    action: '/check-creative-question',
-    method: 'POST',
-    speechTimeout: 5,
-    timeout: 15,
-    speechModel: 'phone_call',
-    enhanced: true
-  });
-  
-  gather.say(
-    "What exactly are you calling about? Maybe I can help you with that.",
-    { voice: 'alice', language: 'en-US' }
-  );
-  
-  twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
-  twiml.redirect('/creative-director');
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-app.post('/check-creative-question', (req, res) => {
-  const twiml = new VoiceResponse();
-  const question = req.body.SpeechResult || '';
-  const phone = req.body.From;
-  
-  console.log(`🎨 Creative Director question: ${question}`);
-  
-  if (!question || question.trim() === '') {
-    twiml.say("I didn't hear your question. Let's try again.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/creative-director');
-    return res.type('text/xml').send(twiml.toString());
-  }
-  
-  if (isSeriousQuestion(question)) {
-    console.log(`🚨 SERIOUS QUESTION detected: ${question}`);
-    
-    logCall(phone, 'SERIOUS_QUESTION_DETECTED', {
-      question,
-      category: 'legal/money'
-    });
-    
-    try {
-      twilioClient.calls.create({
-        url: 'http://demo.twilio.com/docs/voice.xml',
-        to: '+15035442571',
-        from: process.env.TWILIO_PHONE_NUMBER
-      });
-      console.log(`📞 Calling creative director about serious matter: ${question}`);
-    } catch (err) {
-      console.log("ERROR calling director:", err);
-    }
-    
-    twiml.say(
-      "I understand this is important. Our creative director has been notified and will review your inquiry shortly. " +
-      "Would you like to schedule an appointment to discuss this further?",
-      { voice: 'alice', language: 'en-US' }
-    );
-    
-    const gather = twiml.gather({
-      input: 'speech dtmf',
-      action: '/creative-appointment-check',
-      method: 'POST',
-      speechTimeout: 3,
-      timeout: 8
-    });
-    
-    gather.say("Say yes or no.", { voice: 'alice', language: 'en-US' });
-    
-    twiml.say("Returning to main menu.");
-    twiml.redirect('/voice');
-    
-  } else {
-    twiml.say(
-      "Perfect! You talked about that. Would you like to schedule an appointment with us?",
-      { voice: 'alice', language: 'en-US' }
-    );
-    
-    const gather = twiml.gather({
-      input: 'speech dtmf',
-      action: '/creative-appointment-check',
-      method: 'POST',
-      speechTimeout: 3,
-      timeout: 8
-    });
-    
-    gather.say("Say yes or no.", { voice: 'alice', language: 'en-US' });
-    
-    twiml.say("Returning to main menu.");
-    twiml.redirect('/voice');
-  }
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-app.post('/creative-appointment-check', (req, res) => {
-  const twiml = new VoiceResponse();
-  const response = req.body.SpeechResult || req.body.Digits || '';
-  const lowerResponse = response.toLowerCase();
-  
-  if (lowerResponse.includes('yes') || lowerResponse === '1') {
-    twiml.say("Great! Transferring you to our booking system.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/transfer-to-appointment');
-  } else {
-    twiml.say("Okay. Returning to main menu.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
-  }
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
 });
 
 // ======================================================
@@ -2846,7 +2603,7 @@ app.post('/schedule-date', (req, res) => {
   });
   
   gather.say(
-    `Perfect. The next available date is ${nextDate}. ` +
+    `Perfect. Please note, appointments are available no earlier than 7 days from today. The next available date is ${nextDate}. ` +
     "What time works for you on that day? Please say the time including AM or PM.",
     { voice: 'alice', language: 'en-US' }
   );
@@ -2905,12 +2662,16 @@ app.post('/schedule-time', (req, res) => {
   if (appointmentSaved) {
     try {
       twilioClient.messages.create({
-        body: `✅ Thank you for your appointment with Altair Partners!\n\n` +
-              `Your appointment: ${date} at ${cleanedTime}\n` +
+        body: `✅ Thank you for requesting an appointment with Manet Creative.\n\n` +
+              `Requested appointment: ${date} at ${cleanedTime}\n` +
               `Name: ${name}\n` +
               `Business: ${businessType}\n` +
               `Service: ${serviceType}\n\n` +
-              `For further communication with our creative director, please reply with your email address.`,
+              `Please note: appointments are available no earlier than 7 days from today. ` +
+              `This appointment request is not guaranteed yet. A member of our team will text you to confirm it. ` +
+              `Confirmation depends on whether your project meets our minimum budget requirement.\n\n` +
+              `For our privacy policy, please visit https://manet.agency.\n\n` +
+              `For emergencies or general inquiries, please email mila@meetmanet.com.`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: phone
       });
@@ -2921,13 +2682,13 @@ app.post('/schedule-time', (req, res) => {
     
     try {
       twilioClient.messages.create({
-        body: `📅 NEW APPOINTMENT\n` +
+        body: `📅 NEW APPOINTMENT REQUEST\n` +
               `Name: ${name}\n` +
               `Phone: ${phone}\n` +
               `Date: ${date} at ${cleanedTime}\n` +
               `Business: ${businessType}\n` +
               `Service: ${serviceType}\n` +
-              `⏰ Reminder: Will call ONE DAY BEFORE at 2 PM Pacific Time`,
+              `⏰ Note: This appointment is NOT guaranteed yet. Requires confirmation.`,
         from: process.env.TWILIO_PHONE_NUMBER,
         to: process.env.MY_PERSONAL_NUMBER
       });
@@ -2938,62 +2699,12 @@ app.post('/schedule-time', (req, res) => {
   }
   
   twiml.say(
-    `Excellent! Your appointment has been scheduled for ${date} at ${cleanedTime}. ` +
-    "You will receive an SMS shortly. Please check your messages and reply with your email address " +
-    "for further communication with our creative director. We will also call you ONE DAY BEFORE " +
-    "your appointment at 2 PM Pacific Time as a reminder. Thank you for choosing Altair Partners!",
-    { voice: 'alice', language: 'en-US' }
-  );
-  twiml.hangup();
-  
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-// ======================================================
-// CALLBACK REQUEST (Option 3)
-// ======================================================
-app.post('/callback-request', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
-  
-  console.log(`📞 Callback request from: ${phone}`);
-  
-  logCall(phone, 'CALLBACK_REQUESTED');
-
-  twiml.say(
-    "Your callback request has been submitted. We'll call you back as soon as possible. " +
-    "Thank you for choosing Altair Partners. Goodbye.",
-    { voice: 'alice', language: 'en-US' }
-  );
-  
-  twilioClient.messages.create({
-    body: `📞 Callback requested from ${phone}`,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: process.env.MY_PERSONAL_NUMBER
-  });
-  
-  twiml.hangup();
-
-  res.type('text/xml');
-  res.send(twiml.toString());
-});
-
-// ======================================================
-// PARTNERSHIP (Option 4)
-// ======================================================
-app.post('/partnership', (req, res) => {
-  const twiml = new VoiceResponse();
-  const phone = req.body.From;
-  
-  console.log("🤝 Partnership inquiry");
-  
-  logCall(phone, 'PARTNERSHIP_INQUIRY');
-
-  twiml.say(
-    "Thank you for your interest in partnership opportunities. " +
-    "Please email us at partners@altairpartners.com for more information. " +
-    "Thank you for choosing Altair Partners. Goodbye.",
+    `Thank you. Your appointment request for ${date} at ${cleanedTime} has been received. ` +
+    "Please note, this appointment is not guaranteed yet. " +
+    "A member of our team will send you a text message to confirm the appointment. " +
+    "Confirmation depends on whether your project meets our minimum budget requirement. " +
+    "For our privacy policy, please visit manet dot agency. " +
+    "For emergencies or general inquiries, please email mila at meetmanet dot com. Goodbye.",
     { voice: 'alice', language: 'en-US' }
   );
   twiml.hangup();
@@ -3015,8 +2726,8 @@ app.post('/appointment-manage', (req, res) => {
   logCall(phone, `APPOINTMENT_MANAGE_${digit}`);
 
   if (!digit) {
-    twiml.say("No selection made. Returning to main menu.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
+    twiml.say("No selection made. Goodbye.", { voice: 'alice', language: 'en-US' });
+    twiml.hangup();
     return res.type('text/xml').send(twiml.toString());
   }
 
@@ -3036,11 +2747,11 @@ app.post('/appointment-manage', (req, res) => {
       
       logCall(phone, 'APPOINTMENT_CANCELLED');
       
-      twiml.say("Your appointment has been cancelled. Goodbye.", { voice: 'alice', language: 'en-US' });
+      twiml.say("Your appointment request has been canceled. Goodbye.", { voice: 'alice', language: 'en-US' });
       twiml.hangup();
     } else {
-      twiml.say("No appointment found to cancel. Returning to main menu.", { voice: 'alice', language: 'en-US' });
-      twiml.redirect('/voice');
+      twiml.say("No appointment found to cancel. Goodbye.", { voice: 'alice', language: 'en-US' });
+      twiml.hangup();
     }
   }
 
@@ -3057,13 +2768,13 @@ app.post('/appointment-manage', (req, res) => {
     
     console.log(`🔄 Rescheduling for: ${phone}`);
     logCall(phone, 'APPOINTMENT_RESCHEDULE_STARTED');
-    twiml.say("Let's reschedule your appointment.", { voice: 'alice', language: 'en-US' });
+    twiml.say("Let's reschedule your appointment request.", { voice: 'alice', language: 'en-US' });
     twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
   }
 
   else {
-    twiml.say("Invalid option. Returning to main menu.", { voice: 'alice', language: 'en-US' });
-    twiml.redirect('/voice');
+    twiml.say("Invalid option. Goodbye.", { voice: 'alice', language: 'en-US' });
+    twiml.hangup();
   }
 
   res.type('text/xml');
@@ -3355,7 +3066,7 @@ app.get('/', (req, res) => {
   res.send(`
     <html>
       <head>
-        <title>Altair Partners IVR Server</title>
+        <title>Manet Creative IVR Server</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; }
           .main-container { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
@@ -3379,7 +3090,7 @@ app.get('/', (req, res) => {
         <div class="main-container">
           <h1>
             <span style="font-size: 2rem;">🚀</span>
-            Altair Partners IVR Server
+            Manet Creative IVR Server
           </h1>
           
           <div class="status ${businessStatus.isOpen ? 'open' : 'closed'}">
@@ -3391,7 +3102,7 @@ app.get('/', (req, res) => {
           </div>
           
           <div class="archive-info">
-            <h3 style="color: #92400e; margin-top: 0;">📦 NEW! Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span> <span class="security-badge">🔒 SECURE</span></h3>
+            <h3 style="color: #92400e; margin-top: 0;">📦 Beautiful Archive Viewer <span class="instant-badge">🔥 HOT</span> <span class="security-badge">🔒 SECURE</span></h3>
             <p><strong>Now with beautiful interface with buttons AND PASSWORD PROTECTION!</strong></p>
             <p>• 📊 Charts and statistics</p>
             <p>• 🔍 Search by dates and phone numbers</p>
@@ -3402,6 +3113,9 @@ app.get('/', (req, res) => {
               <a href="/archive-viewer" class="cta-button">
                 🚀 Open Beautiful Archive
               </a>
+              <a href="/appointments-admin" class="cta-button">
+                📅 Appointment Admin
+              </a>
             </p>
           </div>
           
@@ -3409,6 +3123,7 @@ app.get('/', (req, res) => {
             <h3 style="color: #1e293b;">📁 Main Endpoints:</h3>
             <ul>
               <li><a href="/archive-viewer"><span style="font-size: 1.2rem;">🎨</span> /archive-viewer</a> - Beautiful archive with buttons! <span class="security-badge">🔒</span></li>
+              <li><a href="/appointments-admin"><span style="font-size: 1.2rem;">📅</span> /appointments-admin</a> - Manage appointments <span class="security-badge">🔒</span></li>
               <li><a href="/daily-archives"><span style="font-size: 1.2rem;">📊</span> /daily-archives</a> - All archives by days (JSON) <span class="security-badge">🔒</span></li>
               <li><a href="/debug"><span style="font-size: 1.2rem;">🔧</span> /debug</a> - Debug info</li>
               <li><a href="/health"><span style="font-size: 1.2rem;">❤️</span> /health</a> - Health check</li>
@@ -3433,6 +3148,7 @@ app.get('/', (req, res) => {
             <p><strong>🔒 Archive Security:</strong> Password protected (username: admin)</p>
             <p><strong>💾 Self-ping:</strong> ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}</p>
             <p><strong>📞 Test call:</strong> +1 (503) 444-8881</p>
+            <p><strong>🔒 Privacy:</strong> <a href="https://manet.agency">https://manet.agency</a></p>
           </div>
         </div>
       </body>
@@ -3520,13 +3236,14 @@ app.listen(PORT, () => {
   // Get real server URL
   const serverUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
   
-  console.log(`🚀 Altair Partners IVR Server running on port ${PORT}`);
+  console.log(`🚀 Manet Creative IVR Server running on port ${PORT}`);
   console.log(`⏰ Business Status: ${businessStatus.isOpen ? 'OPEN' : 'CLOSED'}`);
   console.log(`🕐 Current Time (PST): ${businessStatus.currentTime}`);
   console.log(`📅 Next Open: ${businessStatus.nextOpenTime}`);
   console.log(`🌐 Server URL: ${serverUrl}`);
   console.log(`\n🎨 BEAUTIFUL ARCHIVE VIEWER:`);
   console.log(`✅ ${serverUrl}/archive-viewer - BEAUTIFUL INTERFACE WITH BUTTONS!`);
+  console.log(`✅ ${serverUrl}/appointments-admin - APPOINTMENT MANAGEMENT PAGE!`);
   console.log(`🔒 PROTECTED with password: admin / ChangeThisPassword123!`);
   console.log(`\n📊 Main endpoints:`);
   console.log(`✅ Health check: ${serverUrl}/health`);
@@ -3540,13 +3257,11 @@ app.listen(PORT, () => {
   console.log(`✅ Business Status: ${serverUrl}/business-status`);
   console.log(`\n🛠️ System info:`);
   console.log(`✅ Next available date: ${getNextAvailableDate()}`);
-  console.log(`🤖 AI Representative is ready (fast mode)`);
   console.log(`📝 INSTANT ARCHIVE SYSTEM: All data saved immediately after call!`);
   console.log(`📁 Archives location: ./logs/daily/`);
   console.log(`⏰ Reminder system: Calls ONE DAY BEFORE appointment at 2 PM Pacific Time`);
   console.log(`🔄 Check interval: Every 5 minutes`);
   console.log(`🔔 Test endpoint: POST ${serverUrl}/test-reminder?phone=+1234567890`);
-  console.log(`🚪 After-hours options: Callback request (1) or Voice message (2)`);
   console.log(`💾 Self-ping: ${process.env.FREE_PLAN === 'true' ? 'Active (every 4 minutes)' : 'Inactive'}`);
   console.log(`\n🔒 SECURITY INFORMATION:`);
   console.log(`✅ Archive protection: ACTIVE (Basic Auth)`);
@@ -3555,8 +3270,12 @@ app.listen(PORT, () => {
   console.log(`⚠️ IMPORTANT: Change password in .env file with:`);
   console.log(`   ARCHIVE_USERNAME=yourusername`);
   console.log(`   ARCHIVE_PASSWORD=yourstrongpassword`);
+  console.log(`\n🔒 PRIVACY:`);
+  console.log(`✅ Recording notice: Added to call greeting`);
+  console.log(`✅ Privacy policy: https://manet.agency (mentioned in phone, SMS, and admin pages)`);
   console.log(`\n🔥 NEW: Beautiful archive-viewer available at: ${serverUrl}/archive-viewer`);
-  console.log(`🎉 Now with buttons, animations, and beautiful design - AND SECURE!`);
+  console.log(`🔥 NEW: Appointment admin page at: ${serverUrl}/appointments-admin`);
+  console.log(`🎉 Now with recording notice, privacy policy, and appointment management!`);
   
   // Start reminder scheduler
   startReminderScheduler();
@@ -3566,5 +3285,7 @@ app.listen(PORT, () => {
   
   console.log(`\n✅ INSTANT ARCHIVE SYSTEM READY - All calls will be saved immediately!`);
   console.log(`✅ BEAUTIFUL ARCHIVE VIEWER READY - Open in browser and enjoy!`);
+  console.log(`✅ APPOINTMENT ADMIN PAGE READY - Manage appointments with ease!`);
   console.log(`✅ SECURITY PROTECTION ACTIVE - Archives are password protected!`);
+  console.log(`✅ PRIVACY COMPLIANCE - Recording notice and privacy policy added!`);
 });
