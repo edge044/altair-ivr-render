@@ -8933,6 +8933,7 @@ function renderDesktop() {
   const inboxCount = getOwnerInboxOpenCount();
   const anyTraining = Object.keys(agentTraining).some(id => agentTraining[id].trainingStatus === 'training');
   const capNote = s.agencyCapacityPct < 100 ? s.agencyCapacityPct + '% capacity' : '5 people';
+  const hasFirstProject = !!(s.jobPlan && s.jobPlan.text);
   return `
     <div class="aos-desktop">
       <div class="aos-desktop-intro">
@@ -8940,10 +8941,21 @@ function renderDesktop() {
         <div class="aos-sub">MANET's desktop. Open a folder to see what's happening.</div>
         ${modeChipHtml(true)}
       </div>
+      ${!hasFirstProject ? `
+      <div class="aos-section" style="margin-top:4px;">
+        <div class="aos-card" style="border:1.5px solid #1c1c1e;background:#fafafa;padding:18px 20px;">
+          <div style="font-size:15px;font-weight:700;margin-bottom:4px;">👋 Give Mila your first real project</div>
+          <div style="font-size:12.5px;color:#6b6b74;margin-bottom:12px;line-height:1.5;">Type what you need done. Mila reads it, figures out who on the team should work on it, and tells you honestly whether today's budget covers it — asking real questions if she needs to.</div>
+          <div style="display:flex;gap:8px;">
+            <input id="quick-first-task-input" type="text" placeholder="e.g. Get me 10 warm leads for the new landing page launch" style="flex:1;padding:9px 12px;border:1px solid rgba(0,0,0,0.15);border-radius:7px;font-size:12.5px;" onkeydown="if(event.key==='Enter'){quickStartFirstProject();}">
+            <button class="aos-btn primary" style="padding:9px 16px;font-size:12.5px;" onclick="quickStartFirstProject()">Send to Mila →</button>
+          </div>
+        </div>
+      </div>` : ''}
       <div class="aos-desktop-grid">
         ${desktopFolderItemBadged('inbox', 'Owner Inbox', inboxCount ? inboxCount + ' need' + (inboxCount === 1 ? 's' : '') + ' you' : 'All clear', inboxCount)}
         ${desktopFolderItem('today', 'Today', s.dayOff ? 'Day Off' : (s.office.status === 'paused' ? 'Office paused' : 'Running'))}
-        ${desktopFolderItem('plan-job', 'Plan a Job', 'Task, importance & budget')}
+        ${desktopFolderItem('plan-job', 'Plan a Job', hasFirstProject ? 'Project #1 in progress' : 'Task, importance & budget')}
         ${desktopFolderItem('team', 'Team', capNote)}
         ${desktopFolderItem('training', 'Training', anyTraining ? 'In progress' : (trainingHistory.length ? trainingHistory.length + ' session(s) run' : 'No sessions yet'))}
         ${desktopFolderItem('reports', 'Reports', s.reports.length + ' total')}
@@ -8951,6 +8963,17 @@ function renderDesktop() {
         ${desktopFolderItem('settings', 'Settings', '')}
       </div>
     </div>`;
+}
+function quickStartFirstProject() {
+  const input = document.getElementById('quick-first-task-input');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  openFolder('plan-job');
+  setTimeout(() => {
+    const jobText = document.getElementById('job-input-text');
+    if (jobText) jobText.value = text;
+    askMilaAboutJob();
+  }, 30);
 }
 
 function renderTodayFolder() {
@@ -10062,6 +10085,7 @@ async function askMilaAboutJob() {
   const text = textEl.value.trim();
   const importance = impEl ? impEl.value : 'Normal';
   const budgetVal = Math.round(Number(budgetEl ? budgetEl.value : DEFAULT_DAILY_BUDGET)) || DEFAULT_DAILY_BUDGET;
+  const isFirstProject = !(demoAgencyState.jobPlan && demoAgencyState.jobPlan.text);
 
   demoAgencyState.jobPlan = { text, importance, budget: budgetVal, askedAt: aosNowTime() };
   applyDailyBudget(budgetVal);
@@ -10070,9 +10094,24 @@ async function askMilaAboutJob() {
   if (respEl) respEl.innerHTML = `<div class="aos-card" style="font-size:12.5px;color:#8a8a92;">Mila is thinking…</div>`;
 
   const cut = (demoAgencyState.budgetAfk || []).map(agentNameById);
-  const kept = ['blue','green','orange','purple','red','yellow'].filter(id => !(demoAgencyState.budgetAfk || []).includes(id)).map(agentNameById);
+  const keptIds = ['blue','green','orange','purple','red','yellow'].filter(id => !(demoAgencyState.budgetAfk || []).includes(id));
+  const kept = keptIds.map(agentNameById);
 
-  const system = `You are Mila. You are direct, warm, practical. Given a job, its importance, and today's budget, say plainly whether the budget realistically covers the people this job needs, and ask 2-3 short, genuinely specific clarifying questions about THIS job — not generic boilerplate — that you'd actually need answered to plan the work. Keep the whole reply under 140 words.`;
+  // Real distribution — every staffed agent (except Mila/Sasha, who direct
+  // and monitor rather than execute) gets visibly assigned to this project
+  // in Live Ops / the office, not just a text mention.
+  const ROLE_TASK = {
+    green: 'Researching', orange: 'Sourcing prospects for', purple: 'Shaping the strategy for', red: 'Drafting outreach for'
+  };
+  keptIds.filter(id => ROLE_TASK[id]).forEach(id => {
+    const shortText = text.length > 60 ? text.slice(0, 57) + '...' : text;
+    addLiveOpsUpdate(id, `Assigned to ${isFirstProject ? 'Project #1' : 'the current project'}: "${shortText}"`, `${ROLE_TASK[id]} "${shortText}"`, 'Working');
+  });
+  addLiveOpsUpdate('blue', `Reviewing and directing ${isFirstProject ? 'Project #1' : 'the current project'}.`, `Directing: "${text.length > 60 ? text.slice(0, 57) + '...' : text}"`, 'Reviewing');
+  addEventLogEntry('Mila', isFirstProject ? 'Project #1 started' : 'New job planned', `"${text.slice(0,70)}${text.length>70?'…':''}" — importance ${importance}, budget $${budgetVal}. Staffed: ${kept.join(', ') || 'no one'}.`, 'TASK', null);
+  if (activeTerminalTab === 'liveops') renderLiveOps();
+
+  const system = `You are Mila. You are direct, warm, practical. Given a job, its importance, and today's budget: (1) say plainly whether the budget realistically covers the people this job needs, (2) briefly say who on the team you're putting on it and why, (3) ask 2-3 short, genuinely specific clarifying questions about THIS job — not generic boilerplate — that you'd actually need answered to plan the work well. Keep the whole reply under 160 words.`;
   const user = `Job: ${text}\nImportance: ${importance}\nToday's budget: $${budgetVal}\nStaffed today at this budget: ${kept.join(', ')}.${cut.length ? ' Paused due to budget: ' + cut.join(', ') + '.' : ''}`;
 
   const result = await callManetAI(system, user);
@@ -10097,7 +10136,6 @@ async function askMilaAboutJob() {
   demoAgencyState.jobPlanResponseHtml = html;
   const respEl2 = document.getElementById('job-mila-response');
   if (respEl2) respEl2.innerHTML = html;
-  addEventLogEntry('Mila', 'Job planned', `"${text.slice(0,70)}${text.length>70?'…':''}" — importance ${importance}, budget $${budgetVal}.`, 'BUDGET', null);
 }
 
 // ═══════════════════════════════════
@@ -12866,15 +12904,15 @@ function renderMilaCommandCenter() {
     <div class="aos-section">
       <div class="aos-section-title">Team feedback</div>
       <div class="aos-grid-2">
-        ${Object.entries(inc.teamFeedback).map(([name, note]) => `
+        ${inc && inc.teamFeedback ? Object.entries(inc.teamFeedback).map(([name, note]) => `
           <div class="aos-feedback-card"><b>${name}:</b> ${note}</div>
-        `).join("")}
+        `).join("") : '<div style="color:#9a9aa2;font-size:12.5px;">No active incident — nothing to give feedback on yet.</div>'}
       </div>
     </div>
 
     <div class="aos-section">
       <div class="aos-section-title">Active incident</div>
-      ${renderIncidentCard(inc, true)}
+      ${inc ? renderIncidentCard(inc, true) : '<div class="aos-card" style="color:#9a9aa2;font-size:12.5px;">No open incidents.</div>'}
     </div>
 
     <div class="aos-section">
@@ -12919,15 +12957,15 @@ function renderCreativeDirector() {
     <div class="aos-section">
       <div class="aos-section-title">Team feedback</div>
       <div class="aos-grid-2">
-        ${Object.entries(inc.teamFeedback).map(([name, note]) => `
+        ${inc && inc.teamFeedback ? Object.entries(inc.teamFeedback).map(([name, note]) => `
           <div class="aos-feedback-card"><b>${name}:</b> ${note}</div>
-        `).join('')}
+        `).join('') : '<div style="color:#9a9aa2;font-size:12.5px;">No active incident — nothing to give feedback on yet.</div>'}
       </div>
     </div>
 
     <div class="aos-section">
       <div class="aos-section-title">Active incident</div>
-      ${renderIncidentCard(inc, true)}
+      ${inc ? renderIncidentCard(inc, true) : '<div class="aos-card" style="color:#9a9aa2;font-size:12.5px;">No open incidents.</div>'}
     </div>
 
     <div class="aos-section">
@@ -14459,6 +14497,84 @@ demoAgencyState.budgetAfk = demoAgencyState.budgetAfk || [];
   if (savedBudget !== null) applyDailyBudget(savedBudget, false);
   else applyDailyBudget(DEFAULT_DAILY_BUDGET, false);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// LIVE LAUNCH — one-time wipe of every pre-seeded demo scenario (fake
+// incidents, fake reports, fake prospects, fake event log, everything
+// written to make the demo look lived-in). Runs exactly once, flagged in
+// localStorage, so it never touches real data the owner adds afterward —
+// only clears the ORIGINAL canned content on first load after this update.
+// ═══════════════════════════════════════════════════════════════
+const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v1';
+function resetToLiveLaunch() {
+  let alreadyDone = false;
+  try { alreadyDone = localStorage.getItem(LIVE_LAUNCH_LS_KEY) === '1'; } catch (e) {}
+  if (alreadyDone) return;
+
+  const s = demoAgencyState;
+  // Narrative / scenario content — all fake, all cleared.
+  s.eventLog = [];
+  s.activity = [];
+  s.auditLog = [];
+  s.incidents = [];
+  s.reports = [];
+  s.competitorResearch = [];
+  s.prospects = [];
+  s.opportunityTheses = [];
+  s.outreachDrafts = [];
+  s.outreachHistory = [];
+  s.tasks = [];
+  s.agencyMemory = [];
+  s.calibrationItems = [];
+  s.goldStandards = [];
+  s.rejectedPatterns = [];
+  s.calibrationLessons = [];
+  s.decisionLessons = [];
+  s.directorBoard = [];
+  s.tasteSystem = [];
+  s.proofLibrary = [];
+  s.reworkQueue = [];
+  s.ownerInboxItems = [];
+  s.modeHistory = [];
+  s.followUpQueue = [];
+  s.practiceQuestions = [];
+  s.guidanceEntries = [];
+  s.qualitySignals = [];
+  s.autopilotRules = [];
+  s.escalationMatrix = [];
+  s.workerPlaybooks = [];
+  if (s.leanEngine) {
+    s.leanEngine.signalPacks = [];
+    s.leanEngine.batches = [];
+    s.leanEngine.workRoutes = [];
+    s.leanEngine.wasteControls = [];
+  }
+  if (s.zeroWaste) {
+    s.zeroWaste.shadowPlaybooks = [];
+    s.zeroWaste.workUnits = [];
+    s.zeroWaste.costFirewallEvents = [];
+  }
+  if (s.scenarioRunner) s.scenarioRunner.scenarios = [];
+
+  // Agents start genuinely idle — no fake "reviewing lead evidence" tasks —
+  // waiting for the owner's first real project.
+  s.liveOpsUpdates = ['blue', 'green', 'orange', 'purple', 'red'].map(id => {
+    const a = s.agents.find(x => x.id === id);
+    return {
+      agentId: id, name: a ? a.name : id, role: a ? a.role : '',
+      timestamp: aosNowTime(),
+      update: 'Waiting for the first project.',
+      currentTask: 'No active task yet',
+      status: 'Idle',
+      nextCheckIn: '—', checkInIntervalMinutes: 0
+    };
+  });
+
+  addEventLogEntry('System', 'Live launch', 'Demo data cleared — starting from a real, empty state.', 'MODE', null);
+
+  try { localStorage.setItem(LIVE_LAUNCH_LS_KEY, '1'); } catch (e) {}
+}
+resetToLiveLaunch();
 
 // Agents currently training are removed from the office render entirely
 // (officeGhostedAgents is declared earlier, near drawAllAgents, so it's
