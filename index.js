@@ -48,6 +48,9 @@ function requireAuth(req, res, next) {
   next();
 }
 
+const mountOffice = require('./office-integration');
+mountOffice(app, requireAuth);
+
 // ======================================================
 // SELF-PING SYSTEM
 // ======================================================
@@ -2020,7 +2023,7 @@ app.get('/', (req, res) => {
         <div class="box">
           <h1>Manet Creative</h1>
           <p>Phone system is running.</p>
-          <a href="/admin">Open Admin</a>
+          <div style="display:flex; gap:12px; justify-content:center;"><a href="/admin">📞 Phone System</a><a href="/office">🏢 Our Office</a></div>
         </div>
       </body>
     </html>
