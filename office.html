@@ -9807,8 +9807,12 @@ function applyDailyBudget(newDollars, persist) {
   const s = demoAgencyState;
   newDollars = Math.round(Number(newDollars));
   if (!Number.isFinite(newDollars)) newDollars = s.dailyBudgetDollars || DEFAULT_DAILY_BUDGET;
-  // Can never go below what Mila alone costs — she's never cut.
-  newDollars = Math.max(AGENT_DAY_RATE.blue, Math.min(5000, newDollars));
+  // Mila and Sasha are protected independently (see BUDGET_DEFER_ORDER —
+  // their ids are never in it), so the budget number itself doesn't need
+  // an artificial floor at Mila's day rate. Only guard against nonsense
+  // (zero/negative/huge) so a real, tight $ limit like $5 works correctly
+  // for the real AI spend gate.
+  newDollars = Math.max(1, Math.min(5000, newDollars));
   s.dailyBudgetDollars = newDollars;
 
   // Always rebuild from the full baseline so repeated budget edits don't
@@ -10042,7 +10046,7 @@ function renderPlanJobFolder() {
       </div>
       <div>
         <div class="aos-card-label">Today's budget ($)</div>
-        <input type="number" id="job-input-budget" class="aos-answer-input" value="${s.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}" min="${AGENT_DAY_RATE.blue}" max="5000" step="10" style="width:100%;box-sizing:border-box;">
+        <input type="number" id="job-input-budget" class="aos-answer-input" value="${s.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}" min="1" max="5000" step="10" style="width:100%;box-sizing:border-box;">
       </div>
     </div>
     <div class="aos-section"><button class="aos-btn primary" onclick="askMilaAboutJob()">Ask Mila</button></div>
@@ -13548,7 +13552,7 @@ function renderSettings() {
           <span>Budget available per day</span>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="color:#8a8a92;font-size:12.5px;">$</span>
-            <input id="daily-budget-input" type="number" min="${AGENT_DAY_RATE.blue}" max="5000" step="10" value="${demoAgencyState.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}" style="width:80px;padding:5px 7px;border:1px solid rgba(0,0,0,0.12);border-radius:6px;font-size:12.5px;">
+            <input id="daily-budget-input" type="number" min="1" max="5000" step="10" value="${demoAgencyState.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}" style="width:80px;padding:5px 7px;border:1px solid rgba(0,0,0,0.12);border-radius:6px;font-size:12.5px;">
             <button class="aos-btn primary" style="padding:6px 12px;font-size:12px;" onclick="saveDailyBudget()">Save</button>
           </div>
         </div>
