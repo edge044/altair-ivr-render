@@ -7286,16 +7286,39 @@ function addEventLogEntry(actor, title, description, category, related) {
   const entry = {
     id: 'EV-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
     timestamp: aosNowTime(),
+    atMs: Date.now(),
     actor, title,
     description: description || '',
     category: category || 'TASK',
     related: related || null
   };
   demoAgencyState.eventLog.unshift(entry);
-  demoAgencyState.eventLog = demoAgencyState.eventLog.slice(0, 150);
+  demoAgencyState.eventLog = demoAgencyState.eventLog.slice(0, 500);
   if (activeTerminalTab === 'eventlog') renderEventLog();
 }
 
+const EVENTLOG_CLEAR_RANGES = [
+  { label: 'last hour', ms: 60 * 60 * 1000 },
+  { label: 'last 2 hours', ms: 2 * 60 * 60 * 1000 },
+  { label: 'last 3 hours', ms: 3 * 60 * 60 * 1000 },
+  { label: 'last day', ms: 24 * 60 * 60 * 1000 },
+  { label: 'last 2 days', ms: 2 * 24 * 60 * 60 * 1000 },
+  { label: 'last week', ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: 'everything', ms: Infinity }
+];
+function clearEventLogRange() {
+  const sel = document.getElementById('eventlog-clear-range');
+  if (!sel) return;
+  const range = EVENTLOG_CLEAR_RANGES[parseInt(sel.value, 10)];
+  if (!range) return;
+  const cutoff = Date.now() - range.ms;
+  const before = demoAgencyState.eventLog.length;
+  demoAgencyState.eventLog = demoAgencyState.eventLog.filter(e => (e.atMs || 0) >= cutoff);
+  const removed = before - demoAgencyState.eventLog.length;
+  renderEventLog();
+  if (typeof cloudSave === 'function') { /* event log isn't cloud-synced separately; local clear only, matches how it's populated */ }
+  alert(`Cleared ${removed} event${removed === 1 ? '' : 's'} from the ${range.label}.`);
+}
 function renderEventLog() {
   const logsEl = document.getElementById('terminal-logs');
   if (!logsEl) return;
@@ -7311,7 +7334,14 @@ function renderEventLog() {
       ${e.related ? `<div class="ev-related">Related: ${escapeHtml(e.related)}</div>` : ''}
     </div>
   `).join('');
-  logsEl.innerHTML = `<div class="ev-wrap">${items || '<div class="ev-empty">No events yet.</div>'}</div>`;
+  const clearBar = `<div style="display:flex;align-items:center;gap:8px;padding:8px 2px 12px;font-size:11px;">
+    <span style="color:#9a9aa2;">Clear events older than:</span>
+    <select id="eventlog-clear-range" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:inherit;">
+      ${EVENTLOG_CLEAR_RANGES.map((r, i) => `<option value="${i}">${r.label}</option>`).join('')}
+    </select>
+    <button class="aos-btn" style="padding:3px 10px;font-size:11px;" onclick="clearEventLogRange()">Clear</button>
+  </div>`;
+  logsEl.innerHTML = `<div class="ev-wrap">${clearBar}${items || '<div class="ev-empty">No events yet.</div>'}</div>`;
 }
 
 // ---------- PROBLEMS ----------
@@ -10525,51 +10555,18 @@ function applyDailyBudget(newDollars, persist) {
   const s = demoAgencyState;
   newDollars = Math.round(Number(newDollars));
   if (!Number.isFinite(newDollars)) newDollars = s.dailyBudgetDollars || DEFAULT_DAILY_BUDGET;
-  // Mila and Sasha are protected independently (see BUDGET_DEFER_ORDER —
-  // their ids are never in it), so the budget number itself doesn't need
-  // an artificial floor at Mila's day rate. Only guard against nonsense
-  // (zero/negative/huge) so a real, tight $ limit like $5 works correctly
-  // for the real AI spend gate.
   newDollars = Math.max(1, Math.min(5000, newDollars));
   s.dailyBudgetDollars = newDollars;
 
-  // Always rebuild from the full baseline so repeated budget edits don't
-  // compound state from a previously-trimmed list.
-  let rows = FULL_AGENCY_GROWTH_ROWS.map(r => ({ ...r }));
-  let cost = rows.reduce((sum, r) => sum + (AGENT_DAY_RATE[r.agentId] || 0), 0);
-  const cut = [];
-  for (const id of BUDGET_DEFER_ORDER) {
-    if (cost <= newDollars) break;
-    const idx = rows.findIndex(r => r.agentId === id);
-    if (idx === -1) continue;
-    cost -= AGENT_DAY_RATE[rows[idx].agentId] || 0;
-    cut.push(rows[idx].agentId);
-    rows.splice(idx, 1);
-  }
+  // Everyone stays in the office and working, always — this $/day number
+  // only gates real AI spend now (see callManetAI), it no longer sends
+  // anyone home. Kept as an empty array so any old code checking
+  // s.budgetAfk still gets a safe, consistent "nobody's paused" answer.
+  s.agencyGrowthQueue = FULL_AGENCY_GROWTH_ROWS.map(r => ({ ...r }));
+  s.budgetAfk = [];
+  s.dailyBudgetSpend = s.agencyGrowthQueue.reduce((sum, r) => sum + (AGENT_DAY_RATE[r.agentId] || 0), 0);
 
-  s.agencyGrowthQueue = rows;
-  s.budgetAfk = cut;
-  s.dailyBudgetSpend = rows.reduce((sum, r) => sum + (AGENT_DAY_RATE[r.agentId] || 0), 0);
-
-  ['green', 'orange', 'purple', 'red', 'yellow'].forEach(id => {
-    const a = s.agents.find(x => x.id === id);
-    if (!a) return;
-    if (cut.includes(id)) {
-      addLiveOpsUpdate(id, "Paused for today — Mila kept the team inside today's budget.", "AFK — outside today's budget", "Paused (budget)");
-    } else {
-      const existing = s.liveOpsUpdates.find(u => u.agentId === id);
-      if (existing && existing.status === 'Paused (budget)') {
-        addLiveOpsUpdate(id, "Back to work — fits inside today's updated budget.", "Resuming Agency Growth work", "Auto-running");
-      }
-    }
-  });
-
-  const cutNames = cut.map(id => (s.agents.find(a => a.id === id) || {}).name).filter(Boolean);
-  addEventLogEntry('Mila', 'Daily budget updated',
-    cutNames.length
-      ? `Budget set to $${newDollars}/day (spending $${s.dailyBudgetSpend}). Kept the team inside it by pausing: ${cutNames.join(', ')}.`
-      : `Budget set to $${newDollars}/day (spending $${s.dailyBudgetSpend}). Everyone fits — no one paused.`,
-    'BUDGET', null);
+  addEventLogEntry('Mila', 'Daily AI budget updated', `Real AI spend cap set to $${newDollars}/day. Full team stays staffed regardless.`, 'BUDGET', null);
 
   renderAgencyTab(activeAgencyTab);
   if (activeTerminalTab === 'liveops') renderLiveOps();
@@ -10799,11 +10796,12 @@ function renderProjectsFolder() {
   const active = s.projectsList.filter(p => p.status === 'active');
   const closed = s.projectsList.filter(p => p.status === 'closed');
   function cardHtml(p) {
+    const activityText = p.currentActivity ? (p.currentActivity.length > 60 ? p.currentActivity.slice(0, 57) + '...' : p.currentActivity) : 'Team working';
     const statusBadge = p.status === 'closed'
       ? '<span class="aos-badge" style="background:#ececea;color:#8a8a92;">Closed</span>'
       : p.awaitingOwner
         ? '<span class="aos-badge" style="background:#fff4d6;color:#a3781f;">⏳ Waiting for your reply</span>'
-        : '<span class="aos-badge" style="background:#e3f5ea;color:#1e7a45;">🟢 Team working</span>';
+        : `<span class="aos-badge" style="background:#e3f5ea;color:#1e7a45;" title="${escapeHtml(p.currentActivity || '')}">🟢 ${escapeHtml(activityText)}</span>`;
     return `
       <div class="aos-card" style="cursor:pointer;margin-bottom:10px;${p.status === 'active' && !p.awaitingOwner ? 'border-left:3px solid #1e7a45;' : p.awaitingOwner ? 'border-left:3px solid #a3781f;' : 'border-left:3px solid #d8d8d4;'}" onclick="openProjectDetail('${p.id}')">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
@@ -10837,14 +10835,23 @@ function renderProjectDetailFolder() {
   if (!p) return `<div class="aos-sub">Project not found. <a href="#" onclick="openFolder('projects');return false;">Back to Projects</a></div>`;
   const timeline = demoAgencyState.eventLog.filter(e => e.related === p.id).slice().reverse();
   const competitorNames = Object.keys(p.analyses.competitors || {});
+  const isRunning = p.status === 'active';
+  const statusLine = !isRunning ? '⚪ Closed — not running' : (p.awaitingOwner ? '⏳ Waiting on you to reply' : '🟢 Running — ' + (p.currentActivity || 'team working'));
   return `
     <div class="aos-h1">${escapeHtml(p.title)}</div>
     <div class="aos-sub">Importance ${p.importance} · Budget $${p.budget}/day · Started ${p.createdAt}${p.closedAt ? ' · Closed ' + p.closedAt : ''}</div>
 
     <div class="aos-section">
+      <div class="aos-card" style="border-left:3px solid ${!isRunning ? '#d8d8d4' : p.awaitingOwner ? '#a3781f' : '#1e7a45'};">
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${statusLine}</div>
+        <div style="font-size:11.5px;color:#9a9aa2;">Real AI usage on this project: ${(p.tokensUsed || 0).toLocaleString()} tokens · $${(p.costSoFar || 0).toFixed(4)}</div>
+      </div>
+    </div>
+
+    <div class="aos-section">
       <div class="aos-section-title">Team on this project</div>
       <div class="aos-card">
-        ${p.distribution.length ? p.distribution.map(d => `<div style="padding:4px 0;font-size:12.5px;"><b>${escapeHtml(agentNameById(d.agentId))}:</b> ${escapeHtml(d.task)}</div>`).join('') : '<div style="color:#9a9aa2;font-size:12.5px;">No one assigned yet.</div>'}
+        ${p.distribution.length ? p.distribution.map(d => `<div style="padding:4px 0;font-size:12.5px;"><b>${escapeHtml(agentNameById(d.agentId))}:</b> ${escapeHtml(d.task)} <span style="color:#9a9aa2;">— ${escapeHtml(d.status || 'working')}</span></div>`).join('') : '<div style="color:#9a9aa2;font-size:12.5px;">No one assigned yet.</div>'}
       </div>
     </div>
 
@@ -10895,12 +10902,23 @@ async function sendProjectChatMessage(id) {
   renderAgencyTab('project-detail');
   addEventLogEntry('Owner', 'Project update', text.slice(0, 100), 'TASK', p.id);
 
-  const system = `You are Mila. You have full context on this specific project below — use it directly, don't ask the owner to re-explain. Reply briefly and directly to what they just said. If they're asking you to remember/recall something about this project, answer from the real context given. Under 120 words.`;
+  const system = `You are Mila. You have full real context on this specific project below — team assigned, what's been said so far. Answer EXACTLY what the owner just asked, specifically and concretely — do not recap team/budget status unless they actually asked about that. If they ask what you or the team is doing right now, describe the actual current step of the real work (referencing the real task list below), not a generic status update. You do not have live web browsing — never claim to have already fetched external data you don't have; describe your approach/plan specifically instead. If they told you to do something, confirm you're on it and say the concrete next step. Under 100 words. Only end with a question mark if you genuinely need their input to proceed — most updates don't need one.`;
   const user = `${projectContextForAI(p)}\n\nOwner just said: "${text}"`;
   const result = await callManetAI(system, user);
-  const replyText = result.ok ? result.text : (result.budgetBlocked ? `(offline — daily AI budget used up) Got it, noted: "${text}". I'll factor that in.` : `(offline — live AI unreachable) Got it, noted: "${text}". I'll factor that in.`);
+  let replyText;
+  if (result.ok) {
+    replyText = result.text;
+    p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0);
+    p.costSoFar = (p.costSoFar || 0) + (result.cost || 0);
+  } else {
+    replyText = result.budgetBlocked ? `(offline — daily AI budget used up) Got it, noted: "${text}". I'll factor that in.` : `(offline — live AI unreachable) Got it, noted: "${text}". I'll factor that in.`;
+  }
   p.chatHistory.push({ from: 'mila', text: replyText, time: aosNowTime() });
-  p.awaitingOwner = true;
+  // Real heuristic, not always-true: only "waiting for your reply" if Mila
+  // actually asked something. Otherwise she's working — show what, using
+  // her own real words, not a canned label.
+  p.awaitingOwner = /\?\s*$/.test(replyText.trim());
+  p.currentActivity = p.awaitingOwner ? null : replyText.slice(0, 140);
   syncProjectsToCloud();
   if (openProjectId === id) renderAgencyTab('project-detail');
 }
@@ -10947,6 +10965,13 @@ function renderPlanJobFolder() {
         <input type="number" id="job-input-budget" class="aos-answer-input" value="${s.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}" min="1" max="5000" step="10" style="width:100%;box-sizing:border-box;">
       </div>
     </div>
+    <div class="aos-section">
+      <div class="aos-card-label">How many teammates on this project?</div>
+      <select id="job-input-teamsize" class="aos-answer-input" style="width:100%;box-sizing:border-box;">
+        ${[1,2,3,4].map(n => `<option value="${n}" ${n===4?'selected':''}>${n} teammate${n===1?'':'s'}</option>`).join('')}
+      </select>
+      <div class="aos-card-note" style="padding-top:6px;">Mila always directs. Sasha always monitors. This picks how many of Vera/Leo/Nora/Dana actually work this specific project — everyone stays in the office either way.</div>
+    </div>
     <div class="aos-section"><button class="aos-btn primary" onclick="askMilaAboutJob()">Ask Mila — creates a new project</button></div>
     <div id="job-mila-response">${s.jobPlanResponseHtml || ''}</div>
   `;
@@ -10956,74 +10981,92 @@ async function askMilaAboutJob() {
   const textEl = document.getElementById('job-input-text');
   const impEl = document.getElementById('job-input-importance');
   const budgetEl = document.getElementById('job-input-budget');
+  const teamSizeEl = document.getElementById('job-input-teamsize');
   if (!textEl || !textEl.value.trim()) return;
   const text = textEl.value.trim();
   const importance = impEl ? impEl.value : 'Normal';
   const budgetVal = Math.round(Number(budgetEl ? budgetEl.value : DEFAULT_DAILY_BUDGET)) || DEFAULT_DAILY_BUDGET;
+  const teamSize = Math.max(1, Math.min(4, parseInt(teamSizeEl ? teamSizeEl.value : 4, 10) || 4));
   const isFirstProject = demoAgencyState.projectsList.length === 0;
 
   const project = createProject(text, importance, budgetVal);
+  project.tokensUsed = 0;
+  project.costSoFar = 0;
+  project.currentActivity = 'Reading the brief and picking the team.';
+  project.stage = 'planning';
   demoAgencyState.jobPlan = { text, importance, budget: budgetVal, askedAt: aosNowTime() };
   applyDailyBudget(budgetVal);
 
   const respEl = document.getElementById('job-mila-response');
   if (respEl) respEl.innerHTML = `<div class="aos-card" style="font-size:12.5px;color:#8a8a92;">Mila is thinking…</div>`;
 
-  const cut = (demoAgencyState.budgetAfk || []).map(agentNameById);
-  const keptIds = ['blue','green','orange','purple','red','yellow','teal'].filter(id => !(demoAgencyState.budgetAfk || []).includes(id));
-  const kept = keptIds.map(agentNameById);
-
-  // Real distribution — every staffed agent (except Mila/Sasha, who direct
-  // and monitor rather than execute) gets visibly assigned to this project
-  // in Live Ops / the office, not just a text mention — AND recorded on
-  // the project's own permanent archive.
+  // Real distribution — Mila + Sasha always (direct/monitor), plus exactly
+  // as many of Vera/Leo/Nora/Dana as the owner picked for this project.
+  // Everyone stays visibly in the office either way — this only decides
+  // who's actually assigned work on THIS project.
   const ROLE_TASK = {
     green: 'Researching', orange: 'Sourcing prospects for', purple: 'Shaping the strategy for', red: 'Drafting outreach for'
   };
+  const candidateIds = ['green', 'orange', 'purple', 'red'];
+  const chosenIds = candidateIds.slice(0, teamSize);
+  const keptIds = ['blue', 'yellow', ...chosenIds];
+  const kept = keptIds.map(agentNameById);
+
   const shortText = text.length > 60 ? text.slice(0, 57) + '...' : text;
-  keptIds.filter(id => ROLE_TASK[id]).forEach(id => {
+  chosenIds.forEach(id => {
     addLiveOpsUpdate(id, `Assigned to "${shortText}"`, `${ROLE_TASK[id]} "${shortText}"`, 'Working');
-    project.distribution.push({ agentId: id, task: `${ROLE_TASK[id]} "${shortText}"` });
+    project.distribution.push({ agentId: id, task: `${ROLE_TASK[id]} "${shortText}"`, status: 'working' });
   });
   addLiveOpsUpdate('blue', `Reviewing and directing "${shortText}".`, `Directing: "${shortText}"`, 'Reviewing');
-  project.distribution.push({ agentId: 'blue', task: `Directing "${shortText}"` });
-  addEventLogEntry('Mila', isFirstProject ? 'Project #1 started' : 'New project started', `"${text.slice(0,70)}${text.length>70?'…':''}" — importance ${importance}, budget $${budgetVal}. Staffed: ${kept.join(', ') || 'no one'}.`, 'TASK', project.id);
+  project.distribution.push({ agentId: 'blue', task: `Directing "${shortText}"`, status: 'working' });
+  addLiveOpsUpdate('yellow', `Monitoring systems while "${shortText}" runs.`, 'Watching for crashes/errors', 'Monitoring');
+  project.distribution.push({ agentId: 'yellow', task: 'Monitoring systems', status: 'working' });
+  addEventLogEntry('Mila', isFirstProject ? 'Project #1 started' : 'New project started', `"${text.slice(0,70)}${text.length>70?'…':''}" — importance ${importance}, team: ${kept.join(', ')}.`, 'TASK', project.id);
   demoAgencyState.office.currentProject = shortText;
   if (typeof updateAgencyTopbar === 'function') updateAgencyTopbar();
   if (activeTerminalTab === 'liveops') renderLiveOps();
   generateAgentChatter(project, keptIds);
 
-  const system = `You are Mila. You are direct, warm, practical. Given a job, its importance, and today's budget: (1) say plainly whether the budget realistically covers the people this job needs, (2) briefly say who on the team you're putting on it and why, (3) ask 2-3 short, genuinely specific clarifying questions about THIS job — not generic boilerplate — that you'd actually need answered to plan the work well. Keep the whole reply under 160 words.`;
-  const user = `Job: ${text}\nImportance: ${importance}\nToday's budget: $${budgetVal}\nStaffed today at this budget: ${kept.join(', ')}.${cut.length ? ' Paused due to budget: ' + cut.join(', ') + '.' : ''}`;
+  const system = `You are Mila. You are direct, warm, practical. Given a job and its importance: (1) briefly say who on the team you're putting on it (you picked ${chosenIds.map(agentNameById).join(', ')} for the hands-on work, Sasha's monitoring, you're directing) and why that team makes sense for this specific job, (2) ask 2-3 short, genuinely specific clarifying questions about THIS job — not generic boilerplate — that you'd actually need answered to plan the work well. Keep the whole reply under 160 words. Do not discuss budget or staffing cuts — the whole team is always available, budget only affects how much real AI thinking you can afford to spend today.`;
+  const user = `Job: ${text}\nImportance: ${importance}\nToday's real-AI budget: $${budgetVal}\nTeam on this project: ${kept.join(', ')}.`;
 
   const result = await callManetAI(system, user);
   let html;
   if (result.ok) {
     project.milaAssessment = result.text;
     project.chatHistory.push({ from: 'mila', text: result.text, time: aosNowTime() });
-    project.awaitingOwner = true;
+    project.awaitingOwner = /\?\s*$/.test(result.text.trim());
+    project.currentActivity = project.awaitingOwner ? null : result.text.slice(0, 140);
+    project.stage = 'working';
+    project.tokensUsed += result.tokensUsed || 0;
+    project.costSoFar += result.cost || 0;
+    syncProjectsToCloud();
     html = `<div class="aos-card" style="white-space:pre-wrap;font-size:12.5px;line-height:1.55;"><b>Mila:</b><br>${escapeHtml(result.text)}<div style="margin-top:8px;color:#9a9aa2;font-size:10.5px;">Real AI · ${result.tokensUsed} tokens · $${result.cost.toFixed(4)}</div></div>`;
   } else if (result.budgetBlocked) {
-    const fallbackText = `Daily budget already spent on real AI. At $${budgetVal}/day, the team that fits is ${kept.join(', ') || 'no one'}${cut.length ? ' — paused: ' + cut.join(', ') : ''}.`;
+    const fallbackText = `Daily real-AI budget is used up for today. Team on this project is set (${kept.join(', ')}) — I'll pick this back up once the budget resets or you raise it.`;
     project.milaAssessment = fallbackText;
     project.chatHistory.push({ from: 'mila', text: fallbackText, time: aosNowTime() });
     project.awaitingOwner = true;
+    project.currentActivity = null;
+    syncProjectsToCloud();
     html = `
       <div class="aos-card" style="border-left:3px solid #b8433a;background:#fdf2f1;font-size:12.3px;line-height:1.55;">
         <b>🛑 Daily budget already spent on real AI</b> — ${escapeHtml(result.error)}
         <br><br>
-        <b>Rule-based estimate instead:</b> at $${budgetVal}/day, the team that fits is <b>${kept.join(', ') || 'no one'}</b>${cut.length ? ` — paused: ${cut.join(', ')}` : ''}.
+        <b>Team assigned regardless:</b> ${kept.join(', ')}. They'll pick up real AI work once the budget resets.
       </div>`;
   } else {
-    const fallbackText = `Live AI unreachable right now. At $${budgetVal}/day, the team that fits is ${kept.join(', ') || 'no one'}${cut.length ? ' — paused: ' + cut.join(', ') : ''}.`;
+    const fallbackText = `Live AI unreachable right now. Team on this project is set (${kept.join(', ')}) — I'll give you a real assessment once AI is reachable.`;
     project.milaAssessment = fallbackText;
     project.chatHistory.push({ from: 'mila', text: fallbackText, time: aosNowTime() });
     project.awaitingOwner = true;
+    project.currentActivity = null;
+    syncProjectsToCloud();
     html = `
       <div class="aos-card" style="border-left:3px solid #e0a944;background:#fdf7ec;font-size:12.3px;line-height:1.55;">
         <b>⚠ Live AI isn't reachable from this file right now</b> (${escapeHtml(result.error)}). Real AI answers need either Claude.ai's own environment or your own backend + DEEPSEEK_API_KEY wired in — a plain downloaded/self-hosted HTML file can't authenticate this call on its own.
         <br><br>
-        <b>Rule-based estimate instead:</b> at $${budgetVal}/day, the team that fits is <b>${kept.join(', ') || 'no one'}</b>${cut.length ? ` — paused: ${cut.join(', ')}` : ''}. This is arithmetic from day rates, not a real answer about this specific job — treat it as a placeholder until real AI is connected.
+        <b>Team assigned regardless:</b> ${kept.join(', ')}.
       </div>`;
   }
   html += `<div class="aos-section" style="margin-top:10px;"><button class="aos-btn primary" onclick="openProjectDetail('${project.id}')">Open project archive & chat →</button></div>`;
@@ -15877,7 +15920,6 @@ function renderTrainingHistory() {
   `;
 }
 
-console.log('MANET Agency OS demo module loaded — no network calls, no API keys.');
 
 </script>
 
@@ -16276,7 +16318,6 @@ window.addEventListener('resize', ()=>{ if(typeof placeStations==='function') pl
 setTimeout(()=>{ if(typeof updateProblemsBadge==='function') updateProblemsBadge(); }, 300);
 document.body.classList.add('mode-calm');
 
-console.log('MANET Living Command Office layer loaded.');
 })();
 </script>
 </body>
