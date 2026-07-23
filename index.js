@@ -1979,7 +1979,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send(`<!-- MANET_LANDING_V2 -->
+  res.send(`<!-- MANET_LANDING_V3 -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -1988,54 +1988,89 @@ app.get('/', (req, res) => {
 <title>Manet Creative — AI-run creative studio</title>
 <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff; color: #14140f; -webkit-font-smoothing: antialiased; }
+      body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f2f1ec; color: #161616; -webkit-font-smoothing: antialiased; }
       a { color: inherit; }
-      .announce { max-width: 1180px; margin: 0 auto; padding: 22px 32px 0; font-size: 0.78rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
-      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
-      .announce a { color: #e8623d; text-decoration: none; font-weight: 600; }
-      .announce a:hover { text-decoration: underline; }
+      /* Navbar */
+      .navbar { background: #fbfaf7; border-bottom: 1px solid #e2ded2; }
+      .navbar-inner { max-width: 1180px; margin: 0 auto; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+      .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; }
+      .nav-logo svg { display: block; }
+      .nav-links { display: flex; gap: 30px; font-size: 0.8rem; color: #4a4a44; }
+      .nav-links a { text-decoration: none; }
+      .nav-links a:hover { color: #161616; }
+      .nav-right { display: flex; gap: 10px; align-items: center; }
+      /* Buttons */
+      .btn { display: inline-block; padding: 9px 18px; border-radius: 3px; font-size: 0.78rem; font-weight: 700; text-decoration: none; border: 1.3px solid transparent; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; cursor: pointer; }
+      .btn.primary { background: #14140f; color: #fff; }
+      .btn.primary:hover { opacity: 0.85; }
+      .btn.outline { border-color: #d6d2c4; color: #14140f; background: #fff; }
+      .btn.outline:hover { border-color: #14140f; }
+      /* Hero sections */
       .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+      .announce { max-width: 1180px; margin: 0 auto; padding: 26px 32px 0; font-size: 0.76rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
+      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
+      .announce a { color: #e8623d; text-decoration: none; font-weight: 700; }
+      .announce a:hover { text-decoration: underline; }
       .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
       .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
       .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
-      h1.headline { font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
-      .sub { font-size: 0.98rem; color: #6b6b64; line-height: 1.6; margin: 0 0 16px; max-width: 460px; }
+      h1.headline { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
+      .sub { font-size: 0.86rem; color: #6b6b64; line-height: 1.65; margin: 0 0 16px; max-width: 460px; }
       .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
-      .btn { display: inline-block; padding: 11px 20px; border-radius: 5px; font-size: 0.86rem; font-weight: 600; text-decoration: none; transition: opacity 0.12s ease; border: 1.3px solid transparent; }
-      .btn.primary { background: #14140f; color: #fff; }
-      .btn.primary:hover { opacity: 0.85; }
-      .btn.outline { border-color: #dcdad2; color: #14140f; background: #fff; }
-      .btn.outline:hover { border-color: #14140f; }
-      /* IDE-style code mockup */
-      .ide-mock { background: #1c1c1e; border-radius: 9px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.22); font-family: 'SF Mono', Consolas, monospace; }
-      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #262628; border-bottom: 1px solid #333; }
+      /* Light-theme IDE mockup */
+      .ide-mock { background: #ffffff; border: 1px solid #e2ded2; border-radius: 8px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.08); }
+      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #f5f4ef; border-bottom: 1px solid #e2ded2; }
       .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
       .ide-body { display: flex; }
-      .ide-tree { width: 130px; background: #202022; padding: 10px 8px; font-size: 0.65rem; color: #8a8d93; border-right: 1px solid #2e2e30; line-height: 2; }
-      .ide-tree .t1 { color: #c9c9ce; font-weight: 600; margin-bottom: 4px; }
-      .ide-tree .f { padding-left: 10px; }
-      .ide-tree .f.on { color: #fff; background: #2e2e30; margin-left: -8px; padding-left: 18px; }
-      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.68rem; line-height: 1.7; color: #c9c9ce; overflow-x: auto; }
-      .ide-code .k { color: #ff7ab6; } .ide-code .s { color: #a6e22e; } .ide-code .c { color: #6d6f78; } .ide-code .f2 { color: #66d9ef; }
-      /* Layered terminal box */
-      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #1c1c1e; border: 1px solid #333; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: 'SF Mono', Consolas, monospace; }
-      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #333; }
-      .term-tab { padding: 7px 14px; font-size: 0.62rem; color: #8a8d93; }
-      .term-tab.on { color: #fff; border-bottom: 2px solid #e8623d; }
-      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.7rem; color: #c9c9ce; }
-      .term-copy { color: #6d6f78; cursor: pointer; }
-      .divider-strip { border-top: 1px solid #eeece4; border-bottom: 1px solid #eeece4; background: #fafaf7; padding: 26px 32px; margin-top: 6px; }
-      .divider-row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
-      .divider-item { padding: 0 30px; font-size: 0.78rem; color: #8a8778; font-weight: 600; letter-spacing: 0.3px; border-right: 1px solid #e4e1d6; }
-      .divider-item:last-child { border-right: none; }
-      footer { border-top: 1px solid #eeece4; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
-      footer a { color: #14140f; text-decoration: none; font-weight: 600; }
+      .ide-tree { width: 130px; background: #fafaf7; padding: 10px 8px; font-size: 0.62rem; color: #8a877a; border-right: 1px solid #eeece4; line-height: 2; }
+      .ide-tree .t1 { color: #4a4a44; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; font-size: 0.6rem; }
+      .ide-tree .f { padding-left: 6px; }
+      .ide-tree .f.on { color: #14140f; background: #eeece4; margin-left: -8px; padding-left: 14px; font-weight: 600; }
+      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.66rem; line-height: 1.75; color: #3a3a34; overflow-x: auto; background: #fff; }
+      .ide-code .k { color: #c2185b; } .ide-code .s { color: #2e7d32; } .ide-code .c { color: #9a9488; } .ide-code .f2 { color: #1565c0; }
+      /* Layered terminal box — light theme too */
+      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #ffffff; border: 1px solid #e2ded2; border-radius: 7px; box-shadow: 0 20px 50px rgba(0,0,0,0.1); }
+      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #eeece4; padding: 6px 10px; }
+      .term-tab { padding: 4px 10px; font-size: 0.6rem; color: #9a9488; border-radius: 3px; }
+      .term-tab.on { color: #14140f; background: #f0efe8; font-weight: 700; }
+      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.68rem; color: #3a3a34; }
+      .term-copy { color: #9a9488; cursor: pointer; }
+      /* Bordered grid strip (feature/role grid, honest — not fake client logos) */
+      .grid-strip { border-top: 1px solid #e2ded2; border-bottom: 1px solid #e2ded2; background: #fbfaf7; }
+      .grid-row { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+      .grid-cell { padding: 34px 20px; text-align: center; border-right: 1px solid #e2ded2; font-size: 0.8rem; color: #4a4a44; font-weight: 700; }
+      .grid-cell:last-child { border-right: none; }
+      .grid-cell .gi { font-size: 22px; display: block; margin-bottom: 8px; }
+      /* Footer */
+      footer { border-top: 1px solid #e2ded2; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.76rem; background: #fbfaf7; }
+      footer a { color: #14140f; text-decoration: none; font-weight: 700; }
       footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-weight: 700; font-size: 1rem; color: #14140f; margin-bottom: 8px; }
-      @media (max-width: 760px) { h1.headline { font-size: 1.9rem; } .term-mock { display: none; } }
+      footer .foot-brand { font-weight: 700; font-size: 0.95rem; color: #14140f; margin-bottom: 8px; }
+      @media (max-width: 760px) {
+        h1.headline { font-size: 1.9rem; }
+        .term-mock { display: none; }
+        .nav-links { display: none; }
+        .grid-row { grid-template-columns: repeat(2, 1fr); }
+      }
     </style>
 </head>
 <body>
+  <div class="navbar">
+    <div class="navbar-inner">
+      <div class="nav-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14140f" stroke-width="1.6"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>Manet Creative</div>
+      <div class="nav-links">
+        <a href="/office">Office</a>
+        <a href="/admin">Phone</a>
+        <a href="https://manet.agency">Pricing</a>
+        <a href="https://manet.agency">Company</a>
+        <a href="https://manet.agency">Docs</a>
+      </div>
+      <div class="nav-right">
+        <a href="https://manet.agency" class="btn outline">Contact Sales</a>
+        <a href="/login" class="btn primary">Login</a>
+      </div>
+    </div>
+  </div>
   <div class="announce"><span class="dot3"></span>New — the real AI office is live internally<a href="https://manet.agency">Read more →</a></div>
   <div class="wrap">
     <div class="hero-row">
@@ -2083,12 +2118,12 @@ app.<span class="f2">use</span>((req, res, next) => {
       </div>
     </div>
   </div>
-  <div class="divider-strip">
-    <div class="divider-row">
-      <div class="divider-item">📞 Phone, answered</div>
-      <div class="divider-item">🏢 A studio that thinks</div>
-      <div class="divider-item">📷 Instagram, covered</div>
-      <div class="divider-item">🔒 Actually secured</div>
+  <div class="grid-strip">
+    <div class="grid-row">
+      <div class="grid-cell"><span class="gi">📞</span>Phone, answered</div>
+      <div class="grid-cell"><span class="gi">🏢</span>A studio that thinks</div>
+      <div class="grid-cell"><span class="gi">📷</span>Instagram, covered</div>
+      <div class="grid-cell"><span class="gi">🔒</span>Actually secured</div>
     </div>
   </div>
   <div class="wrap">
@@ -2153,69 +2188,104 @@ app.get('/login', (req, res) => {
 <title>Member Login — Manet Creative</title>
 <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff; color: #14140f; -webkit-font-smoothing: antialiased; }
+      body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f2f1ec; color: #161616; -webkit-font-smoothing: antialiased; }
       a { color: inherit; }
-      .announce { max-width: 1180px; margin: 0 auto; padding: 22px 32px 0; font-size: 0.78rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
-      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
-      .announce a { color: #e8623d; text-decoration: none; font-weight: 600; }
-      .announce a:hover { text-decoration: underline; }
+      /* Navbar */
+      .navbar { background: #fbfaf7; border-bottom: 1px solid #e2ded2; }
+      .navbar-inner { max-width: 1180px; margin: 0 auto; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+      .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; }
+      .nav-logo svg { display: block; }
+      .nav-links { display: flex; gap: 30px; font-size: 0.8rem; color: #4a4a44; }
+      .nav-links a { text-decoration: none; }
+      .nav-links a:hover { color: #161616; }
+      .nav-right { display: flex; gap: 10px; align-items: center; }
+      /* Buttons */
+      .btn { display: inline-block; padding: 9px 18px; border-radius: 3px; font-size: 0.78rem; font-weight: 700; text-decoration: none; border: 1.3px solid transparent; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; cursor: pointer; }
+      .btn.primary { background: #14140f; color: #fff; }
+      .btn.primary:hover { opacity: 0.85; }
+      .btn.outline { border-color: #d6d2c4; color: #14140f; background: #fff; }
+      .btn.outline:hover { border-color: #14140f; }
+      /* Hero sections */
       .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+      .announce { max-width: 1180px; margin: 0 auto; padding: 26px 32px 0; font-size: 0.76rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
+      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
+      .announce a { color: #e8623d; text-decoration: none; font-weight: 700; }
+      .announce a:hover { text-decoration: underline; }
       .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
       .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
       .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
-      h1.headline { font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
-      .sub { font-size: 0.98rem; color: #6b6b64; line-height: 1.6; margin: 0 0 16px; max-width: 460px; }
+      h1.headline { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
+      .sub { font-size: 0.86rem; color: #6b6b64; line-height: 1.65; margin: 0 0 16px; max-width: 460px; }
       .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
-      .btn { display: inline-block; padding: 11px 20px; border-radius: 5px; font-size: 0.86rem; font-weight: 600; text-decoration: none; transition: opacity 0.12s ease; border: 1.3px solid transparent; }
-      .btn.primary { background: #14140f; color: #fff; }
-      .btn.primary:hover { opacity: 0.85; }
-      .btn.outline { border-color: #dcdad2; color: #14140f; background: #fff; }
-      .btn.outline:hover { border-color: #14140f; }
-      /* IDE-style code mockup */
-      .ide-mock { background: #1c1c1e; border-radius: 9px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.22); font-family: 'SF Mono', Consolas, monospace; }
-      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #262628; border-bottom: 1px solid #333; }
+      /* Light-theme IDE mockup */
+      .ide-mock { background: #ffffff; border: 1px solid #e2ded2; border-radius: 8px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.08); }
+      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #f5f4ef; border-bottom: 1px solid #e2ded2; }
       .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
       .ide-body { display: flex; }
-      .ide-tree { width: 130px; background: #202022; padding: 10px 8px; font-size: 0.65rem; color: #8a8d93; border-right: 1px solid #2e2e30; line-height: 2; }
-      .ide-tree .t1 { color: #c9c9ce; font-weight: 600; margin-bottom: 4px; }
-      .ide-tree .f { padding-left: 10px; }
-      .ide-tree .f.on { color: #fff; background: #2e2e30; margin-left: -8px; padding-left: 18px; }
-      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.68rem; line-height: 1.7; color: #c9c9ce; overflow-x: auto; }
-      .ide-code .k { color: #ff7ab6; } .ide-code .s { color: #a6e22e; } .ide-code .c { color: #6d6f78; } .ide-code .f2 { color: #66d9ef; }
-      /* Layered terminal box */
-      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #1c1c1e; border: 1px solid #333; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: 'SF Mono', Consolas, monospace; }
-      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #333; }
-      .term-tab { padding: 7px 14px; font-size: 0.62rem; color: #8a8d93; }
-      .term-tab.on { color: #fff; border-bottom: 2px solid #e8623d; }
-      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.7rem; color: #c9c9ce; }
-      .term-copy { color: #6d6f78; cursor: pointer; }
-      .divider-strip { border-top: 1px solid #eeece4; border-bottom: 1px solid #eeece4; background: #fafaf7; padding: 26px 32px; margin-top: 6px; }
-      .divider-row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
-      .divider-item { padding: 0 30px; font-size: 0.78rem; color: #8a8778; font-weight: 600; letter-spacing: 0.3px; border-right: 1px solid #e4e1d6; }
-      .divider-item:last-child { border-right: none; }
-      footer { border-top: 1px solid #eeece4; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
-      footer a { color: #14140f; text-decoration: none; font-weight: 600; }
+      .ide-tree { width: 130px; background: #fafaf7; padding: 10px 8px; font-size: 0.62rem; color: #8a877a; border-right: 1px solid #eeece4; line-height: 2; }
+      .ide-tree .t1 { color: #4a4a44; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; font-size: 0.6rem; }
+      .ide-tree .f { padding-left: 6px; }
+      .ide-tree .f.on { color: #14140f; background: #eeece4; margin-left: -8px; padding-left: 14px; font-weight: 600; }
+      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.66rem; line-height: 1.75; color: #3a3a34; overflow-x: auto; background: #fff; }
+      .ide-code .k { color: #c2185b; } .ide-code .s { color: #2e7d32; } .ide-code .c { color: #9a9488; } .ide-code .f2 { color: #1565c0; }
+      /* Layered terminal box — light theme too */
+      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #ffffff; border: 1px solid #e2ded2; border-radius: 7px; box-shadow: 0 20px 50px rgba(0,0,0,0.1); }
+      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #eeece4; padding: 6px 10px; }
+      .term-tab { padding: 4px 10px; font-size: 0.6rem; color: #9a9488; border-radius: 3px; }
+      .term-tab.on { color: #14140f; background: #f0efe8; font-weight: 700; }
+      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.68rem; color: #3a3a34; }
+      .term-copy { color: #9a9488; cursor: pointer; }
+      /* Bordered grid strip (feature/role grid, honest — not fake client logos) */
+      .grid-strip { border-top: 1px solid #e2ded2; border-bottom: 1px solid #e2ded2; background: #fbfaf7; }
+      .grid-row { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+      .grid-cell { padding: 34px 20px; text-align: center; border-right: 1px solid #e2ded2; font-size: 0.8rem; color: #4a4a44; font-weight: 700; }
+      .grid-cell:last-child { border-right: none; }
+      .grid-cell .gi { font-size: 22px; display: block; margin-bottom: 8px; }
+      /* Footer */
+      footer { border-top: 1px solid #e2ded2; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.76rem; background: #fbfaf7; }
+      footer a { color: #14140f; text-decoration: none; font-weight: 700; }
       footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-weight: 700; font-size: 1rem; color: #14140f; margin-bottom: 8px; }
-      @media (max-width: 760px) { h1.headline { font-size: 1.9rem; } .term-mock { display: none; } }
+      footer .foot-brand { font-weight: 700; font-size: 0.95rem; color: #14140f; margin-bottom: 8px; }
+      @media (max-width: 760px) {
+        h1.headline { font-size: 1.9rem; }
+        .term-mock { display: none; }
+        .nav-links { display: none; }
+        .grid-row { grid-template-columns: repeat(2, 1fr); }
+      }
     </style>
 <style>
-  .login-wrap { max-width: 380px; margin: 90px auto; padding: 0 24px; }
-  .login-card { background: #fff; border: 1px solid #eeece4; border-radius: 10px; padding: 36px 32px; box-shadow: 0 20px 50px rgba(0,0,0,0.06); }
-  .login-card h1 { font-size: 1.3rem; margin: 0 0 6px; font-weight: 700; }
-  .login-card .sub2 { font-size: 0.82rem; color: #9a9488; margin: 0 0 24px; }
+  .login-wrap { max-width: 380px; margin: 70px auto; padding: 0 24px; }
+  .login-card { background: #fff; border: 1px solid #e2ded2; border-radius: 8px; padding: 36px 32px; box-shadow: 0 20px 50px rgba(0,0,0,0.06); }
+  .login-card h1 { font-size: 1.15rem; margin: 0 0 6px; font-weight: 700; font-family: -apple-system, sans-serif; }
+  .login-card .sub2 { font-size: 0.78rem; color: #9a9488; margin: 0 0 24px; }
   .field { margin-bottom: 14px; }
-  .field label { display: block; font-size: 0.76rem; font-weight: 600; color: #55534d; margin-bottom: 5px; }
-  .field input { width: 100%; padding: 10px 12px; border: 1.4px solid #e0dcd0; border-radius: 5px; font-size: 0.9rem; }
+  .field label { display: block; font-size: 0.72rem; font-weight: 700; color: #55534d; margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .field input { width: 100%; padding: 10px 12px; border: 1.4px solid #e0dcd0; border-radius: 4px; font-size: 0.85rem; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; }
   .field input:focus { outline: none; border-color: #14140f; }
-  .login-btn { width: 100%; padding: 11px; background: #14140f; color: #fff; border: none; border-radius: 5px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 6px; }
+  .login-btn { width: 100%; padding: 11px; background: #14140f; color: #fff; border: none; border-radius: 4px; font-size: 0.82rem; font-weight: 700; cursor: pointer; margin-top: 6px; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; }
   .login-btn:hover { opacity: 0.9; }
-  .login-err { color: #b8433a; font-size: 0.8rem; margin-top: 10px; display: none; }
-  .login-back { text-align: center; margin-top: 18px; font-size: 0.78rem; }
+  .login-err { color: #b8433a; font-size: 0.76rem; margin-top: 10px; display: none; }
+  .login-back { text-align: center; margin-top: 18px; font-size: 0.74rem; }
   .login-back a { color: #9a9488; text-decoration: none; }
 </style>
 </head>
 <body>
+  <div class="navbar">
+    <div class="navbar-inner">
+      <div class="nav-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14140f" stroke-width="1.6"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>Manet Creative</div>
+      <div class="nav-links">
+        <a href="/office">Office</a>
+        <a href="/admin">Phone</a>
+        <a href="https://manet.agency">Pricing</a>
+        <a href="https://manet.agency">Company</a>
+        <a href="https://manet.agency">Docs</a>
+      </div>
+      <div class="nav-right">
+        <a href="https://manet.agency" class="btn outline">Contact Sales</a>
+        <a href="/login" class="btn primary">Login</a>
+      </div>
+    </div>
+  </div>
   <div class="announce"><span class="dot3"></span>Protected area — real credentials required<a href="https://manet.agency">Manet Agency →</a></div>
   <div class="login-wrap">
     <div class="login-card">
@@ -2268,65 +2338,100 @@ app.get('/choose', requireAuth, (req, res) => {
 <title>Manet Creative</title>
 <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff; color: #14140f; -webkit-font-smoothing: antialiased; }
+      body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f2f1ec; color: #161616; -webkit-font-smoothing: antialiased; }
       a { color: inherit; }
-      .announce { max-width: 1180px; margin: 0 auto; padding: 22px 32px 0; font-size: 0.78rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
-      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
-      .announce a { color: #e8623d; text-decoration: none; font-weight: 600; }
-      .announce a:hover { text-decoration: underline; }
+      /* Navbar */
+      .navbar { background: #fbfaf7; border-bottom: 1px solid #e2ded2; }
+      .navbar-inner { max-width: 1180px; margin: 0 auto; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
+      .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; }
+      .nav-logo svg { display: block; }
+      .nav-links { display: flex; gap: 30px; font-size: 0.8rem; color: #4a4a44; }
+      .nav-links a { text-decoration: none; }
+      .nav-links a:hover { color: #161616; }
+      .nav-right { display: flex; gap: 10px; align-items: center; }
+      /* Buttons */
+      .btn { display: inline-block; padding: 9px 18px; border-radius: 3px; font-size: 0.78rem; font-weight: 700; text-decoration: none; border: 1.3px solid transparent; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; cursor: pointer; }
+      .btn.primary { background: #14140f; color: #fff; }
+      .btn.primary:hover { opacity: 0.85; }
+      .btn.outline { border-color: #d6d2c4; color: #14140f; background: #fff; }
+      .btn.outline:hover { border-color: #14140f; }
+      /* Hero sections */
       .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+      .announce { max-width: 1180px; margin: 0 auto; padding: 26px 32px 0; font-size: 0.76rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
+      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
+      .announce a { color: #e8623d; text-decoration: none; font-weight: 700; }
+      .announce a:hover { text-decoration: underline; }
       .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
       .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
       .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
-      h1.headline { font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
-      .sub { font-size: 0.98rem; color: #6b6b64; line-height: 1.6; margin: 0 0 16px; max-width: 460px; }
+      h1.headline { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
+      .sub { font-size: 0.86rem; color: #6b6b64; line-height: 1.65; margin: 0 0 16px; max-width: 460px; }
       .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
-      .btn { display: inline-block; padding: 11px 20px; border-radius: 5px; font-size: 0.86rem; font-weight: 600; text-decoration: none; transition: opacity 0.12s ease; border: 1.3px solid transparent; }
-      .btn.primary { background: #14140f; color: #fff; }
-      .btn.primary:hover { opacity: 0.85; }
-      .btn.outline { border-color: #dcdad2; color: #14140f; background: #fff; }
-      .btn.outline:hover { border-color: #14140f; }
-      /* IDE-style code mockup */
-      .ide-mock { background: #1c1c1e; border-radius: 9px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.22); font-family: 'SF Mono', Consolas, monospace; }
-      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #262628; border-bottom: 1px solid #333; }
+      /* Light-theme IDE mockup */
+      .ide-mock { background: #ffffff; border: 1px solid #e2ded2; border-radius: 8px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.08); }
+      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #f5f4ef; border-bottom: 1px solid #e2ded2; }
       .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
       .ide-body { display: flex; }
-      .ide-tree { width: 130px; background: #202022; padding: 10px 8px; font-size: 0.65rem; color: #8a8d93; border-right: 1px solid #2e2e30; line-height: 2; }
-      .ide-tree .t1 { color: #c9c9ce; font-weight: 600; margin-bottom: 4px; }
-      .ide-tree .f { padding-left: 10px; }
-      .ide-tree .f.on { color: #fff; background: #2e2e30; margin-left: -8px; padding-left: 18px; }
-      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.68rem; line-height: 1.7; color: #c9c9ce; overflow-x: auto; }
-      .ide-code .k { color: #ff7ab6; } .ide-code .s { color: #a6e22e; } .ide-code .c { color: #6d6f78; } .ide-code .f2 { color: #66d9ef; }
-      /* Layered terminal box */
-      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #1c1c1e; border: 1px solid #333; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: 'SF Mono', Consolas, monospace; }
-      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #333; }
-      .term-tab { padding: 7px 14px; font-size: 0.62rem; color: #8a8d93; }
-      .term-tab.on { color: #fff; border-bottom: 2px solid #e8623d; }
-      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.7rem; color: #c9c9ce; }
-      .term-copy { color: #6d6f78; cursor: pointer; }
-      .divider-strip { border-top: 1px solid #eeece4; border-bottom: 1px solid #eeece4; background: #fafaf7; padding: 26px 32px; margin-top: 6px; }
-      .divider-row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
-      .divider-item { padding: 0 30px; font-size: 0.78rem; color: #8a8778; font-weight: 600; letter-spacing: 0.3px; border-right: 1px solid #e4e1d6; }
-      .divider-item:last-child { border-right: none; }
-      footer { border-top: 1px solid #eeece4; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
-      footer a { color: #14140f; text-decoration: none; font-weight: 600; }
+      .ide-tree { width: 130px; background: #fafaf7; padding: 10px 8px; font-size: 0.62rem; color: #8a877a; border-right: 1px solid #eeece4; line-height: 2; }
+      .ide-tree .t1 { color: #4a4a44; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; font-size: 0.6rem; }
+      .ide-tree .f { padding-left: 6px; }
+      .ide-tree .f.on { color: #14140f; background: #eeece4; margin-left: -8px; padding-left: 14px; font-weight: 600; }
+      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.66rem; line-height: 1.75; color: #3a3a34; overflow-x: auto; background: #fff; }
+      .ide-code .k { color: #c2185b; } .ide-code .s { color: #2e7d32; } .ide-code .c { color: #9a9488; } .ide-code .f2 { color: #1565c0; }
+      /* Layered terminal box — light theme too */
+      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #ffffff; border: 1px solid #e2ded2; border-radius: 7px; box-shadow: 0 20px 50px rgba(0,0,0,0.1); }
+      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #eeece4; padding: 6px 10px; }
+      .term-tab { padding: 4px 10px; font-size: 0.6rem; color: #9a9488; border-radius: 3px; }
+      .term-tab.on { color: #14140f; background: #f0efe8; font-weight: 700; }
+      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.68rem; color: #3a3a34; }
+      .term-copy { color: #9a9488; cursor: pointer; }
+      /* Bordered grid strip (feature/role grid, honest — not fake client logos) */
+      .grid-strip { border-top: 1px solid #e2ded2; border-bottom: 1px solid #e2ded2; background: #fbfaf7; }
+      .grid-row { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
+      .grid-cell { padding: 34px 20px; text-align: center; border-right: 1px solid #e2ded2; font-size: 0.8rem; color: #4a4a44; font-weight: 700; }
+      .grid-cell:last-child { border-right: none; }
+      .grid-cell .gi { font-size: 22px; display: block; margin-bottom: 8px; }
+      /* Footer */
+      footer { border-top: 1px solid #e2ded2; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.76rem; background: #fbfaf7; }
+      footer a { color: #14140f; text-decoration: none; font-weight: 700; }
       footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-weight: 700; font-size: 1rem; color: #14140f; margin-bottom: 8px; }
-      @media (max-width: 760px) { h1.headline { font-size: 1.9rem; } .term-mock { display: none; } }
+      footer .foot-brand { font-weight: 700; font-size: 0.95rem; color: #14140f; margin-bottom: 8px; }
+      @media (max-width: 760px) {
+        h1.headline { font-size: 1.9rem; }
+        .term-mock { display: none; }
+        .nav-links { display: none; }
+        .grid-row { grid-template-columns: repeat(2, 1fr); }
+      }
     </style>
 <style>
-  .choose-wrap { max-width: 640px; margin: 100px auto; padding: 0 24px; text-align: center; }
-  .choose-wrap h1 { font-size: 1.7rem; margin-bottom: 8px; font-weight: 700; }
-  .choose-wrap .sub2 { color: #9a9488; margin-bottom: 40px; }
+  .choose-wrap { max-width: 640px; margin: 90px auto; padding: 0 24px; text-align: center; }
+  .choose-wrap h1 { font-size: 1.5rem; margin-bottom: 8px; font-weight: 700; font-family: -apple-system, sans-serif; }
+  .choose-wrap .sub2 { color: #9a9488; margin-bottom: 40px; font-size: 0.82rem; }
   .choose-row { display: flex; gap: 18px; justify-content: center; }
-  .choose-card { flex: 1; max-width: 220px; padding: 30px 20px; background: #fff; border: 1.4px solid #eeece4; border-radius: 10px; text-decoration: none; color: #14140f; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .choose-card { flex: 1; max-width: 220px; padding: 30px 20px; background: #fff; border: 1.4px solid #e2ded2; border-radius: 8px; text-decoration: none; color: #14140f; transition: transform 0.15s ease, box-shadow 0.15s ease; }
   .choose-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0,0,0,0.1); border-color: #14140f; }
-  .choose-icon { font-size: 30px; margin-bottom: 10px; }
-  .choose-label { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
-  .choose-sub { font-size: 0.76rem; color: #9a9488; }
+  .choose-icon { font-size: 28px; margin-bottom: 10px; }
+  .choose-label { font-weight: 700; font-size: 0.88rem; margin-bottom: 4px; }
+  .choose-sub { font-size: 0.7rem; color: #9a9488; }
 </style>
 </head>
 <body>
+  <div class="navbar">
+    <div class="navbar-inner">
+      <div class="nav-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14140f" stroke-width="1.6"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>Manet Creative</div>
+      <div class="nav-links">
+        <a href="/office">Office</a>
+        <a href="/admin">Phone</a>
+        <a href="https://manet.agency">Pricing</a>
+        <a href="https://manet.agency">Company</a>
+        <a href="https://manet.agency">Docs</a>
+      </div>
+      <div class="nav-right">
+        <a href="https://manet.agency" class="btn outline">Contact Sales</a>
+        <a href="/login" class="btn primary">Login</a>
+      </div>
+    </div>
+  </div>
   <div class="choose-wrap">
     <h1>Welcome back.</h1>
     <div class="sub2">Where do you want to go?</div>
