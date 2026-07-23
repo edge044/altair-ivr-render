@@ -395,6 +395,51 @@ body {
   box-shadow: 0 4px 28px rgba(0,0,0,0.08), 0 0.5px 0 rgba(255,255,255,0.9) inset;
   z-index: 90;
 }
+.wall-phone {
+  position: fixed; left: 14px; bottom: 90px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  cursor: pointer; z-index: 90; user-select: none;
+}
+.wall-phone-bracket {
+  width: 4px; height: 10px; background: #8a8d93; border-radius: 2px 2px 0 0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+.wall-phone-body {
+  position: relative; width: 46px; height: 76px;
+  background: linear-gradient(160deg, #1c1c1e, #2c2c2e);
+  border-radius: 10px; border: 2px solid #3a3a3c;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.04) inset;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.wall-phone:hover .wall-phone-body {
+  transform: translateY(-3px) scale(1.04);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.06) inset;
+}
+.wall-phone-notch {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+  width: 14px; height: 3px; background: #000; border-radius: 2px; opacity: 0.6;
+}
+.wall-phone-screen {
+  width: 34px; height: 50px; background: radial-gradient(circle at 30% 20%, #4a3a6a, #1a1030 70%);
+  border-radius: 5px; display: flex; align-items: center; justify-content: center;
+  color: #e8d5ff; animation: wallPhoneGlow 3.2s ease-in-out infinite;
+}
+@keyframes wallPhoneGlow {
+  0%, 100% { box-shadow: 0 0 6px rgba(168,85,247,0.25); }
+  50% { box-shadow: 0 0 14px rgba(168,85,247,0.5); }
+}
+.wall-phone-badge {
+  position: absolute; top: -4px; right: -4px;
+  background: #f26363; color: #fff; font-size: 9px; font-weight: 700;
+  min-width: 15px; height: 15px; border-radius: 8px; padding: 0 3px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid #fff;
+}
+.wall-phone-label {
+  font-size: 9.5px; color: #6b6b74; font-weight: 600; letter-spacing: 0.2px;
+  background: rgba(255,255,255,0.85); padding: 1px 7px; border-radius: 8px;
+}
 .panel-title {
   font-size: 11.5px; font-weight: 600;
   color: #222; margin-bottom: 10px;
@@ -2151,6 +2196,20 @@ body.mode-incident .search-pill{ box-shadow:0 2px 16px rgba(224,88,79,0.16), 0 0
   <div class="panel-footer" style="margin-top:6px;">
     <span id="office-reset-view" style="font-size:10.5px; color:#4f8ef7; cursor:pointer; font-weight:500;">⟲ Reset view</span>
   </div>
+</div>
+
+<!-- WALL PHONE — Alex's Instagram, mounted on the wall like a real office
+     phone dock. Click anywhere on it to open Instagram fullscreen. -->
+<div class="wall-phone" id="wall-phone-widget" onclick="openIGPanel()" title="Instagram — Alex's channel">
+  <div class="wall-phone-bracket"></div>
+  <div class="wall-phone-body">
+    <div class="wall-phone-notch"></div>
+    <div class="wall-phone-screen">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+    </div>
+    <span class="wall-phone-badge" id="wall-phone-badge" style="display:none;">0</span>
+  </div>
+  <div class="wall-phone-label">Instagram</div>
 </div>
 
 <!-- MAIN SCENE -->
