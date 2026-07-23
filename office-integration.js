@@ -21,6 +21,7 @@ const fs = require('fs');
 const path = require('path');
 
 module.exports = function mountOffice(app, requireAuth) {
+  const crypto = require('crypto');
   app.set('trust proxy', true); // so req.ip is the REAL visitor IP behind Render's proxy, not Render's own
 
   // ── Storage layer — Postgres if DATABASE_URL is set (survives every
@@ -154,14 +155,45 @@ module.exports = function mountOffice(app, requireAuth) {
     return (req.ip || (req.connection && req.connection.remoteAddress) || 'unknown').replace('::ffff:', '');
   }
 
-  // ── Security headers — applied to every response ───────────────────
+  // ── Security headers — comprehensive set, applied to every response ─
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     res.setHeader('X-XSS-Protection', '0'); // deprecated header, explicitly disabled rather than relying on it
+    res.setHeader('X-DNS-Prefetch-Control', 'off');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), payment=(), usb=()');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    // CSP: real, not decorative. Allows what the office app actually needs
+    // (inline scripts/styles — it's a single-file app — plus fetch to
+    // self). Tightens everything else, including blocking any framing.
+    res.setHeader('Content-Security-Policy', [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data: https:",
+      "connect-src 'self'",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "object-src 'none'"
+    ].join('; '));
     next();
   });
+
+  // ── Threat log — real record of things this server actually blocked
+  // (honeypot hits, injection probes, bans), separate from the general
+  // visitor log so real attacks are easy to find. ────────────────────
+  const THREATS_FILE = path.join(OFFICE_DIR, 'office_threats.json');
+  function logThreat(ip, kind, detail) {
+    try {
+      const all = readJSONFile(THREATS_FILE, []);
+      all.push({ ip, kind, detail: (detail || '').slice(0, 300), at: new Date().toISOString() });
+      writeJSONFile(THREATS_FILE, all.slice(-2000));
+    } catch (e) {}
+  }
 
   // ── IP ban check — runs before EVERYTHING else on the whole server,
   // including your phone routes. A banned IP gets a flat 403, no matter
@@ -171,6 +203,52 @@ module.exports = function mountOffice(app, requireAuth) {
     try {
       if (await store.isBanned(ip)) return res.status(403).send('Forbidden.');
     } catch (e) {}
+    next();
+  });
+
+  // ── Honeypot paths — real scanners and bots probe these constantly
+  // (WordPress, .env files, phpMyAdmin, .git, etc.) on every server they
+  // find. This app has none of them — hitting one is proof of malicious
+  // scanning, not a mistake. Instant ban, no warning. ─────────────────
+  const HONEYPOT_PATHS = new Set([
+    '/wp-admin', '/wp-login.php', '/wp-content', '/wp-includes', '/wp-json',
+    '/.env', '/.env.local', '/.env.production', '/.env.backup',
+    '/config.php', '/phpmyadmin', '/pma', '/.git/config', '/.git/HEAD',
+    '/admin.php', '/xmlrpc.php', '/.aws/credentials', '/server-status',
+    '/actuator/env', '/actuator/health', '/.docker', '/docker-compose.yml',
+    '/administrator/index.php', '/.ssh/id_rsa', '/id_rsa', '/backup.sql',
+    '/database.sql', '/.htaccess', '/vendor/phpunit', '/console',
+    '/.vscode/sftp.json', '/laravel/.env', '/api/.env', '/telescope'
+  ]);
+  app.use((req, res, next) => {
+    if (HONEYPOT_PATHS.has(req.path.toLowerCase())) {
+      const ip = getClientIp(req);
+      store.banIp(ip, `Auto-banned: probed honeypot path ${req.path}`).catch(() => {});
+      logThreat(ip, 'honeypot', req.path);
+      return res.status(404).send('Not found.'); // 404, not 403 — don't tip off that this is a trap
+    }
+    next();
+  });
+
+  // ── Suspicious-pattern detection — SQL injection and path-traversal
+  // probes in the URL or query string. Real attack signatures, not
+  // guesses: anyone sending these on a plain marketing/office server has
+  // no legitimate reason to. ──────────────────────────────────────────
+  const SUSPICIOUS_PATTERNS = [
+    /\.\.\//, /union\s+select/i, /select\s+.*\s+from\s+/i, /drop\s+table/i,
+    /or\s+1\s*=\s*1/i, /<script[\s>]/i, /etc\/passwd/i, /\bexec\s*\(/i,
+    /base64_decode/i, /eval\s*\(/i
+  ];
+  app.use((req, res, next) => {
+    const fullUrl = req.originalUrl || req.url || '';
+    let decoded = fullUrl;
+    try { decoded = decodeURIComponent(fullUrl.replace(/\+/g, ' ')); } catch (e) {} // handle both %20 and + as space (both are valid query-string space encodings) — malformed encoding falls through to the raw check below rather than crashing
+    if (SUSPICIOUS_PATTERNS.some(p => p.test(fullUrl) || p.test(decoded))) {
+      const ip = getClientIp(req);
+      store.banIp(ip, `Auto-banned: suspicious request pattern`).catch(() => {});
+      logThreat(ip, 'injection-probe', decoded);
+      return res.status(400).send('Bad request.');
+    }
     next();
   });
 
@@ -191,6 +269,7 @@ module.exports = function mountOffice(app, requireAuth) {
       rec.count++;
       if (rec.count > RATE_LIMIT_MAX) {
         store.banIp(ip, `Auto-banned: ${rec.count} requests in under a minute (rate limit)`).catch(() => {});
+        logThreat(ip, 'rate-limit', `${rec.count} req/min`);
         requestCounts.delete(ip);
         return res.status(429).send('Too many requests.');
       }
@@ -237,10 +316,20 @@ module.exports = function mountOffice(app, requireAuth) {
   });
 
   // ── Auth for the office's own JSON API — header-based key ──────────
+  function timingSafeStringEqual(a, b) {
+    const bufA = Buffer.from(String(a || ''));
+    const bufB = Buffer.from(String(b || ''));
+    if (bufA.length !== bufB.length) {
+      // Still run a comparison of equal length to avoid leaking length via timing.
+      crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
+      return false;
+    }
+    return crypto.timingSafeEqual(bufA, bufB);
+  }
   function requireOfficeApiKey(req, res, next) {
     const key = process.env.OFFICE_API_KEY;
     if (!key) return res.status(503).json({ error: 'OFFICE_API_KEY is not set on the server yet.' });
-    if (req.header('X-API-Key') !== key) return res.status(401).json({ error: 'Invalid or missing X-API-Key header.' });
+    if (!timingSafeStringEqual(req.header('X-API-Key'), key)) return res.status(401).json({ error: 'Invalid or missing X-API-Key header.' });
     next();
   }
 
@@ -297,7 +386,6 @@ module.exports = function mountOffice(app, requireAuth) {
   // optionally INSTAGRAM_APP_SECRET for verifying incoming webhook
   // signatures (recommended — without it, anyone who finds your webhook
   // URL could send fake "messages").
-  const crypto = require('crypto');
 
   // Meta's webhook verification handshake — GET with hub.challenge.
   app.get('/office/api/instagram/webhook', (req, res) => {
@@ -425,6 +513,9 @@ module.exports = function mountOffice(app, requireAuth) {
   });
   app.get('/office/api/admin/bans', requireAuth, async (req, res) => {
     try { res.json(await store.getBans()); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.get('/office/api/admin/threats', requireAuth, (req, res) => {
+    try { res.json(readJSONFile(THREATS_FILE, []).slice(-300).reverse()); } catch (e) { res.status(500).json({ error: e.message }); }
   });
   // ── Real server health — uptime since last restart, real cloud storage
   // size (not localStorage — the actual database), total real visitors.

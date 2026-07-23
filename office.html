@@ -3825,7 +3825,8 @@ function renderPhoneAnalyticsHtml(data) {
 // ═══════════════════════════════════════════════════════════════
 const ADMIN_TOPTABS = [
   { id: 'visitors', label: 'Visitors', icon: '👣' },
-  { id: 'bans', label: 'Banned IPs', icon: '🚫' }
+  { id: 'bans', label: 'Banned IPs', icon: '🚫' },
+  { id: 'threats', label: 'Threats Blocked', icon: '🛡️' }
 ];
 let adminActiveTab = 'visitors';
 function openAdminPanel() {
@@ -3948,6 +3949,11 @@ async function renderAdminBody() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const visitors = await res.json();
       el.innerHTML = renderVisitorsHtml(visitors);
+    } else if (adminActiveTab === 'threats') {
+      const res = await fetch('/office/api/admin/threats', { credentials: 'include' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const threats = await res.json();
+      el.innerHTML = renderThreatsHtml(threats);
     } else {
       const res = await fetch('/office/api/admin/bans', { credentials: 'include' });
       if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -3973,6 +3979,24 @@ function renderVisitorsHtml(visitors) {
             <td style="padding:6px 10px;color:#6b6b74;">${escapeHtml(v.path || '')}</td>
             <td style="padding:6px 10px;color:#6b6b74;">${escapeHtml(String(v.visited_at || v.visitedAt || '').replace('T',' ').slice(0,19))}</td>
             <td style="padding:6px 10px;"><button class="aos-btn" style="padding:3px 8px;font-size:10.5px;" onclick="banIpFromAdmin('${escapeHtml(v.ip)}')">Ban</button></td>
+          </tr>`).join('')}
+      </tbody>
+    </table>
+  </div>`;
+}
+function renderThreatsHtml(threats) {
+  if (!Array.isArray(threats) || !threats.length) return '<div style="color:#8a8a92;font-size:12.5px;">No threats blocked yet — good sign.</div>';
+  const kindLabel = { honeypot: '🍯 Honeypot probe', 'injection-probe': '💉 Injection attempt', 'rate-limit': '⚡ Rate limit' };
+  return `<div class="aos-card" style="padding:0;overflow:hidden;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;">
+      <thead><tr style="background:#f2f2f0;text-align:left;"><th style="padding:8px 10px;">Type</th><th style="padding:8px 10px;">IP</th><th style="padding:8px 10px;">Detail</th><th style="padding:8px 10px;">Time</th></tr></thead>
+      <tbody>
+        ${threats.map(t => `
+          <tr style="border-top:1px solid rgba(0,0,0,0.06);">
+            <td style="padding:6px 10px;">${escapeHtml(kindLabel[t.kind] || t.kind)}</td>
+            <td style="padding:6px 10px;">${escapeHtml(t.ip)}</td>
+            <td style="padding:6px 10px;color:#6b6b74;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.detail || '')}</td>
+            <td style="padding:6px 10px;color:#6b6b74;">${escapeHtml(String(t.at || '').replace('T',' ').slice(0,19))}</td>
           </tr>`).join('')}
       </tbody>
     </table>
