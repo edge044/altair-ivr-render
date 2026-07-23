@@ -73,7 +73,7 @@ function hasValidSession(req) {
   return !!verifySessionToken(cookies.manet_session);
 }
 
-// ── Tarpit — "Sasha fights back": repeated failed logins from the same
+// ── Tarpit — "Sasha resists": repeated failed logins from the same
 // IP get progressively SLOWER responses (0.5s, 1s, 2s, 4s...), wasting a
 // real attacker's time and connection slots instead of just quietly
 // rejecting them. A legitimate, widely-used defensive technique — it
@@ -320,16 +320,54 @@ function mountOffice(app, requireAuth) {
     next();
   });
 
-  // ── General rate limiting — a real person, even clicking around fast,
-  // won't fire 300 requests in a minute. A scanner/bot hammering the
-  // server will. Once an IP crosses that, it's auto-banned — this is real
-  // protection against brute-force and scraping, not just the login form.
+  // ── Circuit breaker — "Sasha holds the server together." If too many
+  // requests are in flight at once (real overload, whether from a DDoS
+  // attempt or just a traffic spike), NEW requests get an instant 503
+  // instead of queuing up and eventually crashing the whole process.
+  // Existing requests still finish normally. This is what keeps the
+  // server from going down entirely — it degrades instead of dying.
+  let inFlightRequests = 0;
+  const MAX_CONCURRENT_REQUESTS = 150;
+  app.use((req, res, next) => {
+    if (inFlightRequests >= MAX_CONCURRENT_REQUESTS) {
+      return res.status(503).send('Server is under heavy load right now — try again in a moment.');
+    }
+    inFlightRequests++;
+    let released = false;
+    const release = () => { if (!released) { released = true; inFlightRequests--; } };
+    res.on('finish', release);
+    res.on('close', release);
+    next();
+  });
+
+  // ── Rate limiting — TWO tiers. Burst detection catches a real flood
+  // (many requests in a few seconds — what a DDoS/scanner actually looks
+  // like). Sustained detection catches slower scraping that stays under
+  // the burst threshold. A real person browsing normally never trips
+  // either one.
   const requestCounts = new Map(); // ip -> { count, windowStart }
+  const burstCounts = new Map(); // ip -> { count, windowStart }
   const RATE_LIMIT_MAX = 300;
   const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+  const BURST_MAX = 40;
+  const BURST_WINDOW_MS = 10 * 1000;
   app.use((req, res, next) => {
     const ip = getClientIp(req);
     const now = Date.now();
+
+    const burst = burstCounts.get(ip);
+    if (!burst || now - burst.windowStart > BURST_WINDOW_MS) {
+      burstCounts.set(ip, { count: 1, windowStart: now });
+    } else {
+      burst.count++;
+      if (burst.count > BURST_MAX) {
+        store.banIp(ip, `Auto-banned: ${burst.count} requests in 10 seconds (burst/DDoS pattern)`).catch(() => {});
+        logThreat(ip, 'burst-flood', `${burst.count} req/10s`);
+        burstCounts.delete(ip);
+        return res.status(429).send('Too many requests.');
+      }
+    }
+
     const rec = requestCounts.get(ip);
     if (!rec || now - rec.windowStart > RATE_LIMIT_WINDOW_MS) {
       requestCounts.set(ip, { count: 1, windowStart: now });
@@ -344,6 +382,16 @@ function mountOffice(app, requireAuth) {
     }
     next();
   });
+
+  // ── Security alerts — real webhook fired on every successful login
+  // (not just failed ones), so you know immediately if someone got in —
+  // even with the right password. Set SECURITY_ALERT_WEBHOOK (a Slack/
+  // Discord/Zapier webhook URL) in Render to receive these.
+  async function sendSecurityAlert(payload) {
+    const url = process.env.SECURITY_ALERT_WEBHOOK;
+    if (!url) return;
+    try { await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }); } catch (e) {}
+  }
 
   // ── Visitor logging — every request, whole server. Fire-and-forget,
   // never blocks or slows down the actual response. ──────────────────
@@ -404,6 +452,17 @@ function mountOffice(app, requireAuth) {
     const token = makeSessionToken(username);
     res.setHeader('Set-Cookie', `manet_session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_MAX_AGE_MS / 1000}; Path=/`);
     res.json({ ok: true });
+    // Fire-and-forget: real alert with real IP/country/device, so you
+    // know the moment anyone (including you) signs in — success is
+    // exactly when you'd want to know, not just failures.
+    lookupCountry(ip).then(country => {
+      sendSecurityAlert({
+        event: 'successful_login', username, ip, country,
+        userAgent: (req.headers['user-agent'] || '').slice(0, 200),
+        time: new Date().toISOString()
+      });
+      logThreat(ip, 'login-success', `${username} signed in from ${country}`);
+    }).catch(() => {});
   });
 
   function requireOfficeApiKey(req, res, next) {
