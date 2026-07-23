@@ -376,6 +376,33 @@ module.exports = function mountOffice(app, requireAuth) {
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
 
+  // ── Real ad performance — Meta Marketing API (Ads Insights). Needs
+  // META_AD_ACCOUNT_ID (found in Meta Ads Manager → Account Overview,
+  // looks like "act_1234567890" or just the number) and an access token
+  // with the ads_read permission — usually the same token you already
+  // set as INSTAGRAM_ACCESS_TOKEN, if that token's app has ads_read too.
+  app.get('/office/api/instagram/ads', requireOfficeApiKey, async (req, res) => {
+    const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+    let acct = process.env.META_AD_ACCOUNT_ID;
+    if (!token) return res.status(503).json({ error: 'INSTAGRAM_ACCESS_TOKEN is not set on the server yet.' });
+    if (!acct) return res.status(503).json({ error: 'META_AD_ACCOUNT_ID is not set on the server yet.' });
+    if (!acct.startsWith('act_')) acct = 'act_' + acct;
+    try {
+      const fields = 'spend,impressions,clicks,ctr,cpc,actions,cost_per_action_type,date_start,date_stop,campaign_name';
+      const [insightsRes, campaignsRes] = await Promise.all([
+        fetch(`https://graph.facebook.com/v21.0/${acct}/insights?level=campaign&date_preset=last_30d&time_increment=1&fields=${fields}&limit=200&access_token=${encodeURIComponent(token)}`),
+        fetch(`https://graph.facebook.com/v21.0/${acct}/campaigns?fields=name,status,effective_status,daily_budget&limit=100&access_token=${encodeURIComponent(token)}`)
+      ]);
+      const insights = await insightsRes.json();
+      const campaigns = await campaignsRes.json();
+      if (!insightsRes.ok) return res.status(insightsRes.status).json({ error: insights.error ? insights.error.message : 'Meta Ads API error', raw: insights });
+      res.json({
+        insights: insights.data || [],
+        campaigns: (campaigns.data || []).filter(c => c.effective_status === 'ACTIVE')
+      });
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+
   // ── Phone data — read-only, for the Phone panel inside the office ──
   // Reads your existing call_logs.json / appointments.json / messages.json
   // directly. Adjust PHONE_LOGS_DIR if your logs live somewhere else
