@@ -393,8 +393,8 @@ function mountOffice(app, requireAuth) {
 
     const { username, password } = req.body || {};
     const realUser = process.env.ADMIN_USERNAME || 'admin';
-    const realPass = process.env.ADMIN_PASSWORD || '';
-    const ok = timingSafeStringEqual(username, realUser) && timingSafeStringEqual(password, realPass) && !!realPass;
+    const realPass = process.env.ADMIN_PASSWORD || 'ChangeThisPassword123!'; // must match requireAuth's own default in index.js
+    const ok = timingSafeStringEqual(username, realUser) && timingSafeStringEqual(password, realPass);
     if (!ok) {
       recordTarpitFailure(ip);
       logThreat(ip, 'login-failed', `Sasha slowed this one down ${delay}ms and logged it — username tried: ${(username || '').slice(0, 40)}`);
