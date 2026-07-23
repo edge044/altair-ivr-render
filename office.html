@@ -10692,7 +10692,13 @@ async function callManetAI(systemPrompt, userPrompt) {
   const useProxy = typeof cloudAvailable === 'function' && cloudAvailable();
   const requestBody = {
     model: 'deepseek-v4-flash',
-    max_tokens: 600,
+    max_tokens: 700,
+    // DeepSeek's thinking mode is ON BY DEFAULT on this endpoint — without
+    // explicitly disabling it, the model spends its token budget on
+    // internal reasoning and can hit max_tokens before ever emitting a
+    // real text block, which looked like "empty response" for chat/job
+    // planning/bug analysis, none of which need step-by-step reasoning.
+    thinking: { type: 'disabled' },
     // DeepSeek's prompt cache is automatic and disk-based on repeated
     // prefixes — no cache_control breakpoint needed like Anthropic's.
     // Sending the same glossary text first (consistent prefix) is still
