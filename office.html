@@ -2058,6 +2058,18 @@ body.mode-incident .search-pill{ box-shadow:0 2px 16px rgba(224,88,79,0.16), 0 0
   </div>
 </div>
 
+<!-- VAULT PANEL — everything stored in the cloud, download-only, no delete -->
+<div class="it-overlay" id="vault-overlay" onmousedown="if(event.target===this) closeVaultPanel();">
+  <div class="it-panel">
+    <div class="it-header">
+      <span class="it-header-title">🔒 Memory Vault</span>
+      <span class="it-header-sub">everything stored in your real cloud database — download only, nothing here can be deleted</span>
+      <div class="it-header-close" onclick="closeVaultPanel()">✕</div>
+    </div>
+    <div class="it-body" id="vault-body-wrap"></div>
+  </div>
+</div>
+
 <!-- ADMIN PANEL -->
 <div class="it-overlay" id="admin-overlay" onmousedown="if(event.target===this) closeAdminPanel();">
   <div class="it-panel">
@@ -2495,7 +2507,7 @@ function setTicketStatus(id, status) {
 //
 // This only talks to a same-origin /api — that's what manet-server serves
 // itself, so there's no CORS setup needed. It does NOT talk to any other
-// host, and never sends your Anthropic AI usage anywhere except your own
+// host, and never sends your DeepSeek AI usage anywhere except your own
 // server.
 // ═══════════════════════════════════════════════════════════════
 const CLOUD_LS_KEY = 'manet_cloud_config_v1';
@@ -2570,8 +2582,8 @@ const cloudSyncStatus = { lastResult: null, lastAttempt: null, lastLatencyMs: nu
 // right after without blocking the page.
 async function hydrateFromCloud() {
   if (!cloudAvailable()) return;
-  const [budget, spend, chat, it] = await Promise.all([
-    cloudLoad('daily_budget'), cloudLoad('ai_spend'), cloudLoad('team_chat'), cloudLoad('it_panel')
+  const [budget, spend, chat, it, projects, tickets] = await Promise.all([
+    cloudLoad('daily_budget'), cloudLoad('ai_spend'), cloudLoad('team_chat'), cloudLoad('it_panel'), cloudLoad('projects'), cloudLoad('tickets')
   ]);
   if (budget && Number.isFinite(budget.dollars)) applyDailyBudget(budget.dollars);
   if (spend && typeof spend === 'object' && Number.isFinite(spend.dollars)) {
@@ -2589,6 +2601,14 @@ async function hydrateFromCloud() {
     if (Array.isArray(it.bugs)) itState.bugs = it.bugs;
     if (Array.isArray(it.general)) itState.general = it.general;
     if (itState.opened) { renderITSidebar(); renderITChannel(); }
+  }
+  if (Array.isArray(projects)) {
+    demoAgencyState.projectsList = projects;
+    if (typeof agencyOSOpen !== 'undefined' && agencyOSOpen && (activeAgencyTab === 'projects' || activeAgencyTab === 'desktop' || activeAgencyTab === 'project-detail')) renderAgencyTab(activeAgencyTab);
+  }
+  if (Array.isArray(tickets)) {
+    ticketState = tickets;
+    if (typeof itState !== 'undefined' && itState.opened && itTopTab === 'ops') renderITBody();
   }
   if (typeof agencyOSOpen !== 'undefined' && agencyOSOpen && activeAgencyTab === 'settings') renderAgencyTab('settings');
 }
@@ -3698,6 +3718,94 @@ function closeAdminPanel() {
   const overlay = document.getElementById('admin-overlay');
   if (overlay) overlay.classList.remove('open');
 }
+
+// ═══════════════════════════════════════════════════════════════
+// VAULT — everything real that's stored in the cloud, in one place.
+// Download-only, on purpose: no delete button exists anywhere in this
+// panel, so nothing here can be wiped by mistake (or by anyone else who
+// gets into the office).
+// ═══════════════════════════════════════════════════════════════
+function openVaultPanel() {
+  const overlay = document.getElementById('vault-overlay');
+  if (!overlay) return;
+  overlay.classList.add('open');
+  loadVaultContents();
+}
+function closeVaultPanel() {
+  const overlay = document.getElementById('vault-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+let vaultLastData = null;
+async function loadVaultContents() {
+  const wrap = document.getElementById('vault-body-wrap');
+  if (!wrap) return;
+  wrap.innerHTML = `<div style="flex:1;overflow-y:auto;padding:22px 26px;background:#fafafa;"><div style="color:#8a8d93;font-size:12.5px;">Loading real cloud data…</div></div>`;
+  if (typeof cloudAvailable !== 'function' || !cloudAvailable()) {
+    wrap.innerHTML = `<div style="flex:1;overflow-y:auto;padding:22px 26px;background:#fafafa;"><div style="color:#8a8d93;font-size:12.5px;">Connect Cloud Sync in Settings first — the vault shows what's really stored in your database, not local browser data.</div></div>`;
+    return;
+  }
+  try {
+    const stateRes = await fetch(`${CLOUD_API_BASE}/state`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+    if (!stateRes.ok) throw new Error('HTTP ' + stateRes.status);
+    const state = await stateRes.json();
+    let crashSummary = [];
+    try {
+      const cs = await fetch(`${CLOUD_API_BASE}/crashes/summary`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+      if (cs.ok) crashSummary = await cs.json();
+    } catch (e) {}
+    vaultLastData = { exportedAt: new Date().toISOString(), state, crashSummary };
+
+    const keys = Object.keys(state);
+    const rows = keys.map(k => {
+      const v = state[k];
+      const size = JSON.stringify(v || {}).length;
+      let summary = '';
+      if (Array.isArray(v)) summary = `${v.length} item${v.length === 1 ? '' : 's'}`;
+      else if (v && typeof v === 'object') summary = `${Object.keys(v).length} field${Object.keys(v).length === 1 ? '' : 's'}`;
+      else summary = String(v);
+      return `<div class="it-stat-row"><span>${escapeHtml(k)}</span><b>${escapeHtml(summary)} · ${formatBytes(size)}</b></div>`;
+    }).join('');
+
+    wrap.innerHTML = `
+      <div style="flex:1;overflow-y:auto;padding:22px 26px;background:#fafafa;">
+        <div class="it-rack-title">STORED IN YOUR REAL DATABASE (${keys.length} keys)</div>
+        <div class="it-ops-card">${rows || '<div style="color:#8a8d93;font-size:12.5px;">Nothing stored yet.</div>'}</div>
+        <div class="it-rack-title" style="margin-top:18px;">CROSS-SESSION CRASH RECORDS</div>
+        <div class="it-ops-card">${crashSummary.length ? crashSummary.map(c => `<div class="it-stat-row"><span>${escapeHtml(c.message || c.fingerprint)}</span><b>${c.totalCount}×</b></div>`).join('') : '<div style="color:#8a8d93;font-size:12.5px;">None recorded.</div>'}</div>
+        <div style="margin-top:20px;display:flex;gap:10px;">
+          <button class="aos-btn primary" onclick="downloadVaultData('json')">⬇ Download all data (.json)</button>
+          <button class="aos-btn" onclick="downloadVaultData('text')">⬇ Download as readable text (.txt)</button>
+        </div>
+        <div style="margin-top:10px;color:#9a9aa2;font-size:11px;">Download-only. There is no delete function in this panel — that's intentional.</div>
+      </div>`;
+  } catch (e) {
+    wrap.innerHTML = `<div style="flex:1;overflow-y:auto;padding:22px 26px;"><div style="color:#b8433a;font-size:12.5px;">Could not load: ${escapeHtml(e.message)}</div></div>`;
+  }
+}
+function downloadVaultData(format) {
+  if (!vaultLastData) return;
+  const dateStr = new Date().toISOString().slice(0, 10);
+  let blob, filename;
+  if (format === 'json') {
+    blob = new Blob([JSON.stringify(vaultLastData, null, 2)], { type: 'application/json' });
+    filename = `manet-vault-export-${dateStr}.json`;
+  } else {
+    const lines = [`MANET Vault export — ${vaultLastData.exportedAt}`, ''];
+    Object.entries(vaultLastData.state).forEach(([k, v]) => {
+      lines.push(`=== ${k} ===`);
+      lines.push(JSON.stringify(v, null, 2));
+      lines.push('');
+    });
+    blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    filename = `manet-vault-export-${dateStr}.txt`;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 function renderAdminTopTabs() {
   const el = document.getElementById('admin-toptabs');
   if (!el) return;
@@ -4755,13 +4863,13 @@ const AGENTS = {
   // Alex — Instagram / Social. Standing near the ground-floor group, same
   // pattern as Leo/Sasha (no chair needed) so this doesn't require new
   // desk furniture to be drawn.
-  teal:   { id:'teal',   name:'Alex',   role:'Instagram / Social',             color:'#5eead4', hColor:'#ccfbf1', x:970,  y:500, homeX:970,  homeY:500, status:'thinking', task:'Watching Instagram for new messages', progress:20,  gender:'girl', hair:1, floor:'ground' },
+  teal:   { id:'teal',   name:'Alex',   role:'Instagram / Social',             color:'#5eead4', hColor:'#ccfbf1', x:1940, y:472, homeX:1940, homeY:472, status:'thinking', task:'Watching Instagram for new messages', progress:20,  gender:'girl', hair:1, floor:'second' },
 };
 
 const agentPos = {};
 const agentAnim = {};
-const agentSitting = { blue: true, green: true, red: true, purple: true };
-const HOME_SITTING = new Set(['blue', 'green', 'red', 'purple']);
+const agentSitting = { blue: true, green: true, red: true, purple: true, teal: true };
+const HOME_SITTING = new Set(['blue', 'green', 'red', 'purple', 'teal']);
 const agentSitProgress = { blue: 0, green: 0 };
 Object.keys(AGENTS).forEach(id => {
   const a = AGENTS[id];
@@ -5235,7 +5343,8 @@ function drawWhiteboardOnWall(g) {
 }
 
 function drawVault(g) {
-  const vg = el('g', {filter:'url(#furn-shadow)'});
+  const vg = el('g', {filter:'url(#furn-shadow)', style:'cursor:pointer;'});
+  vg.addEventListener('click', () => openVaultPanel());
   vg.appendChild(poly('130,310 190,340 217,328 157,298','#d8dce4','#b8bcc8','0.5'));
   vg.appendChild(poly('130,310 190,340 190,430 130,400','url(#vaultG)','#8898a8','0.8'));
   vg.appendChild(poly('190,340 217,328 217,418 190,430','#8898a8','#7888a0','0.8'));
@@ -10340,7 +10449,8 @@ function escapeHtml(str) {
 // ═══════════════════════════════════
 // REAL AI CALL — attempts a genuine model response instead of a scripted
 // one. This only succeeds in environments that proxy/authenticate calls to
-// api.anthropic.com (e.g. Claude.ai's own artifact preview). Opened as a
+// DeepSeek's API (e.g. Claude.ai's own artifact preview, or your own real
+// backend + DEEPSEEK_API_KEY). Opened as a
 // plain downloaded HTML file, or self-hosted without your own backend +
 // API key, this will fail — every caller below has an honest, clearly
 // labeled fallback for that case, never a fake "AI" answer.
@@ -10358,10 +10468,10 @@ function escapeHtml(str) {
 // localStorage — for a real multi-user product, the same counter/check
 // needs to live server-side, where the client can't touch it.
 // ═══════════════════════════════════
-const CLAUDE_PRICE_PER_M_INPUT = 3;        // USD per 1M input tokens (approximate — match to your real plan)
-const CLAUDE_PRICE_PER_M_OUTPUT = 15;      // USD per 1M output tokens
-const CLAUDE_PRICE_PER_M_CACHE_WRITE = 3.75; // Anthropic's real published rate: ~1.25x base input to write the cache
-const CLAUDE_PRICE_PER_M_CACHE_READ = 0.3;   // ~0.1x base input to read from cache — this is the real saving
+const CLAUDE_PRICE_PER_M_INPUT = 0.14;        // DeepSeek v4-flash — real published rate, cache miss
+const CLAUDE_PRICE_PER_M_OUTPUT = 0.28;        // DeepSeek v4-flash — real published rate
+const CLAUDE_PRICE_PER_M_CACHE_WRITE = 0.14;   // DeepSeek's caching is automatic (disk-based), not an explicit paid "write" step like Anthropic's — cache writes cost the same as a normal cache-miss input
+const CLAUDE_PRICE_PER_M_CACHE_READ = 0.0028;  // DeepSeek v4-flash real cache-hit rate — ~98% cheaper than cache-miss, applied automatically
 const AI_SPEND_LS_KEY = 'manet_ai_token_spend_v1';
 
 // ═══════════════════════════════════
@@ -10431,22 +10541,23 @@ async function callManetAI(systemPrompt, userPrompt) {
 
   // If Cloud Sync is configured, route through your own server's real
   // proxy (/office/api/ai or /api/ai) — this is what actually works once
-  // deployed, since a browser calling api.anthropic.com directly has no
-  // key and gets blocked by CORS. Falls back to the direct call otherwise
-  // (only succeeds in special environments like Claude.ai's own preview).
+  // deployed, since a browser calling DeepSeek directly has no key and
+  // gets blocked by CORS. Falls back to the direct call otherwise (only
+  // succeeds in special environments like Claude.ai's own preview).
   const useProxy = typeof cloudAvailable === 'function' && cloudAvailable();
   const requestBody = {
-    model: 'claude-sonnet-4-6',
+    model: 'deepseek-v4-flash',
     max_tokens: 600,
-    system: [
-      { type: 'text', text: MANET_CONTEXT_GLOSSARY, cache_control: { type: 'ephemeral' } },
-      { type: 'text', text: systemPrompt }
-    ],
+    // DeepSeek's prompt cache is automatic and disk-based on repeated
+    // prefixes — no cache_control breakpoint needed like Anthropic's.
+    // Sending the same glossary text first (consistent prefix) is still
+    // what makes it eligible for a cache hit.
+    system: `${MANET_CONTEXT_GLOSSARY}\n\n${systemPrompt}`,
     messages: [{ role: 'user', content: userPrompt }]
   };
   try {
     const response = await fetch(
-      useProxy ? `${CLOUD_API_BASE}/ai` : 'https://api.anthropic.com/v1/messages',
+      useProxy ? `${CLOUD_API_BASE}/ai` : 'https://api.deepseek.com/anthropic/v1/messages',
       {
         method: 'POST',
         headers: useProxy
@@ -10461,12 +10572,15 @@ async function callManetAI(systemPrompt, userPrompt) {
     if (!text) throw new Error('empty response');
 
     // Real usage from the real response — including real cache read/write
-    // token counts, so the cost shown is what actually got billed.
+    // token counts, so the cost shown is what actually got billed. Reads
+    // both Anthropic-style and OpenAI-style field names defensively,
+    // since DeepSeek's Anthropic-compat layer's exact field naming for
+    // cache stats isn't guaranteed identical to real Anthropic.
     const usage = data.usage || {};
     const inTok = usage.input_tokens || 0;
     const outTok = usage.output_tokens || 0;
     const cacheWriteTok = usage.cache_creation_input_tokens || 0;
-    const cacheReadTok = usage.cache_read_input_tokens || 0;
+    const cacheReadTok = usage.cache_read_input_tokens || usage.prompt_cache_hit_tokens || 0;
     const cost = (inTok / 1e6) * CLAUDE_PRICE_PER_M_INPUT
       + (outTok / 1e6) * CLAUDE_PRICE_PER_M_OUTPUT
       + (cacheWriteTok / 1e6) * CLAUDE_PRICE_PER_M_CACHE_WRITE
@@ -10515,7 +10629,11 @@ function createProject(text, importance, budgetVal) {
     analyses: { competitors: {} }
   };
   s.projectsList.unshift(project);
+  syncProjectsToCloud();
   return project;
+}
+function syncProjectsToCloud() {
+  if (typeof cloudSave === 'function') cloudSave('projects', demoAgencyState.projectsList);
 }
 function activeProjects() { return demoAgencyState.projectsList.filter(p => p.status === 'active'); }
 function findProject(id) { return demoAgencyState.projectsList.find(p => p.id === id); }
@@ -10632,6 +10750,7 @@ async function sendProjectChatMessage(id) {
   const replyText = result.ok ? result.text : (result.budgetBlocked ? `(offline — daily AI budget used up) Got it, noted: "${text}". I'll factor that in.` : `(offline — live AI unreachable) Got it, noted: "${text}". I'll factor that in.`);
   p.chatHistory.push({ from: 'mila', text: replyText, time: aosNowTime() });
   p.awaitingOwner = true;
+  syncProjectsToCloud();
   if (openProjectId === id) renderAgencyTab('project-detail');
 }
 function closeProject(id) {
@@ -10641,6 +10760,7 @@ function closeProject(id) {
   p.closedAt = aosNowTime();
   p.awaitingOwner = false;
   addEventLogEntry('Owner', 'Project closed', `"${p.title.slice(0, 60)}" marked done.`, 'TASK', p.id);
+  syncProjectsToCloud();
   renderAgencyTab('project-detail');
 }
 function resumeProject(id) {
@@ -10650,6 +10770,7 @@ function resumeProject(id) {
   p.closedAt = null;
   demoAgencyState.projectsList = [p, ...demoAgencyState.projectsList.filter(x => x.id !== id)];
   addEventLogEntry('Owner', 'Project resumed', `"${p.title.slice(0, 60)}" reopened.`, 'TASK', p.id);
+  syncProjectsToCloud();
   renderAgencyTab('project-detail');
 }
 
@@ -10749,7 +10870,7 @@ async function askMilaAboutJob() {
     project.awaitingOwner = true;
     html = `
       <div class="aos-card" style="border-left:3px solid #e0a944;background:#fdf7ec;font-size:12.3px;line-height:1.55;">
-        <b>⚠ Live AI isn't reachable from this file right now</b> (${escapeHtml(result.error)}). Real AI answers need either Claude.ai's own environment or your own backend + API key wired in — a plain downloaded/self-hosted HTML file can't authenticate this call on its own.
+        <b>⚠ Live AI isn't reachable from this file right now</b> (${escapeHtml(result.error)}). Real AI answers need either Claude.ai's own environment or your own backend + DEEPSEEK_API_KEY wired in — a plain downloaded/self-hosted HTML file can't authenticate this call on its own.
         <br><br>
         <b>Rule-based estimate instead:</b> at $${budgetVal}/day, the team that fits is <b>${kept.join(', ') || 'no one'}</b>${cut.length ? ` — paused: ${cut.join(', ')}` : ''}. This is arithmetic from day rates, not a real answer about this specific job — treat it as a placeholder until real AI is connected.
       </div>`;
@@ -14262,8 +14383,8 @@ function renderSettings() {
         <div class="aos-settings-row"><span>Real tokens used today</span><b>${(aiSpendToday.inputTokens+aiSpendToday.outputTokens).toLocaleString()} (${aiSpendToday.inputTokens.toLocaleString()} in / ${aiSpendToday.outputTokens.toLocaleString()} out)</b></div>
         <div class="aos-settings-row"><span>Prompt cache — written / read</span><b>${(aiSpendToday.cacheWriteTokens||0).toLocaleString()} / ${(aiSpendToday.cacheReadTokens||0).toLocaleString()} tokens</b></div>
         <div class="aos-settings-row" style="border-bottom:none;"><span>Real AI calls made today</span><b>${aiSpendToday.calls}</b></div>
-        <div class="aos-card-note" style="padding:8px 2px 0;">Every real call sends a shared context block (who's on the team, how budget/AFK works) as a <b>cached</b> prompt — Anthropic bills cache reads at ~10% of normal input price, so repeated calls in the same session cost real, measurably less than if that context were re-sent fresh every time.</div>
-        <div class="aos-card-note" style="padding:6px 2px 0;">Priced at $${CLAUDE_PRICE_PER_M_INPUT}/M input, $${CLAUDE_PRICE_PER_M_OUTPUT}/M output, $${CLAUDE_PRICE_PER_M_CACHE_WRITE}/M cache write, $${CLAUDE_PRICE_PER_M_CACHE_READ}/M cache read. Once total spend hits the daily budget above, real AI calls are refused before they're even sent — everyone falls back to the offline estimate for the rest of the day.</div>
+        <div class="aos-card-note" style="padding:8px 2px 0;">Every real call sends the same shared context block (who's on the team, how budget/AFK works) first — DeepSeek's prompt cache is automatic and disk-based on repeated prefixes, billing cache hits at roughly 2% of the normal input price, so repeated calls in the same session cost real, measurably less than if that context were re-sent fresh every time.</div>
+        <div class="aos-card-note" style="padding:6px 2px 0;">Priced at $${CLAUDE_PRICE_PER_M_INPUT}/M input, $${CLAUDE_PRICE_PER_M_OUTPUT}/M output, $${CLAUDE_PRICE_PER_M_CACHE_READ}/M cache hit (DeepSeek v4-flash real rates). Once total spend hits the daily budget above, real AI calls are refused before they're even sent — everyone falls back to the offline estimate for the rest of the day.</div>
         <div class="aos-card-note" style="padding:6px 2px 0;color:#b8433a;">Honesty check: this counter lives in your browser (localStorage). It stops <i>this app's own</i> calls once the budget is hit — it is not a secure limit against someone bypassing it via devtools. A real production limit needs the same check done server-side.</div>
       </div>
     </div>

@@ -8,7 +8,7 @@
 //   mountOffice(app, requireAuth);
 //
 // Env vars needed (separate from phone system's TWILIO_*/OPENAI_API_KEY):
-//   ANTHROPIC_API_KEY   — real AI in the office app
+//   DEEPSEEK_API_KEY    — real AI in the office app (via DeepSeek's real Anthropic-compatible endpoint)
 //   OFFICE_API_KEY      — secret protecting /office/api/*
 //   DATABASE_URL        — REAL PERSISTENCE. Without this, data lives in a
 //                         JSON file that Render WIPES on every deploy —
@@ -272,18 +272,21 @@ module.exports = function mountOffice(app, requireAuth) {
   });
   app.get('/office/api/crashes/summary', requireOfficeApiKey, async (req, res) => { try { res.json(await store.getCrashSummary()); } catch (e) { res.status(500).json({ error: e.message }); } });
 
-  // ── Real AI proxy ────────────────────────────────────────────────
+  // ── Real AI proxy — now DeepSeek, via its Anthropic-compatible
+  // endpoint. Same Messages API request/response shape as before, so the
+  // client (office.html) needed zero changes to its request format —
+  // only the base URL, key, and model name changed. ───────────────────
   app.post('/office/api/ai', requireOfficeApiKey, async (req, res) => {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not set on the server yet.' });
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) return res.status(503).json({ error: 'DEEPSEEK_API_KEY is not set on the server yet.' });
     try {
-      const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      const dsRes = await fetch('https://api.deepseek.com/anthropic/v1/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: JSON.stringify(req.body)
       });
-      const data = await anthropicRes.json();
-      res.status(anthropicRes.status).json(data);
+      const data = await dsRes.json();
+      res.status(dsRes.status).json(data);
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
 
