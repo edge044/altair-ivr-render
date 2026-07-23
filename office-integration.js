@@ -19,9 +19,77 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
-module.exports = function mountOffice(app, requireAuth) {
-  const crypto = require('crypto');
+// ── Session cookies — module-level so index.js's requireAuth can also
+// check them (via the exported hasValidSession), not just routes inside
+// this file. This is what lets the pretty /login form actually grant
+// access to /admin, /office, everywhere — not just /choose.
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+if (!process.env.SESSION_SECRET) console.warn('⚠ SESSION_SECRET not set — using a random per-boot secret. Sessions will not survive a redeploy/restart until you set SESSION_SECRET.');
+const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+function timingSafeStringEqual(a, b) {
+  const bufA = Buffer.from(String(a || ''));
+  const bufB = Buffer.from(String(b || ''));
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+function makeSessionToken(username) {
+  const expiry = Date.now() + SESSION_MAX_AGE_MS;
+  const payload = `${username}.${expiry}`;
+  const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}.${sig}`).toString('base64url');
+}
+function verifySessionToken(token) {
+  try {
+    const decoded = Buffer.from(token, 'base64url').toString('utf8');
+    const parts = decoded.split('.');
+    if (parts.length !== 3) return null;
+    const [username, expiry, sig] = parts;
+    const payload = `${username}.${expiry}`;
+    const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
+    if (!timingSafeStringEqual(sig, expectedSig)) return null;
+    if (Date.now() > parseInt(expiry, 10)) return null;
+    return username;
+  } catch (e) { return null; }
+}
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  const out = {};
+  header.split(';').forEach(pair => {
+    const idx = pair.indexOf('=');
+    if (idx === -1) return;
+    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
+  });
+  return out;
+}
+function hasValidSession(req) {
+  const cookies = parseCookies(req);
+  if (!cookies.manet_session) return false;
+  return !!verifySessionToken(cookies.manet_session);
+}
+
+// ── Tarpit — "Sasha fights back": repeated failed logins from the same
+// IP get progressively SLOWER responses (0.5s, 1s, 2s, 4s...), wasting a
+// real attacker's time and connection slots instead of just quietly
+// rejecting them. A legitimate, widely-used defensive technique — it
+// does not send anything to the attacker's system, it only makes THIS
+// server slower to respond to THEM specifically.
+const tarpitFailures = new Map(); // ip -> count
+function tarpitDelay(ip) {
+  const n = tarpitFailures.get(ip) || 0;
+  return Math.min(8000, 500 * Math.pow(2, n));
+}
+function recordTarpitFailure(ip) {
+  tarpitFailures.set(ip, (tarpitFailures.get(ip) || 0) + 1);
+  setTimeout(() => tarpitFailures.delete(ip), 15 * 60 * 1000); // forgive after 15 quiet minutes
+}
+
+function mountOffice(app, requireAuth) {
   app.set('trust proxy', true); // so req.ip is the REAL visitor IP behind Render's proxy, not Render's own
 
   // ── Storage layer — Postgres if DATABASE_URL is set (survives every
@@ -316,16 +384,28 @@ module.exports = function mountOffice(app, requireAuth) {
   });
 
   // ── Auth for the office's own JSON API — header-based key ──────────
-  function timingSafeStringEqual(a, b) {
-    const bufA = Buffer.from(String(a || ''));
-    const bufB = Buffer.from(String(b || ''));
-    if (bufA.length !== bufB.length) {
-      // Still run a comparison of equal length to avoid leaking length via timing.
-      crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
-      return false;
+  // ── Session login — validates against the SAME credentials requireAuth
+  // uses, sets a real signed cookie. Tarpitted against brute force.
+  app.post('/office/api/session-login', async (req, res) => {
+    const ip = getClientIp(req);
+    const delay = tarpitDelay(ip);
+    if (delay > 0) await new Promise(r => setTimeout(r, delay));
+
+    const { username, password } = req.body || {};
+    const realUser = process.env.ADMIN_USERNAME || 'admin';
+    const realPass = process.env.ADMIN_PASSWORD || '';
+    const ok = timingSafeStringEqual(username, realUser) && timingSafeStringEqual(password, realPass) && !!realPass;
+    if (!ok) {
+      recordTarpitFailure(ip);
+      logThreat(ip, 'login-failed', `Sasha slowed this one down ${delay}ms and logged it — username tried: ${(username || '').slice(0, 40)}`);
+      return res.status(401).json({ error: 'Invalid username or password.' });
     }
-    return crypto.timingSafeEqual(bufA, bufB);
-  }
+    tarpitFailures.delete(ip);
+    const token = makeSessionToken(username);
+    res.setHeader('Set-Cookie', `manet_session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_MAX_AGE_MS / 1000}; Path=/`);
+    res.json({ ok: true });
+  });
+
   function requireOfficeApiKey(req, res, next) {
     const key = process.env.OFFICE_API_KEY;
     if (!key) return res.status(503).json({ error: 'OFFICE_API_KEY is not set on the server yet.' });
@@ -547,4 +627,7 @@ module.exports = function mountOffice(app, requireAuth) {
   });
 
   console.log(`🏢 Office app mounted at /office (storage: ${store.kind}${store.kind === 'json-file' ? ' — NOT persistent, add DATABASE_URL' : ''})`);
-};
+}
+
+module.exports = mountOffice;
+module.exports.hasValidSession = hasValidSession;
