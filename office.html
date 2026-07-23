@@ -4120,7 +4120,16 @@ function renderITOpsTab() {
 
   return `
     <div class="it-ops-wrap">
-      <div class="it-rack-title">SERVER — real, from your actual deployment</div>
+      <div class="it-rack-title">HALT STATUS — Sasha stops all new work on real critical issues</div>
+      <div class="it-ops-card" style="${demoAgencyState.officeHalted ? 'border-left:3px solid #f26363;' : 'border-left:3px solid #6fcfa8;'}">
+        ${demoAgencyState.officeHalted
+          ? `<div style="font-weight:700;color:#f26363;margin-bottom:6px;">🛑 HALTED: ${escapeHtml(demoAgencyState.haltReason || '')}</div>
+             <div style="font-size:11.5px;color:#8a8d93;margin-bottom:10px;">${escapeHtml(demoAgencyState.haltDetail || '')} — since ${escapeHtml(demoAgencyState.haltAt || '')}</div>
+             <button class="it-send-btn" onclick="resolveHalt()">✅ Mark resolved — resume work</button>`
+          : `<div style="color:#6fcfa8;font-size:12px;">🟢 All clear — no critical issues detected. Real checks running: crash-storm detection, AI failure streaks, health ping every 10s.</div>`}
+      </div>
+
+      <div class="it-rack-title" style="margin-top:22px;">SERVER — real, from your actual deployment</div>
       <div class="it-ops-card" id="it-server-info-card"><div style="color:#6d6f78;font-size:11.5px;">Loading real server info…</div></div>
 
       <div class="it-rack-title" style="margin-top:22px;">TICKETS — real bug lifecycle (${openTickets.length} open, ${resolvedCount} resolved)</div>
@@ -4240,6 +4249,80 @@ function sendITMessage() {
 // immediate flush for the first occurrence and after any real gap, at most
 // one flush per fingerprint per 1.5s during a sustained storm, with a
 // guaranteed trailing flush so the final count is never lost.
+// ═══════════════════════════════════════════════════════════════
+// SASHA'S HALT SYSTEM — real critical-issue detection, not decoration.
+// When something genuinely serious happens (crash storm, repeated real
+// AI failures, the server itself failing health checks), Sasha halts all
+// new work office-wide until the owner reviews and resolves it. Nothing
+// gets deleted — everything just stays exactly as it is until resolved,
+// then picks back up.
+// ═══════════════════════════════════════════════════════════════
+let sashaAiFailureStreak = 0;
+let sashaHealthPingFailStreak = 0;
+const sashaCrashTimestamps = [];
+
+function sashaCheckForCritical(reason, detail) {
+  if (demoAgencyState.officeHalted) return; // already halted, don't spam
+  demoAgencyState.officeHalted = true;
+  demoAgencyState.haltReason = reason;
+  demoAgencyState.haltDetail = detail;
+  demoAgencyState.haltAt = aosNowTime();
+  addEventLogEntry('Sasha', '🛑 Office halted', `${reason} — ${detail}`, 'INCIDENT', null);
+  try { if (typeof playAlertSound === 'function') playAlertSound(); } catch (e) {}
+  try {
+    if (typeof notifyConfig !== 'undefined' && notifyConfig.browserNotif && 'Notification' in window && Notification.permission === 'granted') {
+      new Notification('🛑 Sasha halted the office', { body: reason });
+    }
+  } catch (e) {}
+  try { if (typeof sendWebhook === 'function') sendWebhook({ event: 'office_halted', reason, detail, time: new Date().toISOString() }); } catch (e) {}
+  if (typeof cloudSave === 'function') cloudSave('halt_state', { halted: true, reason, detail, at: demoAgencyState.haltAt });
+  renderHaltBanner();
+}
+function resolveHalt() {
+  demoAgencyState.officeHalted = false;
+  demoAgencyState.haltReason = null;
+  demoAgencyState.haltDetail = null;
+  sashaAiFailureStreak = 0;
+  sashaHealthPingFailStreak = 0;
+  sashaCrashTimestamps.length = 0;
+  addEventLogEntry('Owner', 'Halt resolved', 'Work resumed — nothing was lost, everything picks back up where it left off.', 'INCIDENT', null);
+  if (typeof cloudSave === 'function') cloudSave('halt_state', { halted: false });
+  renderHaltBanner();
+  if (typeof agencyOSOpen !== 'undefined' && agencyOSOpen) renderAgencyTab(activeAgencyTab);
+}
+function renderHaltBanner() {
+  const existing = document.getElementById('sasha-halt-banner');
+  if (existing) existing.remove();
+  if (!demoAgencyState.officeHalted) return;
+  const banner = document.createElement('div');
+  banner.id = 'sasha-halt-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#b8433a;color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:12.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,0.3);flex-wrap:wrap;text-align:center;';
+  banner.innerHTML = `🛑 Sasha halted the office: ${escapeHtml(demoAgencyState.haltReason || '')} — ${escapeHtml(demoAgencyState.haltDetail || '')} <button onclick="resolveHalt()" style="background:#fff;color:#b8433a;border:none;padding:6px 14px;border-radius:5px;font-weight:700;cursor:pointer;">✅ Resolved</button>`;
+  document.body.appendChild(banner);
+}
+function sashaRecordCrashForHaltCheck() {
+  const now = Date.now();
+  sashaCrashTimestamps.push(now);
+  while (sashaCrashTimestamps.length && now - sashaCrashTimestamps[0] > 5 * 60 * 1000) sashaCrashTimestamps.shift();
+  if (sashaCrashTimestamps.length >= 3) sashaCheckForCritical('Crash storm detected', `${sashaCrashTimestamps.length} real unique crashes in the last 5 minutes`);
+}
+// Real health ping every 10s — a real fetch to your own real server. If it
+// fails, a real ticket appears immediately, before anyone notices work
+// has stalled.
+async function sashaHealthPing() {
+  try {
+    const res = await fetch('/health', { cache: 'no-store' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    sashaHealthPingFailStreak = 0;
+  } catch (e) {
+    sashaHealthPingFailStreak++;
+    if (typeof captureCrash === 'function') captureCrash('Health check failed', `Server health ping failed: ${e.message}`, '', 'sashaHealthPing');
+    if (sashaHealthPingFailStreak >= 3) sashaCheckForCritical('Server health check failing', `${sashaHealthPingFailStreak} consecutive failed health pings`);
+  }
+}
+setInterval(sashaHealthPing, 10000);
+setTimeout(() => { if (typeof demoAgencyState !== 'undefined' && demoAgencyState.officeHalted) renderHaltBanner(); }, 500);
+
 const _crashThrottle = {};
 const CRASH_THROTTLE_MS = 1500;
 function captureCrash(kind, message, stack, location) {
@@ -4291,6 +4374,7 @@ function flushCrashPersist(fp, kind, message, stack, location, ticket, isNewTick
   const text = `${kind}: ${message}`;
   pushITMessage('crashes', 'system', text, { kind: 'crash', detail: [location, stack].filter(Boolean).join('\n').slice(0, 1200), fingerprint: fp, count: 1, ticketId: ticket.id });
   analyzeCrashWithSasha(kind, message, stack, location, ticket.id);
+  if (typeof sashaRecordCrashForHaltCheck === 'function') sashaRecordCrashForHaltCheck();
 }
 async function analyzeCrashWithSasha(kind, message, stack, location, ticketId) {
   const system = `You are Sasha. A real JavaScript error just happened in the browser. In under 90 words: say what likely caused it, and give one concrete, specific suggested fix. Be technical, not generic — no "check your code" filler.`;
@@ -10669,7 +10753,22 @@ function saveAiSpend() {
 }
 let aiSpendToday = loadAiSpend();
 
-async function callManetAI(systemPrompt, userPrompt) {
+let lastAiCallAt = 0;
+const AI_CALL_MIN_GAP_MS = 200;
+async function callManetAI(systemPrompt, userPrompt, opts) {
+  opts = opts || {};
+  // Sasha's halt — when tripped, all real work stops except the halt-
+  // resolution flow itself (opts.haltExempt), until the owner resolves it.
+  if (demoAgencyState.officeHalted && !opts.haltExempt) {
+    return { ok: false, halted: true, error: `Office halted by Sasha: ${demoAgencyState.haltReason || 'critical issue detected'}. Resolve it in the IT panel to continue.` };
+  }
+  // Real rate limit — 200ms minimum gap between calls, so a burst of
+  // triggers (e.g. several project actions at once) can't spike spend or
+  // hammer the API in a way that could trip real provider rate limits.
+  const sinceLast = Date.now() - lastAiCallAt;
+  if (sinceLast < AI_CALL_MIN_GAP_MS) await new Promise(r => setTimeout(r, AI_CALL_MIN_GAP_MS - sinceLast));
+  lastAiCallAt = Date.now();
+
   // Reset the running total if the day has rolled over since it was loaded.
   if (aiSpendToday._loadedDay !== todayDateStr()) {
     aiSpendToday = loadAiSpend();
@@ -10744,9 +10843,12 @@ async function callManetAI(systemPrompt, userPrompt) {
     aiSpendToday.cacheReadTokens = (aiSpendToday.cacheReadTokens || 0) + cacheReadTok;
     aiSpendToday.calls += 1;
     saveAiSpend();
+    sashaAiFailureStreak = 0;
 
     return { ok: true, text, tokensUsed: inTok + outTok + cacheWriteTok + cacheReadTok, cost, cacheHit: cacheReadTok > 0 };
   } catch (e) {
+    sashaAiFailureStreak++;
+    if (sashaAiFailureStreak >= 5) sashaCheckForCritical('Real AI calls failing repeatedly', `${sashaAiFailureStreak} consecutive real AI call failures — last error: ${e && e.message ? e.message : String(e)}`);
     return { ok: false, error: e && e.message ? e.message : String(e) };
   }
 }
@@ -10972,7 +11074,7 @@ async function sendProjectChatMessage(id) {
 
   const system = `You are Mila. You have full real context on this specific project below — team assigned, what's been said so far. Answer EXACTLY what the owner just asked, specifically and concretely — do not recap team/budget status unless they actually asked about that. If they ask what you or the team is doing right now, describe the actual current step of the real work (referencing the real task list below), not a generic status update. You do not have live web browsing — never claim to have already fetched external data you don't have; describe your approach/plan specifically instead. If they told you to do something, confirm you're on it and say the concrete next step. Under 100 words. Only end with a question mark if you genuinely need their input to proceed — most updates don't need one.`;
   const user = `${projectContextForAI(p)}\n\nOwner just said: "${text}"`;
-  const result = await callManetAI(system, user);
+  const result = await callManetAI(system, user, { haltExempt: true });
   if (result.ok) addEventLogEntry('Mila', 'Real AI call completed', `${result.tokensUsed} tokens · $${result.cost.toFixed(4)} · ${result.cacheHit ? 'cache hit' : 'fresh'}`, 'TASK', p.id);
   let replyText;
   if (result.ok) {
@@ -11053,6 +11155,11 @@ async function askMilaAboutJob() {
   const budgetEl = document.getElementById('job-input-budget');
   const teamSizeEl = document.getElementById('job-input-teamsize');
   if (!textEl || !textEl.value.trim()) return;
+  if (demoAgencyState.officeHalted) {
+    const respEl = document.getElementById('job-mila-response');
+    if (respEl) respEl.innerHTML = `<div class="aos-card" style="border-left:3px solid #b8433a;background:#fdf2f1;font-size:12.3px;">🛑 Sasha halted the office: ${escapeHtml(demoAgencyState.haltReason || '')}. Resolve it first (banner at the top, or IT panel → Ops) before starting new work.</div>`;
+    return;
+  }
   const text = textEl.value.trim();
   const importance = impEl ? impEl.value : 'Normal';
   const budgetVal = Math.round(Number(budgetEl ? budgetEl.value : DEFAULT_DAILY_BUDGET)) || DEFAULT_DAILY_BUDGET;
@@ -11260,6 +11367,7 @@ function generateAgentChatter(project, keptIds) {
 async function realAgentCheckIn(projectId) {
   const p = findProject(projectId);
   if (!p) return;
+  if (demoAgencyState.officeHalted) { alert(`🛑 Sasha halted the office: ${demoAgencyState.haltReason || 'critical issue'}. Resolve it first.`); return; }
   const teamIds = p.distribution.map(d => d.agentId).filter(id => id !== 'blue');
   if (!teamIds.length) { alert('No teammates assigned to this project yet.'); return; }
 
@@ -14623,6 +14731,7 @@ function svgReportLineChart(points, opts) {
 async function generateProjectReport(projectId) {
   const p = findProject(projectId);
   if (!p) return;
+  if (demoAgencyState.officeHalted) return; // silent no-op for auto-trigger; manual button click is disabled by CSS/UI state too
   const btn = document.getElementById('gen-report-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
 
