@@ -215,6 +215,7 @@ ${SHARED_STYLE}
       <div class="grid-cell"><span class="gi">🔒</span>Actually secured</div>
     </div>
   </div>
+  <div style="background:#ffffff;">
   <div class="wrap">
     <div class="hero-row" style="padding-top:70px;">
       <div class="hero-left">
@@ -232,6 +233,7 @@ ${SHARED_STYLE}
       </div>
     </div>
   </div>
+  </div>
   <footer>
     <div class="foot-brand">Manet Creative</div>
     <div>Built to run itself, watched by someone who still cares.</div>
@@ -242,6 +244,7 @@ ${SHARED_STYLE}
 });
 
 app.get('/login', (req, res) => {
+  try { if (typeof hasValidSession === 'function' && hasValidSession(req)) return res.redirect('/choose'); } catch (e) {}
   res.send(\`<!DOCTYPE html>
 <html>
 <head>

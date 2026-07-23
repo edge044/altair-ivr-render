@@ -17,7 +17,7 @@ if (!fs.existsSync(INDEX_PATH)) {
 
 let code = fs.readFileSync(INDEX_PATH, 'utf8');
 
-if (code.includes('hasValidSession(req)')) {
+if (code.includes("const { hasValidSession } = require('./office-integration');")) {
   console.log('… session-cookie check already added to requireAuth, nothing to do.');
   process.exit(0);
 }

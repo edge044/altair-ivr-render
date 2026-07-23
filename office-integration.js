@@ -27,7 +27,7 @@ const crypto = require('crypto');
 // access to /admin, /office, everywhere — not just /choose.
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 if (!process.env.SESSION_SECRET) console.warn('⚠ SESSION_SECRET not set — using a random per-boot secret. Sessions will not survive a redeploy/restart until you set SESSION_SECRET.');
-const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
+const SESSION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days — "remember this device"
 
 function timingSafeStringEqual(a, b) {
   const bufA = Buffer.from(String(a || ''));

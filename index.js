@@ -2126,6 +2126,7 @@ app.<span class="f2">use</span>((req, res, next) => {
       <div class="grid-cell"><span class="gi">🔒</span>Actually secured</div>
     </div>
   </div>
+  <div style="background:#ffffff;">
   <div class="wrap">
     <div class="hero-row" style="padding-top:70px;">
       <div class="hero-left">
@@ -2171,6 +2172,7 @@ app.<span class="f2">use</span>((req, res, next) => {
       </div>
     </div>
   </div>
+  </div>
   <footer>
     <div class="foot-brand">Manet Creative</div>
     <div>Built to run itself, watched by someone who still cares.</div>
@@ -2181,6 +2183,7 @@ app.<span class="f2">use</span>((req, res, next) => {
 });
 
 app.get('/login', (req, res) => {
+  try { if (typeof hasValidSession === 'function' && hasValidSession(req)) return res.redirect('/choose'); } catch (e) {}
   res.send(`<!DOCTYPE html>
 <html>
 <head>
