@@ -1979,7 +1979,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send(`<!-- MANET_LANDING_V1 -->
+  res.send(`<!-- MANET_LANDING_V2 -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -1988,45 +1988,55 @@ app.get('/', (req, res) => {
 <title>Manet Creative — AI-run creative studio</title>
 <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fafaf8; color: #161616; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff; color: #14140f; -webkit-font-smoothing: antialiased; }
       a { color: inherit; }
-      .topbar { background: #161616; color: #fff; text-align: center; padding: 9px 16px; font-size: 0.78rem; letter-spacing: 0.2px; }
-      .topbar .dot { color: #ff8a5c; margin-right: 6px; }
-      .topbar a { color: #ff8a5c; text-decoration: none; font-weight: 600; margin-left: 6px; }
-      .topbar a:hover { text-decoration: underline; }
-      .wrap { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
-      .hero-row { display: flex; align-items: flex-start; gap: 56px; padding: 64px 0 40px; flex-wrap: wrap; }
-      .hero-left { flex: 1 1 420px; min-width: 320px; }
-      .hero-right { flex: 1 1 420px; min-width: 320px; }
-      h1.headline { font-size: 2.6rem; line-height: 1.12; font-weight: 700; letter-spacing: -0.5px; margin: 0 0 20px; }
-      .sub { font-size: 1.02rem; color: #55534d; line-height: 1.6; margin: 0 0 14px; max-width: 460px; }
-      .cta-row2 { display: flex; gap: 12px; margin-top: 28px; }
-      .btn { display: inline-block; padding: 12px 22px; border-radius: 7px; font-size: 0.92rem; font-weight: 600; text-decoration: none; transition: transform 0.12s ease, box-shadow 0.12s ease; }
-      .btn.primary { background: #161616; color: #fff; }
-      .btn.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.18); }
-      .btn.outline { border: 1.4px solid #d8d4c9; color: #161616; background: #fff; }
-      .btn.outline:hover { border-color: #161616; }
-      .code-mock { background: #1c1c1e; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.18); font-family: 'SF Mono', Consolas, monospace; }
-      .code-mock .bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; background: #2a2a2c; }
-      .code-mock .dot2 { width: 10px; height: 10px; border-radius: 50%; }
-      .code-mock .fname { margin-left: 10px; color: #8a8d93; font-size: 0.72rem; }
-      .code-mock pre { margin: 0; padding: 16px 18px; font-size: 0.72rem; line-height: 1.65; color: #c9c9ce; overflow-x: auto; }
-      .code-mock .k { color: #ff7ab6; } .code-mock .s { color: #a6e22e; } .code-mock .c { color: #6d6f78; } .code-mock .f { color: #66d9ef; }
-      .notice { max-width: 1080px; margin: 0 auto 40px; padding: 16px 32px; }
-      .notice-box { background: #fff8ea; border: 1px solid #f0dfa8; border-radius: 8px; padding: 14px 18px; font-size: 0.86rem; color: #6b5a1f; }
-      .feature-row { display: flex; align-items: center; gap: 56px; padding: 56px 0; border-top: 1px solid #e8e4d8; flex-wrap: wrap-reverse; }
-      .feature-row .code-mock { flex: 1 1 420px; min-width: 320px; }
-      .feature-row .hero-left { flex: 1 1 420px; min-width: 320px; }
-      h2.headline2 { font-size: 1.9rem; font-weight: 700; line-height: 1.2; margin: 0 0 16px; letter-spacing: -0.3px; }
-      footer { border-top: 1px solid #e8e4d8; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
-      footer a { color: #161616; text-decoration: none; font-weight: 600; }
+      .announce { max-width: 1180px; margin: 0 auto; padding: 22px 32px 0; font-size: 0.78rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
+      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
+      .announce a { color: #e8623d; text-decoration: none; font-weight: 600; }
+      .announce a:hover { text-decoration: underline; }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+      .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
+      .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
+      .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
+      h1.headline { font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
+      .sub { font-size: 0.98rem; color: #6b6b64; line-height: 1.6; margin: 0 0 16px; max-width: 460px; }
+      .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
+      .btn { display: inline-block; padding: 11px 20px; border-radius: 5px; font-size: 0.86rem; font-weight: 600; text-decoration: none; transition: opacity 0.12s ease; border: 1.3px solid transparent; }
+      .btn.primary { background: #14140f; color: #fff; }
+      .btn.primary:hover { opacity: 0.85; }
+      .btn.outline { border-color: #dcdad2; color: #14140f; background: #fff; }
+      .btn.outline:hover { border-color: #14140f; }
+      /* IDE-style code mockup */
+      .ide-mock { background: #1c1c1e; border-radius: 9px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.22); font-family: 'SF Mono', Consolas, monospace; }
+      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #262628; border-bottom: 1px solid #333; }
+      .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
+      .ide-body { display: flex; }
+      .ide-tree { width: 130px; background: #202022; padding: 10px 8px; font-size: 0.65rem; color: #8a8d93; border-right: 1px solid #2e2e30; line-height: 2; }
+      .ide-tree .t1 { color: #c9c9ce; font-weight: 600; margin-bottom: 4px; }
+      .ide-tree .f { padding-left: 10px; }
+      .ide-tree .f.on { color: #fff; background: #2e2e30; margin-left: -8px; padding-left: 18px; }
+      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.68rem; line-height: 1.7; color: #c9c9ce; overflow-x: auto; }
+      .ide-code .k { color: #ff7ab6; } .ide-code .s { color: #a6e22e; } .ide-code .c { color: #6d6f78; } .ide-code .f2 { color: #66d9ef; }
+      /* Layered terminal box */
+      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #1c1c1e; border: 1px solid #333; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: 'SF Mono', Consolas, monospace; }
+      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #333; }
+      .term-tab { padding: 7px 14px; font-size: 0.62rem; color: #8a8d93; }
+      .term-tab.on { color: #fff; border-bottom: 2px solid #e8623d; }
+      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.7rem; color: #c9c9ce; }
+      .term-copy { color: #6d6f78; cursor: pointer; }
+      .divider-strip { border-top: 1px solid #eeece4; border-bottom: 1px solid #eeece4; background: #fafaf7; padding: 26px 32px; margin-top: 6px; }
+      .divider-row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
+      .divider-item { padding: 0 30px; font-size: 0.78rem; color: #8a8778; font-weight: 600; letter-spacing: 0.3px; border-right: 1px solid #e4e1d6; }
+      .divider-item:last-child { border-right: none; }
+      footer { border-top: 1px solid #eeece4; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
+      footer a { color: #14140f; text-decoration: none; font-weight: 600; }
       footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-family: Georgia, serif; font-size: 1.1rem; color: #161616; margin-bottom: 8px; }
-      @media (max-width: 720px) { h1.headline { font-size: 1.9rem; } .hero-row, .feature-row { padding-top: 40px; } }
+      footer .foot-brand { font-weight: 700; font-size: 1rem; color: #14140f; margin-bottom: 8px; }
+      @media (max-width: 760px) { h1.headline { font-size: 1.9rem; } .term-mock { display: none; } }
     </style>
 </head>
 <body>
-  <div class="topbar"><span class="dot">●</span>New — the real AI office is live internally<a href="https://manet.agency">See Manet Agency →</a></div>
+  <div class="announce"><span class="dot3"></span>New — the real AI office is live internally<a href="https://manet.agency">Read more →</a></div>
   <div class="wrap">
     <div class="hero-row">
       <div class="hero-left">
@@ -2039,50 +2049,90 @@ app.get('/', (req, res) => {
         </div>
       </div>
       <div class="hero-right">
-        <div class="code-mock">
-          <div class="bar"><span class="dot2" style="background:#ff5f57;"></span><span class="dot2" style="background:#febc2e;"></span><span class="dot2" style="background:#28c840;"></span><span class="fname">office-integration.js</span></div>
-          <pre><span class="c">// real scanner traps — these paths don't exist on this server,</span>
-<span class="c">// so hitting one means it's a bot, not a mistake</span>
-<span class="k">const</span> HONEYPOT_PATHS = <span class="k">new</span> <span class="f">Set</span>([
-  <span class="s">'/wp-admin'</span>, <span class="s">'/.env'</span>, <span class="s">'/phpmyadmin'</span>,
-  <span class="s">'/.git/config'</span>, <span class="s">'/xmlrpc.php'</span>
+        <div class="ide-mock">
+          <div class="ide-bar"><span class="ide-dot" style="background:#ff5f57;"></span><span class="ide-dot" style="background:#febc2e;"></span><span class="ide-dot" style="background:#28c840;"></span></div>
+          <div class="ide-body">
+            <div class="ide-tree">
+              <div class="t1">manet-office</div>
+              <div class="f">📁 routes</div>
+              <div class="f">📁 store</div>
+              <div class="f on">📄 office-integration.js</div>
+              <div class="f">📄 index.js</div>
+              <div class="f">📄 package.json</div>
+            </div>
+            <div class="ide-code"><pre style="margin:0;"><span class="c">// real scanner traps — these paths don't</span>
+<span class="c">// exist here, so hitting one is a bot</span>
+<span class="k">const</span> HONEYPOT_PATHS = <span class="k">new</span> <span class="f2">Set</span>([
+  <span class="s">'/wp-admin'</span>, <span class="s">'/.env'</span>,
+  <span class="s">'/phpmyadmin'</span>, <span class="s">'/.git/config'</span>
 ]);
 
-app.<span class="f">use</span>((req, res, next) => {
-  <span class="k">if</span> (HONEYPOT_PATHS.<span class="f">has</span>(req.path)) {
-    store.<span class="f">banIp</span>(ip, <span class="s">'probed honeypot'</span>);
-    <span class="k">return</span> res.<span class="f">status</span>(404).<span class="f">send</span>(<span class="s">'Not found.'</span>);
+app.<span class="f2">use</span>((req, res, next) => {
+  <span class="k">if</span> (HONEYPOT_PATHS.<span class="f2">has</span>(req.path)) {
+    store.<span class="f2">banIp</span>(ip, <span class="s">'probed honeypot'</span>);
+    <span class="k">return</span> res.<span class="f2">status</span>(404).<span class="f2">send</span>(<span class="s">'Not found.'</span>);
   }
-  <span class="f">next</span>();
-});</pre>
+  <span class="f2">next</span>();
+});</pre></div>
+          </div>
+        </div>
+        <div class="term-mock">
+          <div class="term-tabs"><div class="term-tab on">MACOS</div><div class="term-tab">LINUX</div></div>
+          <div class="term-line"><span>&gt; open https://manet.agency</span><span class="term-copy">⧉</span></div>
         </div>
       </div>
     </div>
   </div>
-  <div class="notice">
-    <div class="notice-box">🚧 <b>This system isn't open to every client yet</b> — we're still finishing the last pieces internally. The full AI-run office will be available to all Manet clients soon.</div>
+  <div class="divider-strip">
+    <div class="divider-row">
+      <div class="divider-item">📞 Phone, answered</div>
+      <div class="divider-item">🏢 A studio that thinks</div>
+      <div class="divider-item">📷 Instagram, covered</div>
+      <div class="divider-item">🔒 Actually secured</div>
+    </div>
   </div>
   <div class="wrap">
-    <div class="feature-row">
-      <div class="code-mock">
-        <div class="bar"><span class="dot2" style="background:#ff5f57;"></span><span class="dot2" style="background:#febc2e;"></span><span class="dot2" style="background:#28c840;"></span><span class="fname">office.html</span></div>
-        <pre><span class="c">// every real job becomes a project with a real archive</span>
-<span class="k">function</span> <span class="f">createProject</span>(text, importance, budget) {
+    <div class="hero-row" style="padding-top:70px;">
+      <div class="hero-left">
+        <div class="announce" style="padding:0 0 14px;"><span class="dot3"></span>New feature<a href="https://manet.agency">Read more →</a></div>
+        <h1 class="headline" style="font-size:2.1rem;">Your studio, staffed and running.</h1>
+        <p class="sub">Six real AI teammates, a real day-rate budget, a real archive of every project — Mila directs, the team executes, you approve.</p>
+        <p class="sub">🚧 This system isn't open to every client yet — we're still finishing the last pieces internally. The full AI-run office will be available to all Manet clients soon.</p>
+        <div class="cta-row2">
+          <a href="/login" class="btn primary">Member Login</a>
+          <a href="https://manet.agency" class="btn outline">Manet for Clients</a>
+        </div>
+      </div>
+      <div class="hero-right">
+        <div class="ide-mock">
+          <div class="ide-bar"><span class="ide-dot" style="background:#ff5f57;"></span><span class="ide-dot" style="background:#febc2e;"></span><span class="ide-dot" style="background:#28c840;"></span></div>
+          <div class="ide-body">
+            <div class="ide-tree">
+              <div class="t1">manet-office</div>
+              <div class="f">📁 routes</div>
+              <div class="f on">📄 office.html</div>
+              <div class="f">📄 projects.js</div>
+              <div class="f">📄 team.js</div>
+            </div>
+            <div class="ide-code"><pre style="margin:0;"><span class="c">// every real job becomes a project</span>
+<span class="c">// with a real, permanent archive</span>
+<span class="k">function</span> <span class="f2">createProject</span>(text, importance, budget) {
   <span class="k">const</span> project = {
     id, title: text, importance, budget,
     status: <span class="s">'active'</span>,
     distribution: [],
     chatHistory: [],
   };
-  s.projectsList.<span class="f">unshift</span>(project);
-  <span class="f">syncProjectsToCloud</span>();
+  s.projectsList.<span class="f2">unshift</span>(project);
+  <span class="f2">syncProjectsToCloud</span>();
   <span class="k">return</span> project;
-}</pre>
-      </div>
-      <div class="hero-left">
-        <h2 class="headline2">Your studio, staffed and running.</h2>
-        <p class="sub">Six real AI teammates, a real day-rate budget, a real archive of every project — Mila directs, the team executes, you approve.</p>
-        <p class="sub">Nothing here is scripted. Every project, every conversation, every dollar spent is real and stored in a real database.</p>
+}</pre></div>
+          </div>
+        </div>
+        <div class="term-mock">
+          <div class="term-tabs"><div class="term-tab on">MACOS</div><div class="term-tab">LINUX</div></div>
+          <div class="term-line"><span>&gt; open https://manet.agency/office</span><span class="term-copy">⧉</span></div>
+        </div>
       </div>
     </div>
   </div>
@@ -2103,52 +2153,62 @@ app.get('/login', (req, res) => {
 <title>Member Login — Manet Creative</title>
 <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fafaf8; color: #161616; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff; color: #14140f; -webkit-font-smoothing: antialiased; }
       a { color: inherit; }
-      .topbar { background: #161616; color: #fff; text-align: center; padding: 9px 16px; font-size: 0.78rem; letter-spacing: 0.2px; }
-      .topbar .dot { color: #ff8a5c; margin-right: 6px; }
-      .topbar a { color: #ff8a5c; text-decoration: none; font-weight: 600; margin-left: 6px; }
-      .topbar a:hover { text-decoration: underline; }
-      .wrap { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
-      .hero-row { display: flex; align-items: flex-start; gap: 56px; padding: 64px 0 40px; flex-wrap: wrap; }
-      .hero-left { flex: 1 1 420px; min-width: 320px; }
-      .hero-right { flex: 1 1 420px; min-width: 320px; }
-      h1.headline { font-size: 2.6rem; line-height: 1.12; font-weight: 700; letter-spacing: -0.5px; margin: 0 0 20px; }
-      .sub { font-size: 1.02rem; color: #55534d; line-height: 1.6; margin: 0 0 14px; max-width: 460px; }
-      .cta-row2 { display: flex; gap: 12px; margin-top: 28px; }
-      .btn { display: inline-block; padding: 12px 22px; border-radius: 7px; font-size: 0.92rem; font-weight: 600; text-decoration: none; transition: transform 0.12s ease, box-shadow 0.12s ease; }
-      .btn.primary { background: #161616; color: #fff; }
-      .btn.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.18); }
-      .btn.outline { border: 1.4px solid #d8d4c9; color: #161616; background: #fff; }
-      .btn.outline:hover { border-color: #161616; }
-      .code-mock { background: #1c1c1e; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.18); font-family: 'SF Mono', Consolas, monospace; }
-      .code-mock .bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; background: #2a2a2c; }
-      .code-mock .dot2 { width: 10px; height: 10px; border-radius: 50%; }
-      .code-mock .fname { margin-left: 10px; color: #8a8d93; font-size: 0.72rem; }
-      .code-mock pre { margin: 0; padding: 16px 18px; font-size: 0.72rem; line-height: 1.65; color: #c9c9ce; overflow-x: auto; }
-      .code-mock .k { color: #ff7ab6; } .code-mock .s { color: #a6e22e; } .code-mock .c { color: #6d6f78; } .code-mock .f { color: #66d9ef; }
-      .notice { max-width: 1080px; margin: 0 auto 40px; padding: 16px 32px; }
-      .notice-box { background: #fff8ea; border: 1px solid #f0dfa8; border-radius: 8px; padding: 14px 18px; font-size: 0.86rem; color: #6b5a1f; }
-      .feature-row { display: flex; align-items: center; gap: 56px; padding: 56px 0; border-top: 1px solid #e8e4d8; flex-wrap: wrap-reverse; }
-      .feature-row .code-mock { flex: 1 1 420px; min-width: 320px; }
-      .feature-row .hero-left { flex: 1 1 420px; min-width: 320px; }
-      h2.headline2 { font-size: 1.9rem; font-weight: 700; line-height: 1.2; margin: 0 0 16px; letter-spacing: -0.3px; }
-      footer { border-top: 1px solid #e8e4d8; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
-      footer a { color: #161616; text-decoration: none; font-weight: 600; }
+      .announce { max-width: 1180px; margin: 0 auto; padding: 22px 32px 0; font-size: 0.78rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
+      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
+      .announce a { color: #e8623d; text-decoration: none; font-weight: 600; }
+      .announce a:hover { text-decoration: underline; }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+      .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
+      .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
+      .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
+      h1.headline { font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
+      .sub { font-size: 0.98rem; color: #6b6b64; line-height: 1.6; margin: 0 0 16px; max-width: 460px; }
+      .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
+      .btn { display: inline-block; padding: 11px 20px; border-radius: 5px; font-size: 0.86rem; font-weight: 600; text-decoration: none; transition: opacity 0.12s ease; border: 1.3px solid transparent; }
+      .btn.primary { background: #14140f; color: #fff; }
+      .btn.primary:hover { opacity: 0.85; }
+      .btn.outline { border-color: #dcdad2; color: #14140f; background: #fff; }
+      .btn.outline:hover { border-color: #14140f; }
+      /* IDE-style code mockup */
+      .ide-mock { background: #1c1c1e; border-radius: 9px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.22); font-family: 'SF Mono', Consolas, monospace; }
+      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #262628; border-bottom: 1px solid #333; }
+      .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
+      .ide-body { display: flex; }
+      .ide-tree { width: 130px; background: #202022; padding: 10px 8px; font-size: 0.65rem; color: #8a8d93; border-right: 1px solid #2e2e30; line-height: 2; }
+      .ide-tree .t1 { color: #c9c9ce; font-weight: 600; margin-bottom: 4px; }
+      .ide-tree .f { padding-left: 10px; }
+      .ide-tree .f.on { color: #fff; background: #2e2e30; margin-left: -8px; padding-left: 18px; }
+      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.68rem; line-height: 1.7; color: #c9c9ce; overflow-x: auto; }
+      .ide-code .k { color: #ff7ab6; } .ide-code .s { color: #a6e22e; } .ide-code .c { color: #6d6f78; } .ide-code .f2 { color: #66d9ef; }
+      /* Layered terminal box */
+      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #1c1c1e; border: 1px solid #333; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: 'SF Mono', Consolas, monospace; }
+      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #333; }
+      .term-tab { padding: 7px 14px; font-size: 0.62rem; color: #8a8d93; }
+      .term-tab.on { color: #fff; border-bottom: 2px solid #e8623d; }
+      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.7rem; color: #c9c9ce; }
+      .term-copy { color: #6d6f78; cursor: pointer; }
+      .divider-strip { border-top: 1px solid #eeece4; border-bottom: 1px solid #eeece4; background: #fafaf7; padding: 26px 32px; margin-top: 6px; }
+      .divider-row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
+      .divider-item { padding: 0 30px; font-size: 0.78rem; color: #8a8778; font-weight: 600; letter-spacing: 0.3px; border-right: 1px solid #e4e1d6; }
+      .divider-item:last-child { border-right: none; }
+      footer { border-top: 1px solid #eeece4; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
+      footer a { color: #14140f; text-decoration: none; font-weight: 600; }
       footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-family: Georgia, serif; font-size: 1.1rem; color: #161616; margin-bottom: 8px; }
-      @media (max-width: 720px) { h1.headline { font-size: 1.9rem; } .hero-row, .feature-row { padding-top: 40px; } }
+      footer .foot-brand { font-weight: 700; font-size: 1rem; color: #14140f; margin-bottom: 8px; }
+      @media (max-width: 760px) { h1.headline { font-size: 1.9rem; } .term-mock { display: none; } }
     </style>
 <style>
   .login-wrap { max-width: 380px; margin: 90px auto; padding: 0 24px; }
-  .login-card { background: #fff; border: 1px solid #e8e4d8; border-radius: 12px; padding: 36px 32px; box-shadow: 0 20px 50px rgba(0,0,0,0.06); }
-  .login-card h1 { font-size: 1.3rem; margin: 0 0 6px; }
+  .login-card { background: #fff; border: 1px solid #eeece4; border-radius: 10px; padding: 36px 32px; box-shadow: 0 20px 50px rgba(0,0,0,0.06); }
+  .login-card h1 { font-size: 1.3rem; margin: 0 0 6px; font-weight: 700; }
   .login-card .sub2 { font-size: 0.82rem; color: #9a9488; margin: 0 0 24px; }
   .field { margin-bottom: 14px; }
   .field label { display: block; font-size: 0.76rem; font-weight: 600; color: #55534d; margin-bottom: 5px; }
-  .field input { width: 100%; padding: 10px 12px; border: 1.4px solid #e0dcd0; border-radius: 7px; font-size: 0.9rem; }
-  .field input:focus { outline: none; border-color: #161616; }
-  .login-btn { width: 100%; padding: 11px; background: #161616; color: #fff; border: none; border-radius: 7px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 6px; }
+  .field input { width: 100%; padding: 10px 12px; border: 1.4px solid #e0dcd0; border-radius: 5px; font-size: 0.9rem; }
+  .field input:focus { outline: none; border-color: #14140f; }
+  .login-btn { width: 100%; padding: 11px; background: #14140f; color: #fff; border: none; border-radius: 5px; font-size: 0.9rem; font-weight: 600; cursor: pointer; margin-top: 6px; }
   .login-btn:hover { opacity: 0.9; }
   .login-err { color: #b8433a; font-size: 0.8rem; margin-top: 10px; display: none; }
   .login-back { text-align: center; margin-top: 18px; font-size: 0.78rem; }
@@ -2156,7 +2216,7 @@ app.get('/login', (req, res) => {
 </style>
 </head>
 <body>
-  <div class="topbar"><span class="dot">●</span>Protected area — real credentials required<a href="https://manet.agency">Manet Agency →</a></div>
+  <div class="announce"><span class="dot3"></span>Protected area — real credentials required<a href="https://manet.agency">Manet Agency →</a></div>
   <div class="login-wrap">
     <div class="login-card">
       <h1>Member Login</h1>
@@ -2208,49 +2268,59 @@ app.get('/choose', requireAuth, (req, res) => {
 <title>Manet Creative</title>
 <style>
       * { box-sizing: border-box; }
-      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #fafaf8; color: #161616; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #ffffff; color: #14140f; -webkit-font-smoothing: antialiased; }
       a { color: inherit; }
-      .topbar { background: #161616; color: #fff; text-align: center; padding: 9px 16px; font-size: 0.78rem; letter-spacing: 0.2px; }
-      .topbar .dot { color: #ff8a5c; margin-right: 6px; }
-      .topbar a { color: #ff8a5c; text-decoration: none; font-weight: 600; margin-left: 6px; }
-      .topbar a:hover { text-decoration: underline; }
-      .wrap { max-width: 1080px; margin: 0 auto; padding: 0 32px; }
-      .hero-row { display: flex; align-items: flex-start; gap: 56px; padding: 64px 0 40px; flex-wrap: wrap; }
-      .hero-left { flex: 1 1 420px; min-width: 320px; }
-      .hero-right { flex: 1 1 420px; min-width: 320px; }
-      h1.headline { font-size: 2.6rem; line-height: 1.12; font-weight: 700; letter-spacing: -0.5px; margin: 0 0 20px; }
-      .sub { font-size: 1.02rem; color: #55534d; line-height: 1.6; margin: 0 0 14px; max-width: 460px; }
-      .cta-row2 { display: flex; gap: 12px; margin-top: 28px; }
-      .btn { display: inline-block; padding: 12px 22px; border-radius: 7px; font-size: 0.92rem; font-weight: 600; text-decoration: none; transition: transform 0.12s ease, box-shadow 0.12s ease; }
-      .btn.primary { background: #161616; color: #fff; }
-      .btn.primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.18); }
-      .btn.outline { border: 1.4px solid #d8d4c9; color: #161616; background: #fff; }
-      .btn.outline:hover { border-color: #161616; }
-      .code-mock { background: #1c1c1e; border-radius: 10px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.18); font-family: 'SF Mono', Consolas, monospace; }
-      .code-mock .bar { display: flex; align-items: center; gap: 6px; padding: 10px 14px; background: #2a2a2c; }
-      .code-mock .dot2 { width: 10px; height: 10px; border-radius: 50%; }
-      .code-mock .fname { margin-left: 10px; color: #8a8d93; font-size: 0.72rem; }
-      .code-mock pre { margin: 0; padding: 16px 18px; font-size: 0.72rem; line-height: 1.65; color: #c9c9ce; overflow-x: auto; }
-      .code-mock .k { color: #ff7ab6; } .code-mock .s { color: #a6e22e; } .code-mock .c { color: #6d6f78; } .code-mock .f { color: #66d9ef; }
-      .notice { max-width: 1080px; margin: 0 auto 40px; padding: 16px 32px; }
-      .notice-box { background: #fff8ea; border: 1px solid #f0dfa8; border-radius: 8px; padding: 14px 18px; font-size: 0.86rem; color: #6b5a1f; }
-      .feature-row { display: flex; align-items: center; gap: 56px; padding: 56px 0; border-top: 1px solid #e8e4d8; flex-wrap: wrap-reverse; }
-      .feature-row .code-mock { flex: 1 1 420px; min-width: 320px; }
-      .feature-row .hero-left { flex: 1 1 420px; min-width: 320px; }
-      h2.headline2 { font-size: 1.9rem; font-weight: 700; line-height: 1.2; margin: 0 0 16px; letter-spacing: -0.3px; }
-      footer { border-top: 1px solid #e8e4d8; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
-      footer a { color: #161616; text-decoration: none; font-weight: 600; }
+      .announce { max-width: 1180px; margin: 0 auto; padding: 22px 32px 0; font-size: 0.78rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
+      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
+      .announce a { color: #e8623d; text-decoration: none; font-weight: 600; }
+      .announce a:hover { text-decoration: underline; }
+      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
+      .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
+      .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
+      .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
+      h1.headline { font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
+      .sub { font-size: 0.98rem; color: #6b6b64; line-height: 1.6; margin: 0 0 16px; max-width: 460px; }
+      .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
+      .btn { display: inline-block; padding: 11px 20px; border-radius: 5px; font-size: 0.86rem; font-weight: 600; text-decoration: none; transition: opacity 0.12s ease; border: 1.3px solid transparent; }
+      .btn.primary { background: #14140f; color: #fff; }
+      .btn.primary:hover { opacity: 0.85; }
+      .btn.outline { border-color: #dcdad2; color: #14140f; background: #fff; }
+      .btn.outline:hover { border-color: #14140f; }
+      /* IDE-style code mockup */
+      .ide-mock { background: #1c1c1e; border-radius: 9px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.22); font-family: 'SF Mono', Consolas, monospace; }
+      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #262628; border-bottom: 1px solid #333; }
+      .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
+      .ide-body { display: flex; }
+      .ide-tree { width: 130px; background: #202022; padding: 10px 8px; font-size: 0.65rem; color: #8a8d93; border-right: 1px solid #2e2e30; line-height: 2; }
+      .ide-tree .t1 { color: #c9c9ce; font-weight: 600; margin-bottom: 4px; }
+      .ide-tree .f { padding-left: 10px; }
+      .ide-tree .f.on { color: #fff; background: #2e2e30; margin-left: -8px; padding-left: 18px; }
+      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.68rem; line-height: 1.7; color: #c9c9ce; overflow-x: auto; }
+      .ide-code .k { color: #ff7ab6; } .ide-code .s { color: #a6e22e; } .ide-code .c { color: #6d6f78; } .ide-code .f2 { color: #66d9ef; }
+      /* Layered terminal box */
+      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #1c1c1e; border: 1px solid #333; border-radius: 8px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); font-family: 'SF Mono', Consolas, monospace; }
+      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #333; }
+      .term-tab { padding: 7px 14px; font-size: 0.62rem; color: #8a8d93; }
+      .term-tab.on { color: #fff; border-bottom: 2px solid #e8623d; }
+      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.7rem; color: #c9c9ce; }
+      .term-copy { color: #6d6f78; cursor: pointer; }
+      .divider-strip { border-top: 1px solid #eeece4; border-bottom: 1px solid #eeece4; background: #fafaf7; padding: 26px 32px; margin-top: 6px; }
+      .divider-row { max-width: 1180px; margin: 0 auto; display: flex; justify-content: center; gap: 0; flex-wrap: wrap; }
+      .divider-item { padding: 0 30px; font-size: 0.78rem; color: #8a8778; font-weight: 600; letter-spacing: 0.3px; border-right: 1px solid #e4e1d6; }
+      .divider-item:last-child { border-right: none; }
+      footer { border-top: 1px solid #eeece4; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.8rem; }
+      footer a { color: #14140f; text-decoration: none; font-weight: 600; }
       footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-family: Georgia, serif; font-size: 1.1rem; color: #161616; margin-bottom: 8px; }
-      @media (max-width: 720px) { h1.headline { font-size: 1.9rem; } .hero-row, .feature-row { padding-top: 40px; } }
+      footer .foot-brand { font-weight: 700; font-size: 1rem; color: #14140f; margin-bottom: 8px; }
+      @media (max-width: 760px) { h1.headline { font-size: 1.9rem; } .term-mock { display: none; } }
     </style>
 <style>
   .choose-wrap { max-width: 640px; margin: 100px auto; padding: 0 24px; text-align: center; }
-  .choose-wrap h1 { font-size: 1.7rem; margin-bottom: 8px; }
+  .choose-wrap h1 { font-size: 1.7rem; margin-bottom: 8px; font-weight: 700; }
   .choose-wrap .sub2 { color: #9a9488; margin-bottom: 40px; }
   .choose-row { display: flex; gap: 18px; justify-content: center; }
-  .choose-card { flex: 1; max-width: 220px; padding: 30px 20px; background: #fff; border: 1.4px solid #e8e4d8; border-radius: 12px; text-decoration: none; color: #161616; transition: transform 0.15s ease, box-shadow 0.15s ease; }
-  .choose-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0,0,0,0.1); border-color: #161616; }
+  .choose-card { flex: 1; max-width: 220px; padding: 30px 20px; background: #fff; border: 1.4px solid #eeece4; border-radius: 10px; text-decoration: none; color: #14140f; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .choose-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0,0,0,0.1); border-color: #14140f; }
   .choose-icon { font-size: 30px; margin-bottom: 10px; }
   .choose-label { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
   .choose-sub { font-size: 0.76rem; color: #9a9488; }
