@@ -145,6 +145,30 @@ module.exports = function mountOffice(app, requireAuth) {
     next();
   });
 
+  // ── General rate limiting — a real person, even clicking around fast,
+  // won't fire 300 requests in a minute. A scanner/bot hammering the
+  // server will. Once an IP crosses that, it's auto-banned — this is real
+  // protection against brute-force and scraping, not just the login form.
+  const requestCounts = new Map(); // ip -> { count, windowStart }
+  const RATE_LIMIT_MAX = 300;
+  const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+  app.use((req, res, next) => {
+    const ip = getClientIp(req);
+    const now = Date.now();
+    const rec = requestCounts.get(ip);
+    if (!rec || now - rec.windowStart > RATE_LIMIT_WINDOW_MS) {
+      requestCounts.set(ip, { count: 1, windowStart: now });
+    } else {
+      rec.count++;
+      if (rec.count > RATE_LIMIT_MAX) {
+        store.banIp(ip, `Auto-banned: ${rec.count} requests in under a minute (rate limit)`).catch(() => {});
+        requestCounts.delete(ip);
+        return res.status(429).send('Too many requests.');
+      }
+    }
+    next();
+  });
+
   // ── Visitor logging — every request, whole server. Fire-and-forget,
   // never blocks or slows down the actual response. ──────────────────
   app.use((req, res, next) => {
@@ -195,6 +219,11 @@ module.exports = function mountOffice(app, requireAuth) {
   app.get('/office', requireAuth, (req, res) => {
     const filePath = path.join(__dirname, 'office.html');
     if (!fs.existsSync(filePath)) return res.status(500).send('office.html not found next to index.js.');
+    // Never let the browser cache this page — otherwise updates you push
+    // can silently keep showing the old version until a hard refresh.
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(filePath);
   });
 

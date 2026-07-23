@@ -2023,6 +2023,26 @@ app.get('/', (req, res) => {
         <div class="box">
           <h1>Manet Creative</h1>
           <p>Phone system is running.</p>
+          <div id="sys-status" class="sys-status">
+            <span class="sys-dot" id="sys-dot"></span>
+            <span id="sys-status-text">Checking system status…</span>
+          </div>
+          <script>
+            fetch('/health').then(r => {
+              const dot = document.getElementById('sys-dot');
+              const text = document.getElementById('sys-status-text');
+              if (r.ok) { dot.style.background = '#3ba55d'; text.textContent = 'All systems operational'; }
+              else { dot.style.background = '#da373c'; text.textContent = 'Something is off — check Logs'; }
+            }).catch(() => {
+              const dot = document.getElementById('sys-dot');
+              const text = document.getElementById('sys-status-text');
+              dot.style.background = '#da373c'; text.textContent = 'Could not reach the server';
+            });
+          </script>
+          <style>
+            .sys-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 22px; font-size: 0.82rem; color: #77716a; }
+            .sys-dot { width: 8px; height: 8px; border-radius: 50%; background: #c9c2b6; display: inline-block; }
+          </style>
           <div class="cta-row">
             <a href="/admin" class="cta phone">
               <span class="cta-icon">📞</span>
