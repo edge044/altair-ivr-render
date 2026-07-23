@@ -10,7 +10,7 @@ const basicAuth = require('basic-auth');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 // ======================================================
 // AUTHENTICATION
@@ -2042,6 +2042,18 @@ app.get('/', (req, res) => {
           <style>
             .sys-status { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 22px; font-size: 0.82rem; color: #77716a; }
             .sys-dot { width: 8px; height: 8px; border-radius: 50%; background: #c9c2b6; display: inline-block; }
+          </style>
+          <style>
+            body {
+              background: linear-gradient(-45deg, #f7f3ed, #f0e9de, #eef2ea, #f3ede2) !important;
+              background-size: 400% 400% !important;
+              animation: manetGradientShift 18s ease infinite;
+            }
+            @keyframes manetGradientShift {
+              0% { background-position: 0% 50%; }
+              50% { background-position: 100% 50%; }
+              100% { background-position: 0% 50%; }
+            }
           </style>
           <div class="cta-row">
             <a href="/admin" class="cta phone">

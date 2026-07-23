@@ -2023,7 +2023,26 @@ body.mode-incident .search-pill{ box-shadow:0 2px 16px rgba(224,88,79,0.16), 0 0
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
     <span class="tc-badge" id="phonepanel-badge" style="display:none;">0</span>
   </div>
+  <div class="icon-btn has-badge" id="igpanel-topbar-btn" title="Instagram — Alex's channel" onclick="openIGPanel()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+    <span class="tc-badge" id="igpanel-badge" style="display:none;">0</span>
+  </div>
   <div class="icon-btn" id="adminpanel-topbar-btn" title="Admin — visitors & security" onclick="openAdminPanel()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>
+</div>
+
+<!-- INSTAGRAM PANEL (Alex) -->
+<div class="it-overlay" id="ig-overlay" onmousedown="if(event.target===this) closeIGPanel();">
+  <div class="it-panel">
+    <div class="it-header">
+      <span class="it-header-title">📷 Instagram — Alex</span>
+      <span class="it-header-sub">real DMs, Alex drafts a reply, you approve before it sends</span>
+      <div class="it-header-close" onclick="closeIGPanel()">✕</div>
+    </div>
+    <div class="it-body" id="ig-body-wrap">
+      <div class="it-sidebar" id="ig-threads-sidebar"></div>
+      <div class="it-main" id="ig-thread-main"></div>
+    </div>
+  </div>
 </div>
 
 <!-- PHONE SYSTEM PANEL -->
@@ -3433,6 +3452,128 @@ const PHONE_TOPTABS = [
   { id: 'settings', label: 'Settings', icon: '⚙️', src: '/settings' }
 ];
 let phoneActiveTab = 'analytics';
+// ═══════════════════════════════════════════════════════════════
+// INSTAGRAM PANEL — Alex's channel. Real incoming DMs (from the real
+// webhook), Alex drafts a reply with real AI, owner reviews/edits and
+// sends — nothing auto-sends without approval, since Alex hasn't been
+// given specific instructions yet (matches how the owner wants to run this
+// until they brief Alex further).
+// ═══════════════════════════════════════════════════════════════
+let igActiveThread = null;
+function openIGPanel() {
+  const overlay = document.getElementById('ig-overlay');
+  if (!overlay) return;
+  overlay.classList.add('open');
+  loadIGThreads();
+}
+function closeIGPanel() {
+  const overlay = document.getElementById('ig-overlay');
+  if (overlay) overlay.classList.remove('open');
+}
+async function loadIGThreads() {
+  const sidebar = document.getElementById('ig-threads-sidebar');
+  const main = document.getElementById('ig-thread-main');
+  if (!sidebar) return;
+  sidebar.innerHTML = `<div class="it-sidebar-label">Conversations</div><div style="padding:10px;color:#8a8d93;font-size:11.5px;">Loading…</div>`;
+  if (typeof cloudAvailable !== 'function' || !cloudAvailable()) {
+    sidebar.innerHTML = `<div class="it-sidebar-label">Conversations</div><div style="padding:10px;color:#8a8d93;font-size:11.5px;">Connect Cloud Sync in Settings first.</div>`;
+    if (main) main.innerHTML = '';
+    return;
+  }
+  try {
+    const res = await fetch(`${CLOUD_API_BASE}/instagram/threads`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const threads = await res.json();
+    if (!Array.isArray(threads) || !threads.length) {
+      sidebar.innerHTML = `<div class="it-sidebar-label">Conversations</div><div style="padding:10px;color:#8a8d93;font-size:11.5px;">No real Instagram messages yet — this is reading the real webhook data, not a demo.</div>`;
+      if (main) main.innerHTML = '<div style="padding:24px;color:#8a8d93;font-size:12.5px;">Once someone messages your Instagram, real conversations show up here.</div>';
+      return;
+    }
+    sidebar.innerHTML = `<div class="it-sidebar-label">Conversations (${threads.length})</div>` + threads.map(t => `
+      <div class="it-channel ${igActiveThread === t.threadId ? 'active' : ''}" onclick="openIGThread('${t.threadId}')">
+        <span class="hash">@</span> ${escapeHtml(t.threadId)}
+        <span class="it-channel-badge">${t.messageCount}</span>
+      </div>`).join('');
+    if (!igActiveThread && threads[0]) openIGThread(threads[0].threadId);
+  } catch (e) {
+    sidebar.innerHTML = `<div style="padding:10px;color:#b8433a;font-size:11.5px;">Could not load: ${escapeHtml(e.message)}</div>`;
+  }
+}
+async function openIGThread(threadId) {
+  igActiveThread = threadId;
+  await loadIGThreads(); // refresh sidebar highlight
+  const main = document.getElementById('ig-thread-main');
+  if (!main) return;
+  main.innerHTML = `<div style="padding:20px;color:#8a8d93;font-size:12px;">Loading conversation…</div>`;
+  try {
+    const res = await fetch(`${CLOUD_API_BASE}/instagram/messages/${encodeURIComponent(threadId)}`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const messages = await res.json();
+    const msgsHtml = messages.map(m => `
+      <div style="margin-bottom:10px;display:flex;${m.direction === 'out' ? 'justify-content:flex-end;' : ''}">
+        <div style="max-width:70%;background:${m.direction === 'out' ? '#1c1c1e' : '#f2f2f0'};color:${m.direction === 'out' ? '#fff' : '#1c1c1e'};padding:8px 12px;border-radius:10px;font-size:12.5px;">
+          ${escapeHtml(m.text)}
+          <div style="font-size:9.5px;opacity:0.6;margin-top:3px;">${m.direction === 'out' ? 'Alex' : '@' + escapeHtml(threadId)} · ${String(m.createdAt || '').replace('T',' ').slice(0,16)}</div>
+        </div>
+      </div>`).join('');
+    main.innerHTML = `
+      <div style="flex:1;overflow-y:auto;padding:18px 22px;background:#fafafa;" id="ig-messages-list">${msgsHtml || '<div style="color:#8a8d93;">No messages yet in this thread.</div>'}</div>
+      <div style="padding:14px 22px;border-top:1px solid rgba(0,0,0,0.08);background:#fff;">
+        <div id="ig-draft-area" style="margin-bottom:8px;"></div>
+        <div style="display:flex;gap:8px;">
+          <button class="aos-btn" onclick="draftIGReply('${threadId}')">✨ Ask Alex to draft a reply</button>
+        </div>
+      </div>`;
+  } catch (e) {
+    main.innerHTML = `<div style="padding:20px;color:#b8433a;font-size:12.5px;">Could not load: ${escapeHtml(e.message)}</div>`;
+  }
+}
+async function draftIGReply(threadId) {
+  const draftArea = document.getElementById('ig-draft-area');
+  if (draftArea) draftArea.innerHTML = `<div style="color:#8a8d93;font-size:12px;">Alex is drafting…</div>`;
+  try {
+    const res = await fetch(`${CLOUD_API_BASE}/instagram/messages/${encodeURIComponent(threadId)}`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+    const messages = await res.json();
+    const history = messages.slice(-10).map(m => `${m.direction === 'out' ? 'You (Alex)' : 'Customer'}: ${m.text}`).join('\n');
+    // Generic for now — Alex hasn't been given specific instructions yet,
+    // per the owner. This will get more specific once they brief Alex.
+    const system = `You are Alex, handling Instagram DMs for a small business. You haven't been given specific instructions yet, so be generally warm, helpful, and brief — answer what you reasonably can, and if something needs the owner's specific input, say you'll check and get back to them. Under 60 words.`;
+    const result = await callManetAI(system, `Conversation so far:\n${history}\n\nDraft the next reply.`);
+    if (draftArea) {
+      if (result.ok) {
+        draftArea.innerHTML = `
+          <div style="background:#f7f9fc;border:1px solid #dbe4f0;border-radius:8px;padding:10px 12px;margin-bottom:8px;">
+            <div style="font-size:10px;color:#8a8d93;margin-bottom:4px;">Alex's draft — real AI, edit before sending</div>
+            <textarea id="ig-draft-text" rows="3" style="width:100%;box-sizing:border-box;border:none;background:transparent;font-size:12.5px;resize:vertical;">${escapeHtml(result.text)}</textarea>
+          </div>
+          <button class="aos-btn primary" onclick="sendIGReply('${threadId}')">Send this reply</button>`;
+      } else {
+        draftArea.innerHTML = `<div style="color:#b8433a;font-size:11.5px;">Couldn't get a real draft (${escapeHtml(result.error)}). You can still type a reply below.</div>
+          <textarea id="ig-draft-text" rows="3" placeholder="Type a reply..." style="width:100%;box-sizing:border-box;border:1px solid rgba(0,0,0,0.15);border-radius:8px;padding:8px;font-size:12.5px;margin:8px 0;"></textarea>
+          <button class="aos-btn primary" onclick="sendIGReply('${threadId}')">Send this reply</button>`;
+      }
+    }
+  } catch (e) {
+    if (draftArea) draftArea.innerHTML = `<div style="color:#b8433a;font-size:11.5px;">${escapeHtml(e.message)}</div>`;
+  }
+}
+async function sendIGReply(threadId) {
+  const textEl = document.getElementById('ig-draft-text');
+  if (!textEl || !textEl.value.trim()) return;
+  const text = textEl.value.trim();
+  try {
+    const res = await fetch(`${CLOUD_API_BASE}/instagram/reply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-API-Key': cloudConfig.apiKey },
+      body: JSON.stringify({ threadId, text })
+    });
+    const data = await res.json();
+    if (!res.ok) { alert('Could not send: ' + (data.error || 'unknown error')); return; }
+    openIGThread(threadId);
+  } catch (e) {
+    alert('Could not send: ' + e.message);
+  }
+}
+
 function openPhonePanel() {
   const overlay = document.getElementById('phone-overlay');
   if (!overlay) return;
@@ -4610,6 +4751,11 @@ const AGENTS = {
   // Agents in the meeting/creative room — sitting on poufs in front of the center desk
   red:    { id:'red',    name:'Dana',   role:'Outreach & Partnerships Manager',color:'#fca5a5', hColor:'#fee2e2', x:1640, y:468, homeX:1640, homeY:468, status:'working',  task:'Preparing evidence-based outreach',   progress:74,  gender:'girl', hair:2, floor:'second' },
   purple: { id:'purple', name:'Nora',   role:'Opportunity Strategist',         color:'#c4b5fd', hColor:'#ede9fe', x:1760, y:524, homeX:1760, homeY:524, status:'working',  task:'Building account opportunity thesis', progress:60,  gender:'girl', hair:3, floor:'second' },
+
+  // Alex — Instagram / Social. Standing near the ground-floor group, same
+  // pattern as Leo/Sasha (no chair needed) so this doesn't require new
+  // desk furniture to be drawn.
+  teal:   { id:'teal',   name:'Alex',   role:'Instagram / Social',             color:'#5eead4', hColor:'#ccfbf1', x:970,  y:500, homeX:970,  homeY:500, status:'thinking', task:'Watching Instagram for new messages', progress:20,  gender:'girl', hair:1, floor:'ground' },
 };
 
 const agentPos = {};
@@ -10066,7 +10212,7 @@ function saveGuidanceToMemory() {
 // is never paused, same as Mila — the live system always needs someone
 // watching it.
 // ═══════════════════════════════════
-const AGENT_DAY_RATE = { blue: 260, green: 190, orange: 175, purple: 185, red: 180, yellow: 0.4 };
+const AGENT_DAY_RATE = { blue: 260, green: 190, orange: 175, purple: 185, red: 180, yellow: 0.4, teal: 165 };
 const DEFAULT_DAILY_BUDGET = 1200;
 const FULL_AGENCY_GROWTH_ROWS = [
   { id: "AG-1", agentId: "blue",   title: "Set today's priority · review quality · decide what escalates",     minutes: 20,
@@ -10087,7 +10233,7 @@ const FULL_AGENCY_GROWTH_ROWS = [
 // Sasha (yellow / Security-IT) is never cut, same as Mila — someone has to
 // stay watching the live system regardless of budget. Cut order for
 // everyone else, lowest leverage first.
-const BUDGET_DEFER_ORDER = ['red', 'purple', 'orange', 'green'];
+const BUDGET_DEFER_ORDER = ['teal', 'red', 'purple', 'orange', 'green'];
 
 // Keep the office scene in sync with *both* reasons an agent can be
 // missing from the floor — training (already handled by start/completeTraining)
@@ -10095,7 +10241,7 @@ const BUDGET_DEFER_ORDER = ['red', 'purple', 'orange', 'green'];
 // systems can never fight over the same Set.
 function syncOfficeGhosting() {
   const budgetCut = new Set(demoAgencyState.budgetAfk || []);
-  ['blue', 'green', 'orange', 'purple', 'red', 'yellow'].forEach(id => {
+  ['blue', 'green', 'orange', 'purple', 'red', 'yellow', 'teal'].forEach(id => {
     const training = agentTraining[id] && agentTraining[id].trainingStatus === 'training';
     if (training || budgetCut.has(id)) officeGhostedAgents.add(id);
     else officeGhostedAgents.delete(id);
@@ -10552,7 +10698,7 @@ async function askMilaAboutJob() {
   if (respEl) respEl.innerHTML = `<div class="aos-card" style="font-size:12.5px;color:#8a8a92;">Mila is thinking…</div>`;
 
   const cut = (demoAgencyState.budgetAfk || []).map(agentNameById);
-  const keptIds = ['blue','green','orange','purple','red','yellow'].filter(id => !(demoAgencyState.budgetAfk || []).includes(id));
+  const keptIds = ['blue','green','orange','purple','red','yellow','teal'].filter(id => !(demoAgencyState.budgetAfk || []).includes(id));
   const kept = keptIds.map(agentNameById);
 
   // Real distribution — every staffed agent (except Mila/Sasha, who direct
@@ -10573,6 +10719,7 @@ async function askMilaAboutJob() {
   demoAgencyState.office.currentProject = shortText;
   if (typeof updateAgencyTopbar === 'function') updateAgencyTopbar();
   if (activeTerminalTab === 'liveops') renderLiveOps();
+  generateAgentChatter(project, keptIds);
 
   const system = `You are Mila. You are direct, warm, practical. Given a job, its importance, and today's budget: (1) say plainly whether the budget realistically covers the people this job needs, (2) briefly say who on the team you're putting on it and why, (3) ask 2-3 short, genuinely specific clarifying questions about THIS job — not generic boilerplate — that you'd actually need answered to plan the work well. Keep the whole reply under 160 words.`;
   const user = `Job: ${text}\nImportance: ${importance}\nToday's budget: $${budgetVal}\nStaffed today at this budget: ${kept.join(', ')}.${cut.length ? ' Paused due to budget: ' + cut.join(', ') + '.' : ''}`;
@@ -10695,6 +10842,31 @@ function pushTeamChatMessage(from, agentId, text) {
   updateTeamChatBadge();
   saveTeamChatState();
 }
+// Agent-to-agent chatter — appears in the same Team Chat feed, visually
+// distinct (smaller, "A → B") from owner-directed messages. Only fires
+// when real work is actually distributed on a real project, referencing
+// that project's real title — not random flavor text.
+function pushAgentChatterMessage(fromAgentId, toAgentId, text) {
+  teamChatState.messages.push({ from: 'chatter', agentId: fromAgentId, toAgentId, text, time: aosNowTime() });
+  if (!teamChatState.opened) teamChatState.unread++;
+  updateTeamChatBadge();
+  saveTeamChatState();
+}
+const AGENT_CHATTER_PAIRS = [
+  ['green', 'orange', t => `Found some good signal for "${t}" — sending you what I've got so you can start qualifying.`, t => `👍 got it, I'll flag anything that doesn't fit the pattern.`],
+  ['purple', 'red', t => `Thesis for "${t}" is coming together — I'll have an angle for you shortly.`, t => `No rush, still gathering proof points on my side.`],
+  ['orange', 'purple', t => `A couple of the "${t}" prospects look strong — worth a sharper angle on this one?`, t => `Good catch, I'll look at those first.`],
+  ['green', 'purple', t => `Competitor pattern on "${t}" might change your angle a bit — sending it over.`, t => `Appreciate it, will factor that in.`]
+];
+function generateAgentChatter(project, keptIds) {
+  const shortTitle = project.title.length > 50 ? project.title.slice(0, 47) + '...' : project.title;
+  const candidates = AGENT_CHATTER_PAIRS.filter(([a, b]) => keptIds.includes(a) && keptIds.includes(b));
+  if (!candidates.length) return;
+  const [a, b, lineA, lineB] = candidates[Math.floor(Math.random() * candidates.length)];
+  pushAgentChatterMessage(a, b, lineA(shortTitle));
+  setTimeout(() => { pushAgentChatterMessage(b, a, lineB(shortTitle)); if (teamChatState.opened) renderTeamChat(); }, 500);
+  if (teamChatState.opened) renderTeamChat();
+}
 
 function renderTeamChat() {
   const wrap = document.getElementById('tc-messages');
@@ -10716,6 +10888,11 @@ function renderTeamChat() {
     }
     if (m.from === 'owner') {
       return `<div class="tc-msg owner"><div class="tc-msg-meta">You · ${m.time}</div><div class="tc-msg-bubble">${escapeHtml(m.text)}</div></div>`;
+    }
+    if (m.from === 'chatter') {
+      const fromName = agentNameById(m.agentId) || m.agentId;
+      const toName = agentNameById(m.toAgentId) || m.toAgentId;
+      return `<div class="tc-msg chatter" style="opacity:0.8;"><div class="tc-msg-meta" style="font-size:10px;">${escapeHtml(fromName)} → ${escapeHtml(toName)} · ${m.time}</div><div class="tc-msg-bubble" style="font-style:italic;font-size:11.5px;background:#f2f2f0;">${escapeHtml(m.text)}</div></div>`;
     }
     const name = agentNameById(m.agentId) || m.agentId;
     return `<div class="tc-msg agent"><div class="tc-msg-meta">${escapeHtml(name)} · ${m.time}</div><div class="tc-msg-bubble">${escapeHtml(m.text)}</div></div>`;
@@ -14073,7 +14250,7 @@ function renderSettings() {
         <div class="aos-card-note" style="padding:8px 2px 0;">Mila keeps the whole team inside this budget. If it isn't enough for everyone, she pauses the lowest-priority roles first (outreach → strategy → prospecting → market research). Security/IT (Sasha) is never paused — someone has to stay watching the live system regardless of budget.</div>
         ${demoAgencyState.budgetAfk && demoAgencyState.budgetAfk.length ? `<div class="aos-card-note" style="padding:6px 2px 0;color:#b8433a;">Paused today due to budget: ${demoAgencyState.budgetAfk.map(id=>agentNameById(id)).join(', ')}</div>` : ''}
         <div class="aos-card-note" style="padding:8px 2px 0;">
-          <b>Day rates:</b> ${['blue','green','orange','purple','red','yellow'].map(id => `${agentNameById(id)} $${AGENT_DAY_RATE[id]}`).join(' · ')}
+          <b>Day rates:</b> ${['blue','green','orange','purple','red','yellow','teal'].map(id => `${agentNameById(id)} $${AGENT_DAY_RATE[id]}`).join(' · ')}
         </div>
       </div>
     </div>

@@ -33,6 +33,7 @@ module.exports = function mountOffice(app, requireAuth) {
   const CRASH_FILE = path.join(OFFICE_DIR, 'office_crashes.json');
   const VISITORS_FILE = path.join(OFFICE_DIR, 'office_visitors.json');
   const BANS_FILE = path.join(OFFICE_DIR, 'office_bans.json');
+  const IG_FILE = path.join(OFFICE_DIR, 'office_instagram.json');
 
   function readJSONFile(file, fallback) {
     try { if (!fs.existsSync(file)) return fallback; return JSON.parse(fs.readFileSync(file, 'utf8')); }
@@ -57,6 +58,7 @@ module.exports = function mountOffice(app, requireAuth) {
         CREATE TABLE IF NOT EXISTS office_crashes (id SERIAL PRIMARY KEY, fingerprint TEXT NOT NULL, kind TEXT, message TEXT, session_id TEXT NOT NULL, reported_at TIMESTAMPTZ NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS office_visitors (id SERIAL PRIMARY KEY, ip TEXT NOT NULL, country TEXT, path TEXT, user_agent TEXT, visited_at TIMESTAMPTZ NOT NULL DEFAULT now());
         CREATE TABLE IF NOT EXISTS office_bans (ip TEXT PRIMARY KEY, reason TEXT, banned_at TIMESTAMPTZ NOT NULL DEFAULT now());
+        CREATE TABLE IF NOT EXISTS instagram_messages (id SERIAL PRIMARY KEY, thread_id TEXT NOT NULL, sender_id TEXT NOT NULL, direction TEXT NOT NULL, text TEXT, raw JSONB, created_at TIMESTAMPTZ NOT NULL DEFAULT now());
       `).then(() => console.log('✓ Office: Postgres connected — data now survives every deploy.'))
         .catch(err => console.error('✗ Office: Postgres setup failed:', err.message));
 
@@ -77,7 +79,18 @@ module.exports = function mountOffice(app, requireAuth) {
         async banIp(ip, reason) { await pool.query('INSERT INTO office_bans (ip,reason) VALUES ($1,$2) ON CONFLICT (ip) DO UPDATE SET reason=$2', [ip, reason || '']); },
         async unbanIp(ip) { await pool.query('DELETE FROM office_bans WHERE ip=$1', [ip]); },
         async getDbSizeBytes() { const r = await pool.query('SELECT pg_database_size(current_database()) AS size'); return parseInt(r.rows[0].size, 10); },
-        async getVisitorCount() { const r = await pool.query('SELECT COUNT(*)::int AS c FROM office_visitors'); return r.rows[0].c; }
+        async getVisitorCount() { const r = await pool.query('SELECT COUNT(*)::int AS c FROM office_visitors'); return r.rows[0].c; },
+        async saveInstagramMessage(threadId, senderId, direction, text, raw) {
+          await pool.query('INSERT INTO instagram_messages (thread_id, sender_id, direction, text, raw) VALUES ($1,$2,$3,$4,$5)', [threadId, senderId, direction, text || '', JSON.stringify(raw || {})]);
+        },
+        async getInstagramThreads() {
+          const r = await pool.query(`SELECT thread_id, MAX(created_at) AS last_at, COUNT(*)::int AS msg_count FROM instagram_messages GROUP BY thread_id ORDER BY last_at DESC LIMIT 100`);
+          return r.rows.map(row => ({ threadId: row.thread_id, lastAt: row.last_at, messageCount: row.msg_count }));
+        },
+        async getInstagramMessages(threadId) {
+          const r = await pool.query('SELECT sender_id, direction, text, created_at FROM instagram_messages WHERE thread_id=$1 ORDER BY created_at ASC', [threadId]);
+          return r.rows.map(row => ({ senderId: row.sender_id, direction: row.direction, text: row.text, createdAt: row.created_at }));
+        }
       };
     }
   }
@@ -102,7 +115,23 @@ module.exports = function mountOffice(app, requireAuth) {
       async banIp(ip, reason) { const bans = readJSONFile(BANS_FILE, []); const existing = bans.find(b => b.ip === ip); if (existing) existing.reason = reason; else bans.push({ ip, reason: reason || '', banned_at: new Date().toISOString() }); writeJSONFile(BANS_FILE, bans); },
       async unbanIp(ip) { const bans = readJSONFile(BANS_FILE, []).filter(b => b.ip !== ip); writeJSONFile(BANS_FILE, bans); },
       async getDbSizeBytes() { try { return [STATE_FILE, CRASH_FILE, VISITORS_FILE, BANS_FILE].reduce((sum, f) => sum + (fs.existsSync(f) ? fs.statSync(f).size : 0), 0); } catch (e) { return 0; } },
-      async getVisitorCount() { return readJSONFile(VISITORS_FILE, []).length; }
+      async getVisitorCount() { return readJSONFile(VISITORS_FILE, []).length; },
+      async saveInstagramMessage(threadId, senderId, direction, text, raw) {
+        const all = readJSONFile(IG_FILE, []);
+        all.push({ threadId, senderId, direction, text: text || '', raw: raw || {}, createdAt: new Date().toISOString() });
+        writeJSONFile(IG_FILE, all.slice(-5000));
+      },
+      async getInstagramThreads() {
+        const all = readJSONFile(IG_FILE, []);
+        const byThread = {};
+        all.forEach(m => { if (!byThread[m.threadId] || m.createdAt > byThread[m.threadId].lastAt) byThread[m.threadId] = { threadId: m.threadId, lastAt: m.createdAt }; });
+        const counts = {};
+        all.forEach(m => { counts[m.threadId] = (counts[m.threadId] || 0) + 1; });
+        return Object.values(byThread).map(t => ({ ...t, messageCount: counts[t.threadId] })).sort((a, b) => (b.lastAt > a.lastAt ? 1 : -1)).slice(0, 100);
+      },
+      async getInstagramMessages(threadId) {
+        return readJSONFile(IG_FILE, []).filter(m => m.threadId === threadId).sort((a, b) => (a.createdAt > b.createdAt ? 1 : -1));
+      }
     };
   }
 
@@ -255,6 +284,92 @@ module.exports = function mountOffice(app, requireAuth) {
       });
       const data = await anthropicRes.json();
       res.status(anthropicRes.status).json(data);
+    } catch (e) { res.status(502).json({ error: e.message }); }
+  });
+
+  // ── Instagram — Alex's channel. Real Meta webhook (verification +
+  // incoming DMs) and a real send-reply endpoint via the Graph API.
+  // Needs INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_VERIFY_TOKEN (you choose this
+  // one — used only during Meta's webhook setup handshake), and
+  // optionally INSTAGRAM_APP_SECRET for verifying incoming webhook
+  // signatures (recommended — without it, anyone who finds your webhook
+  // URL could send fake "messages").
+  const crypto = require('crypto');
+
+  // Meta's webhook verification handshake — GET with hub.challenge.
+  app.get('/office/api/instagram/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+    if (mode === 'subscribe' && token === process.env.INSTAGRAM_VERIFY_TOKEN && process.env.INSTAGRAM_VERIFY_TOKEN) {
+      return res.status(200).send(challenge);
+    }
+    res.sendStatus(403);
+  });
+
+  // Real incoming messages. Signature verification needs the RAW request
+  // body bytes — but your existing global express.json() (in index.js)
+  // already parses the body before this route ever sees it, so a
+  // route-specific raw() parser here can't recover the original bytes.
+  // Fix: run add-rawbody-capture.js once — it adds a tiny `verify` hook
+  // to your existing express.json() call that stashes the raw bytes on
+  // req.rawBody for every request. Until you run that, this still WORKS
+  // (accepts real messages), it just can't verify the signature and says
+  // so honestly instead of silently pretending it's secure.
+  app.post('/office/api/instagram/webhook', (req, res) => {
+    const appSecret = process.env.INSTAGRAM_APP_SECRET;
+    if (appSecret && req.rawBody) {
+      const signature = req.header('X-Hub-Signature-256') || '';
+      const expected = 'sha256=' + crypto.createHmac('sha256', appSecret).update(req.rawBody).digest('hex');
+      if (signature !== expected) {
+        console.warn('⚠ Instagram webhook: signature mismatch — rejecting a message that did not really come from Meta.');
+        return res.sendStatus(403);
+      }
+    } else if (appSecret && !req.rawBody) {
+      console.warn('⚠ Instagram webhook: INSTAGRAM_APP_SECRET is set but req.rawBody is missing — run add-rawbody-capture.js once to enable real signature verification. Accepting this message WITHOUT verification for now.');
+    } else {
+      console.warn('⚠ Instagram webhook: INSTAGRAM_APP_SECRET not set — incoming messages are NOT signature-verified. Set it for real security.');
+    }
+    const body = req.body;
+    res.sendStatus(200); // ack immediately, per Meta's requirements — process after
+
+    try {
+      if (body && body.object === 'instagram' && Array.isArray(body.entry)) {
+        body.entry.forEach(entry => {
+          (entry.messaging || []).forEach(evt => {
+            if (evt.message && evt.message.text) {
+              const threadId = evt.sender.id;
+              store.saveInstagramMessage(threadId, evt.sender.id, 'in', evt.message.text, evt).catch(() => {});
+            }
+          });
+        });
+      }
+    } catch (e) { console.error('Instagram webhook processing error:', e.message); }
+  });
+
+  app.get('/office/api/instagram/threads', requireOfficeApiKey, async (req, res) => {
+    try { res.json(await store.getInstagramThreads()); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.get('/office/api/instagram/messages/:threadId', requireOfficeApiKey, async (req, res) => {
+    try { res.json(await store.getInstagramMessages(req.params.threadId)); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  // Real send — Alex's actual reply goes out through this, using your
+  // real INSTAGRAM_ACCESS_TOKEN via the Graph API.
+  app.post('/office/api/instagram/reply', requireOfficeApiKey, async (req, res) => {
+    const { threadId, text } = req.body || {};
+    if (!threadId || !text) return res.status(400).json({ error: 'threadId and text are required' });
+    const token = process.env.INSTAGRAM_ACCESS_TOKEN;
+    if (!token) return res.status(503).json({ error: 'INSTAGRAM_ACCESS_TOKEN is not set on the server yet.' });
+    try {
+      const igRes = await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(token)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recipient: { id: threadId }, message: { text } })
+      });
+      const data = await igRes.json();
+      if (!igRes.ok) return res.status(igRes.status).json({ error: data.error ? data.error.message : 'Instagram API error', raw: data });
+      await store.saveInstagramMessage(threadId, 'page', 'out', text, data);
+      res.json({ ok: true, data });
     } catch (e) { res.status(502).json({ error: e.message }); }
   });
 
