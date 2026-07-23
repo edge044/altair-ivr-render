@@ -15771,7 +15771,7 @@ demoAgencyState.budgetAfk = demoAgencyState.budgetAfk || [];
 // localStorage, so it never touches real data the owner adds afterward —
 // only clears the ORIGINAL canned content on first load after this update.
 // ═══════════════════════════════════════════════════════════════
-const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v2'; // bumped so anyone who already ran v1 gets the fuller cleanup
+const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v3'; // bumped again — v2 missed qualityScores, which was leaking fake-company practice questions
 function resetToLiveLaunch() {
   let alreadyDone = false;
   try { alreadyDone = localStorage.getItem(LIVE_LAUNCH_LS_KEY) === '1'; } catch (e) {}
@@ -15809,6 +15809,11 @@ function resetToLiveLaunch() {
   s.autopilotRules = [];
   s.escalationMatrix = [];
   s.workerPlaybooks = [];
+  // Quality scores were hardcoded low in the demo (to make practice
+  // questions show up for the tour) — that also drags in fake-company
+  // examples from PRACTICE_QUESTION_POOL. Reset to neutral so nothing
+  // shows until real quality data exists.
+  s.qualityScores = {};
   if (s.leanEngine) {
     s.leanEngine.signalPacks = [];
     s.leanEngine.batches = [];

@@ -349,7 +349,7 @@ function mountOffice(app, requireAuth) {
   const burstCounts = new Map(); // ip -> { count, windowStart }
   const RATE_LIMIT_MAX = 300;
   const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-  const BURST_MAX = 40;
+  const BURST_MAX = 150; // raised — the app's own polling (health ping, live feed, project auto-refresh) across a few open tabs can legitimately hit 40-80/10s; a real attack still fires far more than 150
   const BURST_WINDOW_MS = 10 * 1000;
   app.use((req, res, next) => {
     const ip = getClientIp(req);
