@@ -10789,6 +10789,30 @@ function syncProjectsToCloud() {
 }
 function activeProjects() { return demoAgencyState.projectsList.filter(p => p.status === 'active'); }
 function findProject(id) { return demoAgencyState.projectsList.find(p => p.id === id); }
+
+// ── Real progress — computed from real milestones that actually happened
+// (not a fake progress bar). Report generation and estimate are honest:
+// the % reflects real events, the time is a clearly-labeled rough guess,
+// not a real prediction (there's no real background work queue with a
+// knowable duration).
+function computeProjectProgress(p) {
+  if (p.status === 'closed') return 100;
+  let pct = 10;
+  if (p.milaAssessment) pct = Math.max(pct, 35);
+  const chatterExchanges = p.chatHistory.filter(m => m.from === 'chatter').length;
+  pct = Math.max(pct, 35 + Math.min(30, chatterExchanges * 10));
+  const hasReport = demoAgencyState.reports.some(r => r.projectId === p.id);
+  if (hasReport) pct = Math.max(pct, 90);
+  return Math.min(99, pct); // never shows 100 until actually closed
+}
+function estimateTimeRemaining(p) {
+  const pct = computeProjectProgress(p);
+  if (p.status === 'closed') return 'Done';
+  const importanceMult = { Low: 0.7, Normal: 1, High: 1.3, Urgent: 1.6 }[p.importance] || 1;
+  const teamMult = Math.max(0.5, 1.2 - ((p.distribution.length || 1) * 0.1));
+  const roughMinutes = Math.max(1, Math.round((100 - pct) * 0.6 * importanceMult * teamMult));
+  return roughMinutes < 60 ? `~${roughMinutes} min` : `~${(roughMinutes / 60).toFixed(1)}h`;
+}
 function projectContextForAI(project) {
   const dist = project.distribution.map(d => `${agentNameById(d.agentId)}: ${d.task}`).join('; ');
   const recentChat = project.chatHistory.slice(-8).map(m => `${m.from === 'owner' ? 'Owner' : 'Mila'}: ${m.text}`).join('\n');
@@ -10830,9 +10854,29 @@ function renderProjectsFolder() {
 }
 
 let openProjectId = null;
+let projectDetailPollTimer = null;
 function openProjectDetail(id) {
   openProjectId = id;
   renderAgencyTab('project-detail');
+  startProjectDetailPolling();
+}
+function startProjectDetailPolling() {
+  if (projectDetailPollTimer) clearInterval(projectDetailPollTimer);
+  projectDetailPollTimer = setInterval(async () => {
+    // Self-terminates once you've navigated away — no manual cleanup needed.
+    if (typeof agencyOSOpen === 'undefined' || !agencyOSOpen || activeAgencyTab !== 'project-detail') {
+      clearInterval(projectDetailPollTimer);
+      projectDetailPollTimer = null;
+      return;
+    }
+    if (typeof cloudAvailable === 'function' && cloudAvailable()) {
+      const fresh = await cloudLoad('projects');
+      if (Array.isArray(fresh)) demoAgencyState.projectsList = fresh;
+      const freshReports = await cloudLoad('reports');
+      if (Array.isArray(freshReports)) demoAgencyState.reports = freshReports;
+    }
+    if (activeAgencyTab === 'project-detail') renderAgencyTab('project-detail');
+  }, 6000);
 }
 function renderProjectDetailFolder() {
   const p = findProject(openProjectId);
@@ -10849,7 +10893,12 @@ function renderProjectDetailFolder() {
     <div class="aos-section">
       <div class="aos-card" style="border-left:3px solid ${!isRunning ? '#d8d8d4' : p.awaitingOwner ? '#a3781f' : '#1e7a45'};">
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${statusLine}</div>
-        <div style="font-size:11.5px;color:#9a9aa2;">Real AI usage on this project: ${(p.tokensUsed || 0).toLocaleString()} tokens · $${(p.costSoFar || 0).toFixed(4)}</div>
+        <div style="font-size:11.5px;color:#9a9aa2;margin-bottom:8px;">Real AI usage on this project: ${(p.tokensUsed || 0).toLocaleString()} tokens · $${(p.costSoFar || 0).toFixed(4)}</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="flex:1;height:6px;background:#ececea;border-radius:3px;overflow:hidden;"><div style="height:100%;width:${computeProjectProgress(p)}%;background:${p.status==='closed'?'#1e7a45':'#4f8ef7'};border-radius:3px;"></div></div>
+          <span style="font-size:11px;font-weight:600;white-space:nowrap;">${computeProjectProgress(p)}%</span>
+        </div>
+        <div style="font-size:10.5px;color:#b0aeae;margin-top:4px;">${p.status==='closed' ? 'Complete' : 'Rough estimate remaining: ' + estimateTimeRemaining(p) + ' — a guess based on importance/team size, not a real prediction'}</div>
       </div>
     </div>
 
@@ -10919,10 +10968,12 @@ async function sendProjectChatMessage(id) {
   p.awaitingOwner = false;
   renderAgencyTab('project-detail');
   addEventLogEntry('Owner', 'Project update', text.slice(0, 100), 'TASK', p.id);
+  addEventLogEntry('Mila', 'Real AI call started', `Thinking about: "${text.slice(0, 60)}"`, 'TASK', p.id);
 
   const system = `You are Mila. You have full real context on this specific project below — team assigned, what's been said so far. Answer EXACTLY what the owner just asked, specifically and concretely — do not recap team/budget status unless they actually asked about that. If they ask what you or the team is doing right now, describe the actual current step of the real work (referencing the real task list below), not a generic status update. You do not have live web browsing — never claim to have already fetched external data you don't have; describe your approach/plan specifically instead. If they told you to do something, confirm you're on it and say the concrete next step. Under 100 words. Only end with a question mark if you genuinely need their input to proceed — most updates don't need one.`;
   const user = `${projectContextForAI(p)}\n\nOwner just said: "${text}"`;
   const result = await callManetAI(system, user);
+  if (result.ok) addEventLogEntry('Mila', 'Real AI call completed', `${result.tokensUsed} tokens · $${result.cost.toFixed(4)} · ${result.cacheHit ? 'cache hit' : 'fresh'}`, 'TASK', p.id);
   let replyText;
   if (result.ok) {
     replyText = result.text;
@@ -10939,6 +10990,7 @@ async function sendProjectChatMessage(id) {
   p.currentActivity = p.awaitingOwner ? null : replyText.slice(0, 140);
   syncProjectsToCloud();
   if (openProjectId === id) renderAgencyTab('project-detail');
+  maybeAutoGenerateReport(id);
 }
 function closeProject(id) {
   const p = findProject(id);
@@ -11248,6 +11300,18 @@ async function realAgentCheckIn(projectId) {
   syncProjectsToCloud();
   if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
   if (openProjectId === projectId) renderAgencyTab('project-detail');
+  maybeAutoGenerateReport(p.id);
+}
+// Auto-delivers a real report once there's genuinely enough real progress
+// to report on — no button needed. Still real AI, real tokens, just
+// triggered automatically instead of waiting for a click.
+function maybeAutoGenerateReport(projectId) {
+  const p = findProject(projectId);
+  if (!p || p.status === 'closed') return;
+  const hasReport = demoAgencyState.reports.some(r => r.projectId === p.id);
+  if (hasReport) return;
+  if (computeProjectProgress(p) < 60) return;
+  generateProjectReport(projectId);
 }
 
 function renderTeamChat() {
