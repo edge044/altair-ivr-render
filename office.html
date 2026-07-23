@@ -2634,8 +2634,8 @@ const cloudSyncStatus = { lastResult: null, lastAttempt: null, lastLatencyMs: nu
 // right after without blocking the page.
 async function hydrateFromCloud() {
   if (!cloudAvailable()) return;
-  const [budget, spend, chat, it, projects, tickets] = await Promise.all([
-    cloudLoad('daily_budget'), cloudLoad('ai_spend'), cloudLoad('team_chat'), cloudLoad('it_panel'), cloudLoad('projects'), cloudLoad('tickets')
+  const [budget, spend, chat, it, projects, tickets, reports] = await Promise.all([
+    cloudLoad('daily_budget'), cloudLoad('ai_spend'), cloudLoad('team_chat'), cloudLoad('it_panel'), cloudLoad('projects'), cloudLoad('tickets'), cloudLoad('reports')
   ]);
   if (budget && Number.isFinite(budget.dollars)) applyDailyBudget(budget.dollars);
   if (spend && typeof spend === 'object' && Number.isFinite(spend.dollars)) {
@@ -2661,6 +2661,10 @@ async function hydrateFromCloud() {
   if (Array.isArray(tickets)) {
     ticketState = tickets;
     if (typeof itState !== 'undefined' && itState.opened && itTopTab === 'ops') renderITBody();
+  }
+  if (Array.isArray(reports)) {
+    demoAgencyState.reports = reports;
+    if (typeof agencyOSOpen !== 'undefined' && agencyOSOpen && (activeAgencyTab === 'reports' || activeAgencyTab === 'project-detail')) renderAgencyTab(activeAgencyTab);
   }
   if (typeof agencyOSOpen !== 'undefined' && agencyOSOpen && activeAgencyTab === 'settings') renderAgencyTab('settings');
 }
@@ -10835,6 +10839,7 @@ function renderProjectDetailFolder() {
   if (!p) return `<div class="aos-sub">Project not found. <a href="#" onclick="openFolder('projects');return false;">Back to Projects</a></div>`;
   const timeline = demoAgencyState.eventLog.filter(e => e.related === p.id).slice().reverse();
   const competitorNames = Object.keys(p.analyses.competitors || {});
+  const projectReports = demoAgencyState.reports.filter(r => r.projectId === p.id);
   const isRunning = p.status === 'active';
   const statusLine = !isRunning ? '⚪ Closed — not running' : (p.awaitingOwner ? '⏳ Waiting on you to reply' : '🟢 Running — ' + (p.currentActivity || 'team working'));
   return `
@@ -10872,10 +10877,23 @@ function renderProjectDetailFolder() {
     </div>
 
     <div class="aos-section">
+      <div class="aos-section-title">Reports</div>
+      <div class="aos-card">
+        ${projectReports.length ? projectReports.map(r => `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05);font-size:12.5px;display:flex;justify-content:space-between;align-items:center;"><span>${escapeHtml(r.title)} · ${escapeHtml(r.created)}</span><button class="aos-btn soft-blue" style="padding:3px 10px;font-size:11px;" onclick="openReportViewer('${r.id}')">Open</button></div>`).join('') : '<div style="color:#9a9aa2;font-size:12.5px;margin-bottom:8px;">No report generated yet — the chart and numbers come from this project&#39;s real activity, only the write-up uses real AI.</div>'}
+        <button class="aos-btn primary" id="gen-report-btn" style="margin-top:8px;" onclick="generateProjectReport('${p.id}')">📊 Generate real report</button>
+        <button class="aos-btn" id="checkin-btn" style="margin-top:8px;margin-left:8px;" onclick="realAgentCheckIn('${p.id}')">🤝 Real team check-in</button>
+      </div>
+    </div>
+
+    <div class="aos-section">
       <div class="aos-section-title">Chat with Mila about this project</div>
       <div class="aos-card-note" style="padding:2px 2px 10px;">She has this project's full history as real context. Say what needs fixing, or say it's all good. Type <code>/project closed</code> to close it — you can always resume later.</div>
       <div id="project-chat-messages" style="max-height:320px;overflow-y:auto;margin-bottom:10px;">
-        ${p.chatHistory.map(m => `<div style="margin-bottom:8px;"><b style="font-size:12px;">${m.from === 'owner' ? 'You' : 'Mila'}</b> <span style="color:#9a9aa2;font-size:10.5px;">${m.time}</span><div style="font-size:12.5px;white-space:pre-wrap;">${escapeHtml(m.text)}</div></div>`).join('') || '<div style="color:#9a9aa2;font-size:12.5px;">No messages yet.</div>'}
+        ${p.chatHistory.map(m => {
+          const fromName = m.from === 'owner' ? 'You' : m.from === 'chatter' ? agentNameById(m.agentId) : 'Mila';
+          const toNote = m.from === 'chatter' && m.toAgentId ? ` → ${escapeHtml(agentNameById(m.toAgentId))}` : '';
+          return `<div style="margin-bottom:8px;"><b style="font-size:12px;">${escapeHtml(fromName)}${toNote}</b> <span style="color:#9a9aa2;font-size:10.5px;">${m.time}</span><div style="font-size:12.5px;white-space:pre-wrap;${m.from==='chatter'?'font-style:italic;color:#5a5a62;':''}">${escapeHtml(m.text)}</div></div>`;
+        }).join('') || '<div style="color:#9a9aa2;font-size:12.5px;">No messages yet.</div>'}
       </div>
       ${p.status === 'active' ? `
       <div style="display:flex;gap:8px;">
@@ -11181,6 +11199,55 @@ function generateAgentChatter(project, keptIds) {
   pushAgentChatterMessage(a, b, lineA(shortTitle));
   setTimeout(() => { pushAgentChatterMessage(b, a, lineB(shortTitle)); if (teamChatState.opened) renderTeamChat(); }, 500);
   if (teamChatState.opened) renderTeamChat();
+}
+
+// ── Real AI-to-AI check-in — genuine AI decides what to say and who (if
+// anyone) needs looping in, using real tokens (tracked on the project,
+// same as any other real call). Behind a button, not automatic, so it
+// only spends real money when you actually want a real exchange.
+async function realAgentCheckIn(projectId) {
+  const p = findProject(projectId);
+  if (!p) return;
+  const teamIds = p.distribution.map(d => d.agentId).filter(id => id !== 'blue');
+  if (!teamIds.length) { alert('No teammates assigned to this project yet.'); return; }
+
+  const btn = document.getElementById('checkin-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Checking in…'; }
+
+  const initiatorId = teamIds[Math.floor(Math.random() * teamIds.length)];
+  const initiatorName = agentNameById(initiatorId);
+  const otherIds = teamIds.filter(id => id !== initiatorId);
+  const otherNames = otherIds.map(agentNameById);
+
+  const sys1 = `You are ${initiatorName}, a real teammate on this project. Other real teammates on it: ${otherNames.join(', ') || 'no one else'}. Given the real project context below, write ONE short, specific message (under 35 words) to whichever teammate you'd genuinely need to check in with about this real work — reference something concrete from the actual project context, and say their name at the start. If nobody genuinely needs checking in with right now, say that briefly instead, in your own voice.`;
+  const result1 = await callManetAI(sys1, projectContextForAI(p));
+
+  if (!result1.ok) {
+    if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
+    alert('Could not reach real AI: ' + result1.error);
+    return;
+  }
+  p.tokensUsed = (p.tokensUsed || 0) + (result1.tokensUsed || 0);
+  p.costSoFar = (p.costSoFar || 0) + (result1.cost || 0);
+  const addressedId = otherIds.find(id => result1.text.toLowerCase().includes(agentNameById(id).toLowerCase()));
+  p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result1.text, time: aosNowTime() });
+  syncProjectsToCloud();
+  if (openProjectId === projectId) renderAgencyTab('project-detail');
+
+  if (addressedId) {
+    const sys2 = `You are ${agentNameById(addressedId)}, a real teammate. Your teammate ${initiatorName} just said this to you about the real project you're both on: "${result1.text}". Reply briefly and specifically (under 30 words) — actually respond to what they said, don't restate it.`;
+    const result2 = await callManetAI(sys2, projectContextForAI(p));
+    if (result2.ok) {
+      p.tokensUsed = (p.tokensUsed || 0) + (result2.tokensUsed || 0);
+      p.costSoFar = (p.costSoFar || 0) + (result2.cost || 0);
+      p.chatHistory.push({ from: 'chatter', agentId: addressedId, toAgentId: initiatorId, text: result2.text, time: aosNowTime() });
+    }
+  }
+
+  addEventLogEntry(initiatorName, 'Real team check-in', `Real AI exchange between teammates on "${p.title.slice(0, 50)}".`, 'TASK', p.id);
+  syncProjectsToCloud();
+  if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
+  if (openProjectId === projectId) renderAgencyTab('project-detail');
 }
 
 function renderTeamChat() {
@@ -14391,11 +14458,11 @@ function renderReports() {
     ${demoAgencyState.reports.map(r => `
       <div class="aos-report-card">
         <div style="display:flex;align-items:center;justify-content:space-between;">
-          <b style="font-size:14.5px;">${r.title}</b>
-          <span class="aos-badge status-${r.status === 'Ready' ? 'resolved' : 'pending'}">${r.status}</span>
+          <b style="font-size:14.5px;">${escapeHtml(r.title)}</b>
+          <span class="aos-badge status-${r.status === 'Ready' ? 'resolved' : 'pending'}">${escapeHtml(r.status)}</span>
         </div>
-        <div style="font-size:11.5px;color:#9a9aa2;margin:2px 0 8px;">${r.owner} · ${r.created} · Confidence: ${r.confidence}</div>
-        <div style="font-size:12.3px;color:#45454e;line-height:1.6;">${r.summary}</div>
+        <div style="font-size:11.5px;color:#9a9aa2;margin:2px 0 8px;">${escapeHtml(r.owner)} · ${escapeHtml(r.created)} · Confidence: ${escapeHtml(r.confidence)}</div>
+        <div style="font-size:12.3px;color:#45454e;line-height:1.6;">${escapeHtml(r.summary)}</div>
         <div style="margin-top:10px;">
           <button class="aos-btn soft-blue" onclick="openReportViewer('${r.id}')">Open report</button>
           ${r.status !== 'Ready' ? `<button class="aos-btn" style="margin-left:8px;" onclick="markReportReady('${r.id}')">Mark ready</button>` : ''}
@@ -14415,8 +14482,8 @@ function openReportViewer(id) {
     <div class="aos-report-viewer" id="aos-report-print-area">
       <div class="aos-report-viewer-head">
         <div>
-          <div class="aos-h1" style="margin-bottom:2px;">${r.title}</div>
-          <div class="aos-sub" style="margin-bottom:0;">${r.owner} · ${r.created}</div>
+          <div class="aos-h1" style="margin-bottom:2px;">${escapeHtml(r.title)}</div>
+          <div class="aos-sub" style="margin-bottom:0;">${escapeHtml(r.owner)} · ${escapeHtml(r.created)}</div>
         </div>
         <div style="display:flex;gap:8px;">
           <button class="aos-btn" onclick="renderAgencyTab('reports')">← Back</button>
@@ -14426,57 +14493,116 @@ function openReportViewer(id) {
 
       <div class="aos-card aos-section" style="margin-top:16px;">
         <div class="aos-card-label">Summary</div>
-        <div style="font-size:12.5px;color:#45454e;line-height:1.6;">${r.summary}</div>
+        <div style="font-size:12.5px;color:#45454e;line-height:1.6;">${escapeHtml(r.summary)}</div>
       </div>
 
       <div class="aos-card aos-section">
         <div class="aos-card-label">Findings</div>
         <ul class="aos-fix-list">
-          ${r.findings.map(f => `<li>${f}</li>`).join('')}
+          ${r.findings.map(f => `<li>${escapeHtml(f)}</li>`).join('')}
         </ul>
       </div>
 
       <div class="aos-card aos-section">
-        <div class="aos-card-label">Chart</div>
-        ${r.chart === 'bars' ? svgReportBarChart() : svgReportLineChart()}
+        <div class="aos-card-label">Chart ${r.chartData ? '— real, from this project\'s actual event log' : ''}</div>
+        ${r.chart === 'bars' ? svgReportBarChart(r.chartData) : svgReportLineChart(r.chartData)}
       </div>
 
       <div class="aos-card aos-section">
         <div class="aos-card-label">Evidence</div>
         <div style="font-size:12.3px;color:#45454e;">
-          ${r.evidence.map(e => `<div>• ${e}</div>`).join('')}
+          ${r.evidence.map(e => `<div>• ${escapeHtml(e)}</div>`).join('')}
         </div>
       </div>
 
       <div class="aos-card">
         <div class="aos-card-label">Confidence</div>
-        <div style="font-size:13px;">${r.confidence}</div>
+        <div style="font-size:13px;">${escapeHtml(r.confidence)}</div>
       </div>
     </div>
   `;
 }
 
-function svgReportBarChart() {
-  const vals = [6, 9, 5, 11, 8, 13];
-  const max = Math.max(...vals);
-  const barW = 26, gap = 12, h = 80;
-  return `<svg viewBox="0 0 260 100" width="100%" height="110" preserveAspectRatio="none">
-    ${vals.map((v, i) => {
-      const bh = (v / max) * h;
+function svgReportBarChart(data, opts) {
+  opts = opts || {};
+  data = (data && data.length) ? data : [{ label: 'No data', value: 0 }];
+  const color = opts.color || '#4f8ef7';
+  const max = Math.max(...data.map(d => d.value), 1);
+  const barW = Math.max(18, Math.min(40, 220 / data.length - 8)), gap = 10, h = 80;
+  const totalW = Math.max(260, data.length * (barW + gap));
+  return `<svg viewBox="0 0 ${totalW} ${h + 26}" width="100%" height="${h + 36}" preserveAspectRatio="xMinYMid meet">
+    ${data.map((d, i) => {
+      const bh = (d.value / max) * h;
       const x = i * (barW + gap);
-      return `<rect x="${x}" y="${h - bh}" width="${barW}" height="${bh}" rx="3" fill="#4f8ef7" opacity="0.85"></rect>`;
+      return `<rect x="${x}" y="${h - bh}" width="${barW}" height="${bh}" rx="3" fill="${color}" opacity="0.85"><title>${escapeHtml(String(d.label))}: ${d.value}</title></rect>
+      <text x="${x + barW / 2}" y="${h - bh - 4}" text-anchor="middle" font-size="9" fill="#4a4a4a">${d.value}</text>
+      <text x="${x + barW / 2}" y="${h + 16}" text-anchor="middle" font-size="8" fill="#8a8a92">${escapeHtml(String(d.label)).slice(0, 12)}</text>`;
     }).join('')}
   </svg>`;
 }
 
-function svgReportLineChart() {
-  const points = [3, 5, 4, 7, 6, 8, 7, 9, 10, 9];
-  const w = 260, h = 80, max = Math.max(...points);
-  const step = w / (points.length - 1);
-  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i*step).toFixed(1)},${(h - (p/max)*h).toFixed(1)}`).join(' ');
+function svgReportLineChart(points, opts) {
+  opts = opts || {};
+  points = (points && points.length) ? points : [0];
+  const w = 260, h = 80, max = Math.max(...points, 1);
+  const step = points.length > 1 ? w / (points.length - 1) : 0;
+  const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(h - (p / max) * h).toFixed(1)}`).join(' ');
   return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="90" preserveAspectRatio="none">
-    <path d="${path}" fill="none" stroke="#86efac" stroke-width="2.5"></path>
+    <path d="${path}" fill="none" stroke="${opts.color || '#86efac'}" stroke-width="2.5"></path>
   </svg>`;
+}
+
+// ── Real project reports — the DATA and CHART are computed by real code
+// from real project state (zero AI tokens). AI is only used to write the
+// short narrative interpretation, grounded in the real numbers given to
+// it — it's told explicitly not to invent data or attempt to draw a chart.
+async function generateProjectReport(projectId) {
+  const p = findProject(projectId);
+  if (!p) return;
+  const btn = document.getElementById('gen-report-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+
+  const events = demoAgencyState.eventLog.filter(e => e.related === p.id);
+  const byCategory = {};
+  events.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + 1; });
+  const catData = Object.entries(byCategory).map(([label, value]) => ({ label, value }));
+
+  const durationMs = Date.now() - new Date(p.createdAtFull || Date.now()).getTime();
+  const durationLabel = durationMs > 86400000 ? Math.round(durationMs / 86400000) + 'd' : Math.max(1, Math.round(durationMs / 3600000)) + 'h';
+  const teamList = p.distribution.map(d => `${agentNameById(d.agentId)}: ${d.task}`).join('; ') || 'none assigned';
+
+  const system = `You are Mila writing a short, honest owner-facing report. You'll be given REAL data about a real project — use it directly and specifically, never invent numbers not given to you. Write exactly: one headline sentence (the single most important real finding), then 3-4 short bullet findings each referencing the actual data given, then one clear, specific recommendation. Do not describe, mention, or attempt to draw any chart — a real chart is rendered separately by real code, not by you. Under 150 words total. Plain text, one bullet per line starting with "-".`;
+  const user = `Project: "${p.title}"\nStatus: ${p.status}${p.awaitingOwner ? ' (waiting on owner)' : ''}\nTeam: ${teamList}\nRunning for: ${durationLabel}\nMessages exchanged with owner: ${p.chatHistory.length}\nReal AI spend on this project: ${p.tokensUsed || 0} tokens ($${(p.costSoFar || 0).toFixed(4)})\nReal event breakdown: ${catData.map(c => c.label + ': ' + c.value).join(', ') || 'none logged'}\nMila's latest real note: ${p.currentActivity || p.milaAssessment || 'none yet'}`;
+
+  const result = await callManetAI(system, user);
+  const lines = result.ok ? result.text.split('\n').map(l => l.trim()).filter(Boolean) : [];
+  const headline = result.ok ? (lines[0] || result.text.slice(0, 120)) : `Real data report for "${p.title}" — AI narrative unavailable (${result.error || 'unreachable'}), numbers below are still real.`;
+  const findings = result.ok
+    ? lines.slice(1).filter(l => l.startsWith('-')).map(l => l.replace(/^-\s*/, ''))
+    : [`${events.length} real event(s) logged for this project`, `${p.distribution.length} teammate(s) assigned: ${teamList}`, `Real AI spend so far: $${(p.costSoFar || 0).toFixed(4)} (${p.tokensUsed || 0} tokens)`, `Running for ${durationLabel}, status: ${p.status}`];
+
+  const report = {
+    id: 'RPT-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+    title: `${p.title.length > 50 ? p.title.slice(0, 47) + '...' : p.title} — Report`,
+    owner: 'Mila — Creative Director',
+    created: aosNowTime(),
+    status: 'Ready',
+    confidence: result.ok ? `Real project data + real AI narrative (${result.tokensUsed} tokens, $${result.cost.toFixed(4)})` : 'Real project data only — AI narrative unavailable',
+    summary: headline,
+    findings: findings.length ? findings : ['No findings recorded yet.'],
+    evidence: [`Project ID: ${p.id}`, `Created ${p.createdAt}`, `${events.length} real event(s) in this project's timeline`, `Team: ${teamList}`],
+    chart: 'bars',
+    chartData: catData,
+    projectId: p.id
+  };
+  demoAgencyState.reports.unshift(report);
+  if (result.ok) { p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0); p.costSoFar = (p.costSoFar || 0) + (result.cost || 0); }
+  addEventLogEntry('Mila', 'Report generated', `Real report for "${p.title}" — ${result.ok ? 'AI narrative + real data' : 'real data only, AI unreachable'}.`, 'REPORT', p.id);
+  syncProjectsToCloud();
+  if (typeof cloudSave === 'function') cloudSave('reports', demoAgencyState.reports);
+  if (btn) { btn.disabled = false; btn.textContent = '📊 Generate real report'; }
+  if (openProjectId === projectId) renderAgencyTab('project-detail');
+  return report;
 }
 
 function markReportReady(id) {
