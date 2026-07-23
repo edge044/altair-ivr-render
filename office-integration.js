@@ -75,7 +75,9 @@ module.exports = function mountOffice(app, requireAuth) {
         async isBanned(ip) { const r = await pool.query('SELECT 1 FROM office_bans WHERE ip=$1', [ip]); return r.rows.length > 0; },
         async getBans() { const r = await pool.query('SELECT ip, reason, banned_at FROM office_bans ORDER BY banned_at DESC'); return r.rows; },
         async banIp(ip, reason) { await pool.query('INSERT INTO office_bans (ip,reason) VALUES ($1,$2) ON CONFLICT (ip) DO UPDATE SET reason=$2', [ip, reason || '']); },
-        async unbanIp(ip) { await pool.query('DELETE FROM office_bans WHERE ip=$1', [ip]); }
+        async unbanIp(ip) { await pool.query('DELETE FROM office_bans WHERE ip=$1', [ip]); },
+        async getDbSizeBytes() { const r = await pool.query('SELECT pg_database_size(current_database()) AS size'); return parseInt(r.rows[0].size, 10); },
+        async getVisitorCount() { const r = await pool.query('SELECT COUNT(*)::int AS c FROM office_visitors'); return r.rows[0].c; }
       };
     }
   }
@@ -98,7 +100,9 @@ module.exports = function mountOffice(app, requireAuth) {
       async isBanned(ip) { const bans = readJSONFile(BANS_FILE, []); return bans.some(b => b.ip === ip); },
       async getBans() { return readJSONFile(BANS_FILE, []); },
       async banIp(ip, reason) { const bans = readJSONFile(BANS_FILE, []); const existing = bans.find(b => b.ip === ip); if (existing) existing.reason = reason; else bans.push({ ip, reason: reason || '', banned_at: new Date().toISOString() }); writeJSONFile(BANS_FILE, bans); },
-      async unbanIp(ip) { const bans = readJSONFile(BANS_FILE, []).filter(b => b.ip !== ip); writeJSONFile(BANS_FILE, bans); }
+      async unbanIp(ip) { const bans = readJSONFile(BANS_FILE, []).filter(b => b.ip !== ip); writeJSONFile(BANS_FILE, bans); },
+      async getDbSizeBytes() { try { return [STATE_FILE, CRASH_FILE, VISITORS_FILE, BANS_FILE].reduce((sum, f) => sum + (fs.existsSync(f) ? fs.statSync(f).size : 0), 0); } catch (e) { return 0; } },
+      async getVisitorCount() { return readJSONFile(VISITORS_FILE, []).length; }
     };
   }
 
@@ -247,6 +251,22 @@ module.exports = function mountOffice(app, requireAuth) {
   });
   app.get('/office/api/admin/bans', requireAuth, async (req, res) => {
     try { res.json(await store.getBans()); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  // ── Real server health — uptime since last restart, real cloud storage
+  // size (not localStorage — the actual database), total real visitors.
+  app.get('/office/api/server-info', requireOfficeApiKey, async (req, res) => {
+    try {
+      const info = {
+        uptimeSeconds: Math.round(process.uptime()),
+        storageKind: store.kind,
+        nodeVersion: process.version
+      };
+      if (store.kind === 'postgres' && typeof store.getDbSizeBytes === 'function') {
+        info.dbSizeBytes = await store.getDbSizeBytes();
+      }
+      info.visitorCount = typeof store.getVisitorCount === 'function' ? await store.getVisitorCount() : null;
+      res.json(info);
+    } catch (e) { res.status(500).json({ error: e.message }); }
   });
   app.post('/office/api/admin/ban', requireAuth, async (req, res) => {
     const { ip, reason } = req.body || {};

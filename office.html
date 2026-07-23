@@ -2662,6 +2662,7 @@ function renderITBody() {
   } else if (itTopTab === 'ops') {
     wrap.innerHTML = renderITOpsTab();
     loadCrossSessionCard();
+    loadServerInfoCard();
   }
 }
 function updateITBadge() {
@@ -3721,7 +3722,10 @@ function renderITOpsTab() {
 
   return `
     <div class="it-ops-wrap">
-      <div class="it-rack-title">TICKETS — real bug lifecycle (${openTickets.length} open, ${resolvedCount} resolved)</div>
+      <div class="it-rack-title">SERVER — real, from your actual deployment</div>
+      <div class="it-ops-card" id="it-server-info-card"><div style="color:#6d6f78;font-size:11.5px;">Loading real server info…</div></div>
+
+      <div class="it-rack-title" style="margin-top:22px;">TICKETS — real bug lifecycle (${openTickets.length} open, ${resolvedCount} resolved)</div>
       <div class="it-ops-card">${ticketsHtml}</div>
 
       <div class="it-rack-title" style="margin-top:22px;">TRENDS — ${rangeCaption}</div>
@@ -3773,6 +3777,44 @@ async function loadCrossSessionCard() {
   card.innerHTML = summary.slice(0, 15).map(s => `
     <div class="it-stat-row"><span>${escapeHtml(s.message || s.fingerprint)}</span><b style="color:#f26363;">${s.totalCount}× across ${s.sessionCount} session${s.sessionCount === 1 ? '' : 's'}</b></div>
   `).join('');
+}
+
+function formatBytes(bytes) {
+  if (bytes == null) return '—';
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+}
+function formatUptime(seconds) {
+  if (seconds == null) return '—';
+  const d = Math.floor(seconds / 86400), h = Math.floor((seconds % 86400) / 3600), m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+async function loadServerInfoCard() {
+  const card = document.getElementById('it-server-info-card');
+  if (!card) return;
+  if (typeof cloudAvailable !== 'function' || !cloudAvailable()) {
+    card.innerHTML = '<div style="color:#6d6f78;font-size:11.5px;">Connect Cloud Sync in Settings to see real server info (uptime, real cloud storage size, real visitor count).</div>';
+    return;
+  }
+  try {
+    const res = await fetch(`${CLOUD_API_BASE}/server-info`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const info = await res.json();
+    if (!card || !document.body.contains(card)) return;
+    const storageLabel = info.storageKind === 'postgres' ? 'Postgres (persists across deploys)' : 'Local JSON file (Render wipes this on deploy!)';
+    card.innerHTML = `
+      <div class="it-stat-row"><span>Server uptime (since last restart)</span><b>${formatUptime(info.uptimeSeconds)}</b></div>
+      <div class="it-stat-row"><span>Storage backend</span><b style="color:${info.storageKind === 'postgres' ? '#6fcfa8' : '#f26363'};">${storageLabel}</b></div>
+      ${info.dbSizeBytes != null ? `<div class="it-stat-row"><span>Real cloud database size</span><b>${formatBytes(info.dbSizeBytes)}</b></div>` : ''}
+      <div class="it-stat-row" style="border-bottom:none;"><span>Total real visitors logged</span><b>${info.visitorCount != null ? info.visitorCount.toLocaleString() : '—'}</b></div>
+    `;
+  } catch (e) {
+    if (card && document.body.contains(card)) card.innerHTML = `<div style="color:#b8433a;font-size:11.5px;">Could not load server info: ${escapeHtml(e.message)}</div>`;
+  }
 }
 
 
@@ -14938,7 +14980,7 @@ demoAgencyState.budgetAfk = demoAgencyState.budgetAfk || [];
 // localStorage, so it never touches real data the owner adds afterward —
 // only clears the ORIGINAL canned content on first load after this update.
 // ═══════════════════════════════════════════════════════════════
-const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v1';
+const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v2'; // bumped so anyone who already ran v1 gets the fuller cleanup
 function resetToLiveLaunch() {
   let alreadyDone = false;
   try { alreadyDone = localStorage.getItem(LIVE_LAUNCH_LS_KEY) === '1'; } catch (e) {}
