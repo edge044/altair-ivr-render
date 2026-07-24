@@ -10517,7 +10517,7 @@ function renderPracticeMemory(sub) {
     </div>
     <div class="aos-card aos-section" style="font-size:12px;color:#6f6f78;line-height:1.7;">
       Agency Memory will become persistent in Part 2. Guidance will be stored in the database, versioned, attributed to the owner, and retrieved before relevant AI work. Updating the site will not erase approved memory.
-      <div class="aos-demo-note" style="margin-top:8px;">Demo memory — permanent storage connects in Part 2.</div>
+      <div class="aos-demo-note" style="margin-top:8px;">Permanent cross-session memory storage is planned but not wired up yet.</div>
     </div>
     ${renderTasteSystem()}
     <div class="aos-section">
@@ -11649,14 +11649,29 @@ function sendTeamChatMessage() {
 async function getAgentAIReply(agentId, ownerText) {
   const a = demoAgencyState.agents.find(x => x.id === agentId);
   const lo = demoAgencyState.liveOpsUpdates.find(u => u.agentId === agentId);
-  const budgetPaused = (demoAgencyState.budgetAfk || []).includes(agentId);
   const isDirector = agentId === 'blue';
-  const cutNames = (demoAgencyState.budgetAfk || []).map(agentNameById);
-  const budget = demoAgencyState.dailyBudgetDollars || DEFAULT_DAILY_BUDGET;
+  const isSasha = agentId === 'yellow';
+
+  let sashaRealData = '';
+  if (isSasha) {
+    try {
+      const openTickets = (typeof ticketState !== 'undefined' ? ticketState : []).filter(t => t.status !== 'resolved').length;
+      let serverInfo = null;
+      if (typeof cloudAvailable === 'function' && cloudAvailable()) {
+        const res = await fetch(`${CLOUD_API_BASE}/server-info`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+        if (res.ok) serverInfo = await res.json();
+      }
+      sashaRealData = serverInfo
+        ? `\nReal server data right now: uptime ${serverInfo.uptimeSeconds ? Math.round(serverInfo.uptimeSeconds / 60) + ' min' : 'unknown'}, storage: ${serverInfo.storageKind || 'unknown'}, open tickets: ${openTickets}.`
+        : `\nReal server data: could not reach the live server-info endpoint right now (Cloud Sync may not be connected). Open tickets tracked locally: ${openTickets}.`;
+    } catch (e) { sashaRealData = `\nCould not fetch real server data: ${e.message}.`; }
+  }
 
   const system = isDirector
-    ? `You are Mila, replying in the team chat on behalf of the whole team. Today's budget is $${budget}/day.${cutNames.length ? ' Paused today due to budget: ' + cutNames.join(', ') + '.' : ' Everyone is staffed today.'} Be direct, warm, brief (under 60 words). Answer the owner's actual message — don't just repeat back generic status.`
-    : `You are ${a ? a.name : agentId} (${a ? a.role : ''}), replying directly to the owner in a private chat. ${budgetPaused ? "You are currently paused today because today's budget didn't cover your role." : `Your current task right now: ${lo ? lo.currentTask : 'getting set up for today'}.`} Be direct, in-character, brief (under 50 words). Answer the owner's actual message.`;
+    ? `You are Mila, replying in the team chat on behalf of the whole team. The whole team is always staffed and available — the daily $ figure only limits how much real AI thinking is affordable today, it never pauses or removes anyone. Be direct, warm, brief (under 60 words). Answer the owner's actual message — don't just repeat back generic status, and don't bring up budget/staffing unless they actually asked about it.`
+    : isSasha
+      ? `You are Sasha, Security/IT engineer. Your current task right now: ${lo ? lo.currentTask : 'monitoring systems'}.${sashaRealData} Use ONLY the real data given above for any specific numbers — never invent CPU%, crash counts, or uptime not given to you. You are always staffed and available — there is no budget-based pausing. Be direct, technical, brief (under 60 words). Answer the owner's actual question.`
+      : `You are ${a ? a.name : agentId} (${a ? a.role : ''}), replying directly to the owner in a private chat. Your current task right now: ${lo ? lo.currentTask : 'getting set up for today'}. You are always staffed and available — there is no budget-based pausing. Be direct, in-character, brief (under 50 words). Answer the owner's actual message, and don't bring up budget/staffing unless they actually asked about it. Never state specific numbers (CPU%, uptime, crash counts, etc.) you were not actually given here — if asked about real server health/metrics, say to check the IT panel for real live numbers instead of guessing.`;
 
   const result = await callManetAI(system, ownerText);
   if (result.ok) return { text: result.text, aiFailed: false };
@@ -12115,7 +12130,7 @@ function renderLeanFolder(sub) {
       <div class="aos-desktop-grid">
         ${desktopFolderItem2('lean', 'signalpacks', 'Shared Signal Packs', activePacks + ' active')}
         ${desktopFolderItem2('lean', 'batches', 'Batch Work Queue', le.batches.length + ' batch(es)')}
-        ${desktopFolderItem2('lean', 'router', 'Smart Work Router', '4 routes · demo policy')}
+        ${desktopFolderItem2('lean', 'router', 'Smart Work Router', '4 routes · policy preview')}
         ${desktopFolderItem2('lean', 'waste', 'Work Waste Prevention', le.wasteControls.length + ' controls')}
         ${desktopFolderItem2('lean', 'metrics', 'Output Metrics', 'Useful output, not fake numbers')}
       </div>`;
@@ -12232,7 +12247,7 @@ function renderLeanRouter() {
   const le = demoAgencyState.leanEngine;
   return `
     <div class="aos-summary-card">
-      <div class="aos-summary-row"><b>What is this</b><span>A demo policy for how future AI work will be routed by task type, to control cost and keep the right level of judgment on the right task.</span></div>
+      <div class="aos-summary-row"><b>What is this</b><span>A policy preview for how future AI work will be routed by task type, to control cost and keep the right level of judgment on the right task — not wired to real routing yet.</span></div>
       <div class="aos-demo-note">Demo routing policy — actual provider routing and usage limits connect in Part 2.</div>
     </div>
     <div class="aos-grid-2">
@@ -12289,7 +12304,7 @@ function renderLeanMetricsView() {
 // "Demo intelligence policy — real routing, limits and usage
 // enforcement connect in Part 2."
 // ═══════════════════════════════════
-const ZW_DEMO_NOTE = 'Demo intelligence policy — real routing, limits and usage enforcement connect in Part 2.';
+const ZW_DEMO_NOTE = 'Policy preview — real routing, limits and usage enforcement are not wired up yet.';
 
 const COST_FIREWALL_RULES = [
   'No work without a Decision-to-Call Gate.',
@@ -12671,7 +12686,7 @@ function renderZeroWasteFolder(sub) {
 // SYSTEM READINESS — scenario runner
 // "Demo scenario simulation — real workflow enforcement connects in Part 2."
 // ═══════════════════════════════════
-const SR_DEMO_NOTE = 'Demo scenario simulation — real workflow enforcement connects in Part 2.';
+const SR_DEMO_NOTE = 'Scenario preview — real workflow enforcement is not wired up yet.';
 
 function scenarioStatusBadge(status) {
   const map = { 'not-run': 'status-unverified', running: 'status-pending', passed: 'status-approved', failed: 'status-blocked', skipped: 'status-reused' };
@@ -12937,7 +12952,7 @@ function renderSystemReadiness(sub) {
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 16px;">
       <button class="aos-btn primary" onclick="runAllAvailableScenarios()">Run all available checks</button>
-      <button class="aos-btn soft-coral" onclick="resetDemoState()">Reset demo state</button>
+      <button class="aos-btn soft-coral" onclick="resetDemoState()">Reset check history</button>
       <button class="aos-btn" onclick="openSubfolder('readiness','history')">Open scenario history</button>
     </div>
     ${m.openWarnings ? `
@@ -13653,8 +13668,8 @@ function renderProblemsFolder() {
 function renderSettingsFolder() {
   return `
     <div class="aos-summary-card">
-      <div class="aos-summary-row"><b>What is this</b><span>Demo mode controls — nothing here is connected to a live service.</span></div>
-      <div class="aos-summary-row"><b>What to do next</b><span>Verify proof-library items before Dana references them in outreach.</span></div>
+      <div class="aos-summary-row"><b>What is this</b><span>Real controls for the live system — budget, AI connection, security.</span></div>
+      <div class="aos-summary-row"><b>Client build</b><span style="font-family:monospace;">${CLIENT_BUILD_MARKER}</span></div>
     </div>
     <div class="aos-section">
       <div class="aos-section-title">Agency state</div>
@@ -13732,7 +13747,7 @@ function renderOverview() {
 
     <div class="aos-grid-2 aos-section">
       <div class="aos-card">
-        <div class="aos-card-label">Qualified demo prospects</div>
+        <div class="aos-card-label">Qualified prospects</div>
         <div class="aos-card-value">${qualifiedProspects}</div>
         <div class="aos-card-note">High-Intent Evidence Score ≥ 60</div>
       </div>
@@ -14379,8 +14394,8 @@ function setOfficeRunning() {
 function renderGrowthIntelligence() {
   return `
     <div class="aos-h1">Growth Intelligence</div>
-    <div class="aos-sub">Vera's competitor research framework. ${demoAgencyState.competitorResearch.length} demo templates prepared.</div>
-    <div class="aos-demo-note" style="margin-bottom:16px;">Demo research template — live web research not connected.</div>
+    <div class="aos-sub">Vera's competitor research framework. ${demoAgencyState.competitorResearch.length} research template${demoAgencyState.competitorResearch.length === 1 ? '' : 's'} on file.</div>
+    ${demoAgencyState.competitorResearch.length ? '<div class="aos-demo-note" style="margin-bottom:16px;">Live web research isn\'t wired up yet — these are the framework and structure real research will fill in.</div>' : ''}
 
     <div class="aos-section">
       <div class="aos-section-title">What live research will examine</div>
@@ -14425,7 +14440,7 @@ function renderGrowthIntelligence() {
 function renderProspects() {
   return `
     <div class="aos-h1">High-Intent Prospects</div>
-    <div class="aos-sub">Leo's evidence-scored demo prospects. All company data below is fictional.</div>
+    <div class="aos-sub">Leo's evidence-scored prospects.</div>
 
     <div class="aos-card aos-section" style="font-size:12px;color:#45454e;line-height:1.7;">
       <b>Scoring system</b><br>
@@ -14922,32 +14937,30 @@ function simulateAGradeIssue() {
 function renderSettings() {
   return `
     <div class="aos-h1">Settings</div>
-    <div class="aos-sub">Demo mode — nothing here is connected to a live service.</div>
+    <div class="aos-sub">Real controls for the live system.</div>
 
     <div class="aos-card aos-section">
-      <div class="aos-settings-row"><span>Mode</span><span class="aos-badge status-pending">Demo mode</span></div>
-      <div class="aos-settings-row"><span>AI API status</span><b>Not connected</b></div>
+      <div class="aos-settings-row"><span>Mode</span><span class="aos-badge status-resolved">Live</span></div>
+      <div class="aos-settings-row"><span>AI API status</span><b>${typeof cloudAvailable === 'function' && cloudAvailable() ? 'Connected — real DeepSeek calls' : 'Not connected — set up Cloud Sync below'}</b></div>
       <div class="aos-settings-row"><span>Web research status</span><b>Not connected</b></div>
       <div class="aos-settings-row"><span>Email sending status</span><b>Disabled</b></div>
       <div class="aos-settings-row" style="border-bottom:none;"><span>API keys</span><b>No API keys stored in browser</b></div>
     </div>
 
     <div class="aos-section">
-      <div class="aos-section-title">Daily Budget</div>
+      <div class="aos-section-title">Daily AI Budget</div>
       <div class="aos-card">
         <div class="aos-settings-row">
-          <span>Budget available per day</span>
+          <span>Real AI spend cap per day</span>
           <div style="display:flex;align-items:center;gap:8px;">
             <span style="color:#8a8a92;font-size:12.5px;">$</span>
             <input id="daily-budget-input" type="number" min="1" max="5000" step="10" value="${demoAgencyState.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}" style="width:80px;padding:5px 7px;border:1px solid rgba(0,0,0,0.12);border-radius:6px;font-size:12.5px;">
             <button class="aos-btn primary" style="padding:6px 12px;font-size:12px;" onclick="saveDailyBudget()">Save</button>
           </div>
         </div>
-        <div class="aos-settings-row"><span>Simulated staffing spend <span style="color:#b0b0b8;">(office demo only)</span></span><b>$${demoAgencyState.dailyBudgetSpend || 0} / $${demoAgencyState.dailyBudgetDollars || DEFAULT_DAILY_BUDGET}</b></div>
-        <div class="aos-card-note" style="padding:8px 2px 0;">Mila keeps the whole team inside this budget. If it isn't enough for everyone, she pauses the lowest-priority roles first (outreach → strategy → prospecting → market research). Security/IT (Sasha) is never paused — someone has to stay watching the live system regardless of budget.</div>
-        ${demoAgencyState.budgetAfk && demoAgencyState.budgetAfk.length ? `<div class="aos-card-note" style="padding:6px 2px 0;color:#b8433a;">Paused today due to budget: ${demoAgencyState.budgetAfk.map(id=>agentNameById(id)).join(', ')}</div>` : ''}
+        <div class="aos-card-note" style="padding:8px 2px 0;">This only caps real AI token spend for the day — once hit, real calls are refused and things fall back to an offline estimate until it resets. The whole team stays staffed regardless; nobody gets paused by this number.</div>
         <div class="aos-card-note" style="padding:8px 2px 0;">
-          <b>Day rates:</b> ${['blue','green','orange','purple','red','yellow','teal'].map(id => `${agentNameById(id)} $${AGENT_DAY_RATE[id]}`).join(' · ')}
+          <b>Day rates (for cost estimates only):</b> ${['blue','green','orange','purple','red','yellow','teal'].map(id => `${agentNameById(id)} $${AGENT_DAY_RATE[id]}`).join(' · ')}
         </div>
       </div>
     </div>
@@ -15005,7 +15018,7 @@ function renderSettings() {
     </div>
 
     <div class="aos-section">
-      <button class="aos-btn soft-coral" onclick="resetDemoState()">Reset demo state</button>
+      <button class="aos-btn soft-coral" onclick="resetDemoState()">Reset check history</button>
     </div>
   `;
 }
@@ -15674,7 +15687,7 @@ function resumeAgencyGrowth() {
 }
 
 function resetDemoState() {
-  const confirmed = confirm('This resets demo interactions, scenario history and temporary UI state. It does not represent permanent application data.\n\nReset demo state now?');
+  const confirmed = confirm('This resets scenario check history and temporary UI state — not your real projects, budget, or reports.\n\nReset check history now?');
   if (!confirmed) return;
   performDemoStateReset();
 }
@@ -15854,7 +15867,8 @@ demoAgencyState.budgetAfk = demoAgencyState.budgetAfk || [];
 // localStorage, so it never touches real data the owner adds afterward —
 // only clears the ORIGINAL canned content on first load after this update.
 // ═══════════════════════════════════════════════════════════════
-const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v3'; // bumped again — v2 missed qualityScores, which was leaking fake-company practice questions
+const LIVE_LAUNCH_LS_KEY = 'manet_live_launch_done_v4'; // bumped again as a hard guarantee — same fix, forcing every browser through it fresh
+const CLIENT_BUILD_MARKER = '2026-07-23-r5'; // bump this string every time a new office.html is handed off, so "did this actually deploy" is a one-glance check in Settings
 function resetToLiveLaunch() {
   let alreadyDone = false;
   try { alreadyDone = localStorage.getItem(LIVE_LAUNCH_LS_KEY) === '1'; } catch (e) {}
