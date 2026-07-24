@@ -718,10 +718,13 @@ function mountOffice(app, requireAuth) {
   function serverComputeProgress(p) {
     if (p.status === 'closed') return 100;
     let pct = 10;
-    if (p.milaAssessment) pct = Math.max(pct, 35);
+    if (p.milaAssessment) pct = Math.max(pct, 30);
     const chatterExchanges = (p.chatHistory || []).filter(m => m.from === 'chatter').length;
-    pct = Math.max(pct, 35 + Math.min(30, chatterExchanges * 10));
-    if (p.hasReport) pct = Math.max(pct, 90);
+    pct = Math.max(pct, 30 + Math.min(40, chatterExchanges * 5));
+    const reportCount = (p.reportCountCache || 0);
+    if (reportCount >= 1) pct = Math.max(pct, 75);
+    if (reportCount >= 2) pct = Math.max(pct, 90);
+    if (reportCount >= 3) pct = Math.max(pct, 95);
     return Math.min(99, pct);
   }
   async function serverGenerateReport(p) {
@@ -739,7 +742,7 @@ function mountOffice(app, requireAuth) {
       id: 'RPT-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
       title: `${p.title.length > 50 ? p.title.slice(0, 47) + '...' : p.title} — Report`,
       owner: 'Mila — Creative Director',
-      created: new Date().toISOString().slice(11, 16),
+      created: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }),
       status: 'Ready',
       confidence: result.ok ? `Real project data + real AI narrative (auto-generated server-side)` : 'Real project data only — AI narrative unavailable',
       summary: headline,
@@ -749,6 +752,27 @@ function mountOffice(app, requireAuth) {
       chartData: [{ label: 'Check-ins', value: chatterCount }],
       projectId: p.id
     };
+  }
+  async function createStalledWorkTicket(p, errorMsg) {
+    try {
+      let tickets = await store.getState('tickets');
+      if (!Array.isArray(tickets)) tickets = [];
+      const fingerprint = `stalled-work|${p.id}`;
+      const already = tickets.find(t => t.fingerprint === fingerprint && t.status !== 'resolved');
+      if (already) { already.count = (already.count || 1) + 1; already.lastSeen = new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }); already.lastSeenFull = new Date().toISOString(); }
+      else {
+        tickets.unshift({
+          id: 'TCK-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+          fingerprint, kind: 'Stalled work', message: `Mila flagged this to Sasha: real work on "${p.title}" has stalled — 3 consecutive real AI calls failed (${errorMsg}).`,
+          location: 'autonomousTick', title: `Stalled: "${p.title.slice(0, 60)}"`,
+          status: 'open', count: 1,
+          createdAt: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }), createdAtFull: new Date().toISOString(),
+          lastSeen: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }), lastSeenFull: new Date().toISOString(),
+          suggestedFix: `Check DEEPSEEK_API_KEY is set and valid on the server, and that the daily AI budget for this project hasn't been exhausted.`, aiTag: 'real'
+        });
+      }
+      await store.setState('tickets', tickets.slice(0, 500));
+    } catch (e) { console.error('createStalledWorkTicket error:', e.message); }
   }
   let autonomousTickRunning = false;
   async function autonomousTick() {
@@ -776,19 +800,36 @@ function mountOffice(app, requireAuth) {
         const sys = `You are ${initiatorName}, a real teammate autonomously working on this project right now, with nobody watching. Other real teammates on it: ${otherNames.join(', ') || 'none'}. Team assignments: ${dist || 'none'}. Give ONE short, specific, honest real update (under 35 words): either genuine progress on your part, a real question for a teammate (say their name at the start if so), or — if there is truly nothing new to report since last time — say that plainly instead of inventing progress. You do not have live web browsing; don't claim to have fetched real external data you don't have.`;
         const user = `Project: "${p.title}"\nImportance: ${p.importance}`;
         const result = await serverCallAI(sys, user);
-        if (!result.ok) continue;
+        if (!result.ok) {
+          // Real signal that work genuinely isn't happening — Mila notices,
+          // tells Sasha, Sasha opens a real ticket. Not simulated: this
+          // only fires when actual real AI calls keep actually failing.
+          p.aiFailStreak = (p.aiFailStreak || 0) + 1;
+          changed = true; // persist the streak even though no chat message was added
+          if (p.aiFailStreak === 3) {
+            await createStalledWorkTicket(p, result.error);
+          }
+          continue;
+        }
+        p.aiFailStreak = 0;
         p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0);
         p.costSoFar = (p.costSoFar || 0) + (result.cost || 0);
         const addressedId = otherIds.find(id => result.text.toLowerCase().includes((AGENT_NAMES[id] || '').toLowerCase()));
         p.chatHistory = p.chatHistory || [];
-        p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result.text, time: new Date().toISOString().slice(11, 16), atMs: Date.now() });
+        p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result.text, time: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }), atMs: Date.now() });
         changed = true;
 
         const newProgress = serverComputeProgress(p);
-        if (newProgress >= 60 && !p.hasReport) {
+        const chatterCount = p.chatHistory.filter(m => m.from === 'chatter').length;
+        const reportsForThisProject = reports.filter(r => r.projectId === p.id).length;
+        const sinceLastReport = chatterCount - (p.lastReportAtChatterCount || 0);
+        const dueForReport = reportsForThisProject === 0 ? newProgress >= 60 : (reportsForThisProject < 5 && sinceLastReport >= 3);
+        if (dueForReport) {
           const report = await serverGenerateReport(p);
           reports.unshift(report);
           p.hasReport = true;
+          p.lastReportAtChatterCount = chatterCount;
+          p.reportCountCache = reportsForThisProject + 1;
           reportsChanged = true;
         }
       }

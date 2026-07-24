@@ -9488,8 +9488,9 @@ const DIAGNOSTIC_NOTE_POOL = [
 // TIME / LOG HELPERS
 // ═══════════════════════════════════
 function aosNowTime() {
-  const d = new Date();
-  return d.toTimeString().slice(0, 5);
+  // Always Pacific Time (handles PST/PDT automatically), not whatever
+  // timezone the viewing browser happens to be set to.
+  return new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' });
 }
 
 function addAgencyActivity(agentName, text) {
@@ -10901,11 +10902,13 @@ function findProject(id) { return demoAgencyState.projectsList.find(p => p.id ==
 function computeProjectProgress(p) {
   if (p.status === 'closed') return 100;
   let pct = 10;
-  if (p.milaAssessment) pct = Math.max(pct, 35);
+  if (p.milaAssessment) pct = Math.max(pct, 30);
   const chatterExchanges = p.chatHistory.filter(m => m.from === 'chatter').length;
-  pct = Math.max(pct, 35 + Math.min(30, chatterExchanges * 10));
-  const hasReport = demoAgencyState.reports.some(r => r.projectId === p.id);
-  if (hasReport) pct = Math.max(pct, 90);
+  pct = Math.max(pct, 30 + Math.min(40, chatterExchanges * 5)); // real check-ins keep pushing this up, not just the first one
+  const reportCount = demoAgencyState.reports.filter(r => r.projectId === p.id).length;
+  if (reportCount >= 1) pct = Math.max(pct, 75);
+  if (reportCount >= 2) pct = Math.max(pct, 90);
+  if (reportCount >= 3) pct = Math.max(pct, 95);
   return Math.min(99, pct); // never shows 100 until actually closed
 }
 function estimateTimeRemaining(p) {
@@ -11437,9 +11440,16 @@ async function realAgentCheckIn(projectId) {
 function maybeAutoGenerateReport(projectId) {
   const p = findProject(projectId);
   if (!p || p.status === 'closed') return;
-  const hasReport = p.hasReport || demoAgencyState.reports.some(r => r.projectId === p.id);
-  if (hasReport) return;
-  if (computeProjectProgress(p) < 60) return;
+  const reportCount = demoAgencyState.reports.filter(r => r.projectId === p.id).length;
+  if (reportCount >= 5) return; // cost cap — five real reports is plenty for one project
+  const chatterExchanges = p.chatHistory.filter(m => m.from === 'chatter').length;
+  const sinceLastReport = chatterExchanges - (p.lastReportAtChatterCount || 0);
+  if (reportCount === 0) {
+    if (computeProjectProgress(p) < 60) return;
+  } else if (sinceLastReport < 3) {
+    return; // not enough new real activity since the last report to justify another one
+  }
+  p.lastReportAtChatterCount = chatterExchanges;
   generateProjectReport(projectId);
 }
 
