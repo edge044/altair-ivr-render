@@ -2020,6 +2020,12 @@ body.mode-incident .search-pill{ box-shadow:0 2px 16px rgba(224,88,79,0.16), 0 0
 </head>
 <body>
 
+<!-- UPDATE BANNER — only appears when the server has actually restarted
+     (a real deploy happened), never guessed/simulated. -->
+<div id="update-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;background:#161616;color:#fff;padding:10px 16px;text-align:center;font-size:12.5px;font-weight:600;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,0.2);" onclick="reloadForUpdate()">
+  🔄 A new update was deployed — click here to reload and clear the old cache
+</div>
+
 <!-- TOP BAR -->
 <div class="topbar">
   <div class="search-pill">
@@ -2669,6 +2675,51 @@ async function hydrateFromCloud() {
   if (typeof agencyOSOpen !== 'undefined' && agencyOSOpen && activeAgencyTab === 'settings') renderAgencyTab('settings');
 }
 if (CLOUD_API_BASE) setTimeout(hydrateFromCloud, 400);
+
+// ── Update banner — compares the server's real boot ID (changes on every
+// restart/deploy) against the last one this browser saw. Only shows the
+// banner when they genuinely differ — never on the very first visit
+// (nothing to compare against yet), never again once you've reloaded for
+// this specific deploy.
+const SEEN_BOOT_ID_KEY = 'manet_seen_boot_id_v1';
+async function checkForServerUpdate() {
+  if (!CLOUD_API_BASE) return; // only meaningful when actually talking to a real deployed server
+  try {
+    const res = await fetch(`${CLOUD_API_BASE}/version`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.bootId) return;
+    let lastSeen = null;
+    try { lastSeen = localStorage.getItem(SEEN_BOOT_ID_KEY); } catch (e) {}
+    if (lastSeen === null) {
+      // First time ever checking on this browser — just remember it, no banner.
+      try { localStorage.setItem(SEEN_BOOT_ID_KEY, data.bootId); } catch (e) {}
+      return;
+    }
+    if (lastSeen !== data.bootId) {
+      const banner = document.getElementById('update-banner');
+      if (banner) banner.style.display = 'block';
+    }
+  } catch (e) {}
+}
+function reloadForUpdate() {
+  // Re-check right before reloading and store the new id, so the banner
+  // won't immediately reappear after the reload completes.
+  fetch(`${CLOUD_API_BASE}/version`, { cache: 'no-store' })
+    .then(r => r.json())
+    .then(data => { try { if (data.bootId) localStorage.setItem(SEEN_BOOT_ID_KEY, data.bootId); } catch (e) {} })
+    .catch(() => {})
+    .finally(() => {
+      // Cache-bust the reload itself too, on top of the server's own
+      // no-store headers on this route, so nothing stale can survive.
+      window.location.href = window.location.pathname + '?_=' + Date.now();
+    });
+}
+if (CLOUD_API_BASE) {
+  setTimeout(checkForServerUpdate, 1200);
+  setInterval(checkForServerUpdate, 60000); // keep checking while the tab stays open
+}
+
 
 async function saveCloudApiKey() {
   const input = document.getElementById('cloud-api-key-input');

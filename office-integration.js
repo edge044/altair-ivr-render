@@ -21,6 +21,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
+// ── Boot ID — a fresh random value every time this process starts.
+// Render restarts the process on every deploy, so this changing is a
+// real, reliable signal that new code is live — not a guess based on
+// file timestamps or a manually-bumped version number.
+const SERVER_BOOT_ID = crypto.randomBytes(8).toString('hex') + '-' + Date.now();
+
 // ── Session cookies — module-level so index.js's requireAuth can also
 // check them (via the exported hasValidSession), not just routes inside
 // this file. This is what lets the pretty /login form actually grant
@@ -658,6 +664,14 @@ function mountOffice(app, requireAuth) {
   });
   // ── Real server health — uptime since last restart, real cloud storage
   // size (not localStorage — the actual database), total real visitors.
+  // Public, no auth — just tells the browser which server boot this is,
+  // so it can notice when a deploy happened and offer a reload. Nothing
+  // sensitive in this response.
+  app.get('/office/api/version', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json({ bootId: SERVER_BOOT_ID });
+  });
+
   app.get('/office/api/server-info', requireOfficeApiKey, async (req, res) => {
     try {
       const info = {
