@@ -11027,8 +11027,13 @@ function startProjectDetailPolling() {
       projectDetailPollTimer = null;
       return;
     }
+    // Never overwrite local state while a send/check-in is still in
+    // flight — the cloud copy is stale until that finishes saving, and
+    // pulling it in here would erase the message you just sent.
+    if (pendingLocalProjectChange) return;
     if (typeof cloudAvailable === 'function' && cloudAvailable()) {
       const fresh = await cloudLoad('projects');
+      if (pendingLocalProjectChange) return; // could have started while this fetch was in flight
       if (Array.isArray(fresh)) demoAgencyState.projectsList = fresh;
       const freshReports = await cloudLoad('reports');
       if (Array.isArray(freshReports)) demoAgencyState.reports = freshReports;
@@ -11045,6 +11050,7 @@ function startProjectDetailPolling() {
     }
   }, 4000);
 }
+let pendingLocalProjectChange = false;
 function scrollProjectChatToBottom() {
   const el = document.getElementById('project-chat-messages');
   if (el) el.scrollTop = el.scrollHeight;
@@ -11133,6 +11139,7 @@ async function sendProjectChatMessage(id) {
   const p = findProject(id);
   const input = document.getElementById('project-chat-input');
   if (!p || !input || !input.value.trim()) return;
+  if (pendingLocalProjectChange) return; // already sending — ignore double-click/Enter-mash so the same message can't go out twice
   const text = input.value.trim();
   input.value = '';
 
@@ -11141,33 +11148,38 @@ async function sendProjectChatMessage(id) {
     return;
   }
 
-  p.chatHistory.push({ from: 'owner', text, time: aosNowTime() });
-  p.awaitingOwner = false;
-  renderAgencyTab('project-detail');
-  addEventLogEntry('Owner', 'Project update', text.slice(0, 100), 'TASK', p.id);
-  addEventLogEntry('Mila', 'Real AI call started', `Thinking about: "${text.slice(0, 60)}"`, 'TASK', p.id);
+  pendingLocalProjectChange = true;
+  try {
+    p.chatHistory.push({ from: 'owner', text, time: aosNowTime() });
+    p.awaitingOwner = false;
+    renderAgencyTab('project-detail');
+    addEventLogEntry('Owner', 'Project update', text.slice(0, 100), 'TASK', p.id);
+    addEventLogEntry('Mila', 'Real AI call started', `Thinking about: "${text.slice(0, 60)}"`, 'TASK', p.id);
 
-  const system = `You are Mila. You have full real context on this specific project below — team assigned, what's been said so far. Answer EXACTLY what the owner just asked, specifically and concretely — do not recap team/budget status unless they actually asked about that. If they ask what you or the team is doing right now, describe the actual current step of the real work (referencing the real task list below), not a generic status update. You do not have live web browsing — never claim to have already fetched external data you don't have; describe your approach/plan specifically instead. If they told you to do something, confirm you're on it and say the concrete next step. Under 100 words. Only end with a question mark if you genuinely need their input to proceed — most updates don't need one.`;
-  const user = `${projectContextForAI(p)}\n\nOwner just said: "${text}"`;
-  const result = await callManetAI(system, user, { haltExempt: true });
-  if (result.ok) addEventLogEntry('Mila', 'Real AI call completed', `${result.tokensUsed} tokens · $${result.cost.toFixed(4)} · ${result.cacheHit ? 'cache hit' : 'fresh'}`, 'TASK', p.id);
-  let replyText;
-  if (result.ok) {
-    replyText = result.text;
-    p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0);
-    p.costSoFar = (p.costSoFar || 0) + (result.cost || 0);
-  } else {
-    replyText = result.budgetBlocked ? `(offline — daily AI budget used up) Got it, noted: "${text}". I'll factor that in.` : `(offline — live AI unreachable) Got it, noted: "${text}". I'll factor that in.`;
+    const system = `You are Mila. You have full real context on this specific project below — team assigned, what's been said so far. Answer EXACTLY what the owner just asked, specifically and concretely — do not recap team/budget status unless they actually asked about that. If they ask what you or the team is doing right now, describe the actual current step of the real work (referencing the real task list below), not a generic status update. You do not have live web browsing — never claim to have already fetched external data you don't have; describe your approach/plan specifically instead. If they told you to do something, confirm you're on it and say the concrete next step. Under 100 words. Only end with a question mark if you genuinely need their input to proceed — most updates don't need one.`;
+    const user = `${projectContextForAI(p)}\n\nOwner just said: "${text}"`;
+    const result = await callManetAI(system, user, { haltExempt: true });
+    if (result.ok) addEventLogEntry('Mila', 'Real AI call completed', `${result.tokensUsed} tokens · $${result.cost.toFixed(4)} · ${result.cacheHit ? 'cache hit' : 'fresh'}`, 'TASK', p.id);
+    let replyText;
+    if (result.ok) {
+      replyText = result.text;
+      p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0);
+      p.costSoFar = (p.costSoFar || 0) + (result.cost || 0);
+    } else {
+      replyText = result.budgetBlocked ? `(offline — daily AI budget used up) Got it, noted: "${text}". I'll factor that in.` : `(offline — live AI unreachable) Got it, noted: "${text}". I'll factor that in.`;
+    }
+    p.chatHistory.push({ from: 'mila', text: replyText, time: aosNowTime() });
+    // Real heuristic, not always-true: only "waiting for your reply" if Mila
+    // actually asked something. Otherwise she's working — show what, using
+    // her own real words, not a canned label.
+    p.awaitingOwner = /\?\s*$/.test(replyText.trim());
+    p.currentActivity = p.awaitingOwner ? null : replyText.slice(0, 140);
+    syncProjectsToCloud();
+    if (openProjectId === id) renderAgencyTab('project-detail');
+    maybeAutoGenerateReport(id);
+  } finally {
+    pendingLocalProjectChange = false;
   }
-  p.chatHistory.push({ from: 'mila', text: replyText, time: aosNowTime() });
-  // Real heuristic, not always-true: only "waiting for your reply" if Mila
-  // actually asked something. Otherwise she's working — show what, using
-  // her own real words, not a canned label.
-  p.awaitingOwner = /\?\s*$/.test(replyText.trim());
-  p.currentActivity = p.awaitingOwner ? null : replyText.slice(0, 140);
-  syncProjectsToCloud();
-  if (openProjectId === id) renderAgencyTab('project-detail');
-  maybeAutoGenerateReport(id);
 }
 function closeProject(id) {
   const p = findProject(id);
@@ -11442,9 +11454,11 @@ function generateAgentChatter(project, keptIds) {
 async function realAgentCheckIn(projectId) {
   const p = findProject(projectId);
   if (!p) return;
+  if (pendingLocalProjectChange) return;
   if (demoAgencyState.officeHalted) { alert(`🛑 Sasha halted the office: ${demoAgencyState.haltReason || 'critical issue'}. Resolve it first.`); return; }
   const teamIds = p.distribution.map(d => d.agentId).filter(id => id !== 'blue');
   if (!teamIds.length) { alert('No teammates assigned to this project yet.'); return; }
+  pendingLocalProjectChange = true;
 
   const btn = document.getElementById('checkin-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Checking in…'; }
@@ -11454,36 +11468,40 @@ async function realAgentCheckIn(projectId) {
   const otherIds = teamIds.filter(id => id !== initiatorId);
   const otherNames = otherIds.map(agentNameById);
 
-  const sys1 = `You are ${initiatorName}, a real teammate on this project. Other real teammates on it: ${otherNames.join(', ') || 'no one else'}. Given the real project context below, write ONE short, specific message (under 35 words) to whichever teammate you'd genuinely need to check in with about this real work — reference something concrete from the actual project context, and say their name at the start. If nobody genuinely needs checking in with right now, say that briefly instead, in your own voice.`;
-  const result1 = await callManetAI(sys1, projectContextForAI(p));
+  try {
+    const sys1 = `You are ${initiatorName}, a real teammate on this project. Other real teammates on it: ${otherNames.join(', ') || 'no one else'}. Given the real project context below, write ONE short, specific message (under 35 words) to whichever teammate you'd genuinely need to check in with about this real work — reference something concrete from the actual project context, and say their name at the start. If nobody genuinely needs checking in with right now, say that briefly instead, in your own voice.`;
+    const result1 = await callManetAI(sys1, projectContextForAI(p));
 
-  if (!result1.ok) {
-    if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
-    alert('Could not reach real AI: ' + result1.error);
-    return;
-  }
-  p.tokensUsed = (p.tokensUsed || 0) + (result1.tokensUsed || 0);
-  p.costSoFar = (p.costSoFar || 0) + (result1.cost || 0);
-  const addressedId = otherIds.find(id => result1.text.toLowerCase().includes(agentNameById(id).toLowerCase()));
-  p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result1.text, time: aosNowTime() });
-  syncProjectsToCloud();
-  if (openProjectId === projectId) renderAgencyTab('project-detail');
-
-  if (addressedId) {
-    const sys2 = `You are ${agentNameById(addressedId)}, a real teammate. Your teammate ${initiatorName} just said this to you about the real project you're both on: "${result1.text}". Reply briefly and specifically (under 30 words) — actually respond to what they said, don't restate it.`;
-    const result2 = await callManetAI(sys2, projectContextForAI(p));
-    if (result2.ok) {
-      p.tokensUsed = (p.tokensUsed || 0) + (result2.tokensUsed || 0);
-      p.costSoFar = (p.costSoFar || 0) + (result2.cost || 0);
-      p.chatHistory.push({ from: 'chatter', agentId: addressedId, toAgentId: initiatorId, text: result2.text, time: aosNowTime() });
+    if (!result1.ok) {
+      if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
+      alert('Could not reach real AI: ' + result1.error);
+      return;
     }
-  }
+    p.tokensUsed = (p.tokensUsed || 0) + (result1.tokensUsed || 0);
+    p.costSoFar = (p.costSoFar || 0) + (result1.cost || 0);
+    const addressedId = otherIds.find(id => result1.text.toLowerCase().includes(agentNameById(id).toLowerCase()));
+    p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result1.text, time: aosNowTime() });
+    syncProjectsToCloud();
+    if (openProjectId === projectId) renderAgencyTab('project-detail');
 
-  addEventLogEntry(initiatorName, 'Real team check-in', `Real AI exchange between teammates on "${p.title.slice(0, 50)}".`, 'TASK', p.id);
-  syncProjectsToCloud();
-  if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
-  if (openProjectId === projectId) renderAgencyTab('project-detail');
-  maybeAutoGenerateReport(p.id);
+    if (addressedId) {
+      const sys2 = `You are ${agentNameById(addressedId)}, a real teammate. Your teammate ${initiatorName} just said this to you about the real project you're both on: "${result1.text}". Reply briefly and specifically (under 30 words) — actually respond to what they said, don't restate it.`;
+      const result2 = await callManetAI(sys2, projectContextForAI(p));
+      if (result2.ok) {
+        p.tokensUsed = (p.tokensUsed || 0) + (result2.tokensUsed || 0);
+        p.costSoFar = (p.costSoFar || 0) + (result2.cost || 0);
+        p.chatHistory.push({ from: 'chatter', agentId: addressedId, toAgentId: initiatorId, text: result2.text, time: aosNowTime() });
+      }
+    }
+
+    addEventLogEntry(initiatorName, 'Real team check-in', `Real AI exchange between teammates on "${p.title.slice(0, 50)}".`, 'TASK', p.id);
+    syncProjectsToCloud();
+    if (openProjectId === projectId) renderAgencyTab('project-detail');
+    maybeAutoGenerateReport(p.id);
+  } finally {
+    pendingLocalProjectChange = false;
+    if (btn) { btn.disabled = false; btn.textContent = '🤝 Real team check-in'; }
+  }
 }
 // Auto-delivers a real report once there's genuinely enough real progress
 // to report on — no button needed. Still real AI, real tokens, just
