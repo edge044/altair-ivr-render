@@ -9673,6 +9673,7 @@ function renderAgencyTab(tab) {
   }
   main.innerHTML = `<div class="aos-fade-in">${renderFolderChrome(root, sub, inner)}</div>`;
   updateAgencyTopbar();
+  if (root === 'project-detail' && typeof scrollProjectChatToBottom === 'function') scrollProjectChatToBottom();
 }
 
 // ═══════════════════════════════════
@@ -10960,6 +10961,7 @@ let projectDetailPollTimer = null;
 function openProjectDetail(id) {
   openProjectId = id;
   renderAgencyTab('project-detail');
+  scrollProjectChatToBottom();
   startProjectDetailPolling();
 }
 function startProjectDetailPolling() {
@@ -10977,8 +10979,21 @@ function startProjectDetailPolling() {
       const freshReports = await cloudLoad('reports');
       if (Array.isArray(freshReports)) demoAgencyState.reports = freshReports;
     }
-    if (activeAgencyTab === 'project-detail') renderAgencyTab('project-detail');
-  }, 6000);
+    if (activeAgencyTab === 'project-detail') {
+      // Preserve whatever the owner is mid-typing — a background refresh
+      // should never wipe it out from under them.
+      const inputEl = document.getElementById('project-chat-input');
+      const savedDraft = inputEl ? inputEl.value : '';
+      renderAgencyTab('project-detail');
+      const newInputEl = document.getElementById('project-chat-input');
+      if (newInputEl && savedDraft) newInputEl.value = savedDraft;
+      scrollProjectChatToBottom();
+    }
+  }, 4000);
+}
+function scrollProjectChatToBottom() {
+  const el = document.getElementById('project-chat-messages');
+  if (el) el.scrollTop = el.scrollHeight;
 }
 function renderProjectDetailFolder() {
   const p = findProject(openProjectId);
@@ -11030,20 +11045,26 @@ function renderProjectDetailFolder() {
     <div class="aos-section">
       <div class="aos-section-title">Reports</div>
       <div class="aos-card">
-        ${projectReports.length ? projectReports.map(r => `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05);font-size:12.5px;display:flex;justify-content:space-between;align-items:center;"><span>${escapeHtml(r.title)} · ${escapeHtml(r.created)}</span><button class="aos-btn soft-blue" style="padding:3px 10px;font-size:11px;" onclick="openReportViewer('${r.id}')">Open</button></div>`).join('') : '<div style="color:#9a9aa2;font-size:12.5px;margin-bottom:8px;">No report generated yet — the chart and numbers come from this project&#39;s real activity, only the write-up uses real AI.</div>'}
-        <button class="aos-btn primary" id="gen-report-btn" style="margin-top:8px;" onclick="generateProjectReport('${p.id}')">📊 Generate real report</button>
-        <button class="aos-btn" id="checkin-btn" style="margin-top:8px;margin-left:8px;" onclick="realAgentCheckIn('${p.id}')">🤝 Real team check-in</button>
+        ${projectReports.length ? projectReports.map(r => `<div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.05);font-size:12.5px;display:flex;justify-content:space-between;align-items:center;"><span>${escapeHtml(r.title)} · ${escapeHtml(r.created)}</span><button class="aos-btn soft-blue" style="padding:3px 10px;font-size:11px;" onclick="openReportViewer('${r.id}')">Open</button></div>`).join('') : '<div style="color:#9a9aa2;font-size:12.5px;">No report yet — the team generates one automatically once there\'s real progress to report on, no button needed.</div>'}
       </div>
     </div>
 
     <div class="aos-section">
       <div class="aos-section-title">Chat with Mila about this project</div>
-      <div class="aos-card-note" style="padding:2px 2px 10px;">She has this project's full history as real context. Say what needs fixing, or say it's all good. Type <code>/project closed</code> to close it — you can always resume later.</div>
+      <div class="aos-card-note" style="padding:2px 2px 10px;">The team works and checks in with each other automatically, on the real server, whether or not you have this open. Say what needs fixing, or say it's all good. Type <code>/project closed</code> to close it — you can always resume later.</div>
       <div id="project-chat-messages" style="max-height:320px;overflow-y:auto;margin-bottom:10px;">
         ${p.chatHistory.map(m => {
           const fromName = m.from === 'owner' ? 'You' : m.from === 'chatter' ? agentNameById(m.agentId) : 'Mila';
           const toNote = m.from === 'chatter' && m.toAgentId ? ` → ${escapeHtml(agentNameById(m.toAgentId))}` : '';
-          return `<div style="margin-bottom:8px;"><b style="font-size:12px;">${escapeHtml(fromName)}${toNote}</b> <span style="color:#9a9aa2;font-size:10.5px;">${m.time}</span><div style="font-size:12.5px;white-space:pre-wrap;${m.from==='chatter'?'font-style:italic;color:#5a5a62;':''}">${escapeHtml(m.text)}</div></div>`;
+          const avatarColor = m.from === 'owner' ? '#1c1c1e' : (typeof AGENTS !== 'undefined' && AGENTS[m.agentId] ? AGENTS[m.agentId].color : (m.from === 'mila' ? (AGENTS.blue ? AGENTS.blue.color : '#4f8ef7') : '#9a9aa2'));
+          const avatarLetter = fromName.charAt(0).toUpperCase();
+          return `<div style="display:flex;gap:8px;margin-bottom:10px;">
+            <div style="width:22px;height:22px;border-radius:50%;background:${avatarColor};color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${avatarLetter}</div>
+            <div style="flex:1;min-width:0;">
+              <b style="font-size:12px;">${escapeHtml(fromName)}${toNote}</b> <span style="color:#9a9aa2;font-size:10.5px;">${m.time}</span>
+              <div style="font-size:12.5px;white-space:pre-wrap;${m.from==='chatter'?'font-style:italic;color:#5a5a62;':''}">${escapeHtml(m.text)}</div>
+            </div>
+          </div>`;
         }).join('') || '<div style="color:#9a9aa2;font-size:12.5px;">No messages yet.</div>'}
       </div>
       ${p.status === 'active' ? `
@@ -11416,7 +11437,7 @@ async function realAgentCheckIn(projectId) {
 function maybeAutoGenerateReport(projectId) {
   const p = findProject(projectId);
   if (!p || p.status === 'closed') return;
-  const hasReport = demoAgencyState.reports.some(r => r.projectId === p.id);
+  const hasReport = p.hasReport || demoAgencyState.reports.some(r => r.projectId === p.id);
   if (hasReport) return;
   if (computeProjectProgress(p) < 60) return;
   generateProjectReport(projectId);
@@ -14769,6 +14790,7 @@ async function generateProjectReport(projectId) {
     projectId: p.id
   };
   demoAgencyState.reports.unshift(report);
+  p.hasReport = true;
   if (result.ok) { p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0); p.costSoFar = (p.costSoFar || 0) + (result.cost || 0); }
   addEventLogEntry('Mila', 'Report generated', `Real report for "${p.title}" — ${result.ok ? 'AI narrative + real data' : 'real data only, AI unreachable'}.`, 'REPORT', p.id);
   syncProjectsToCloud();

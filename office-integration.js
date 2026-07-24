@@ -685,6 +685,122 @@ function mountOffice(app, requireAuth) {
     try { await store.unbanIp(ip); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  // ═══════════════════════════════════════════════════════════════
+  // AUTONOMOUS ENGINE — runs on the SERVER itself, on a real interval,
+  // whether or not anyone has the office open in a browser. This is what
+  // makes "come back a day later and real work happened" actually true —
+  // client-side buttons/polling only ever worked while a tab was open.
+  // ═══════════════════════════════════════════════════════════════
+  const AGENT_NAMES = { blue: 'Mila', green: 'Vera', orange: 'Leo', purple: 'Nora', red: 'Dana', yellow: 'Sasha', teal: 'Alex' };
+  const AGENT_DAY_RATE_SRV = { blue: 260, green: 190, orange: 175, purple: 185, red: 180, yellow: 0.4, teal: 165 };
+  async function serverCallAI(systemPrompt, userPrompt) {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) return { ok: false, error: 'DEEPSEEK_API_KEY not set on the server.' };
+    try {
+      const res = await fetch('https://api.deepseek.com/anthropic/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'deepseek-v4-flash', max_tokens: 700, thinking: { type: 'disabled' },
+          system: systemPrompt, messages: [{ role: 'user', content: userPrompt }]
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) return { ok: false, error: (data.error && data.error.message) || ('HTTP ' + res.status) };
+      const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+      if (!text) return { ok: false, error: 'empty response' };
+      const usage = data.usage || {};
+      const inTok = usage.input_tokens || 0, outTok = usage.output_tokens || 0;
+      const cost = (inTok / 1e6) * 0.14 + (outTok / 1e6) * 0.28;
+      return { ok: true, text, tokensUsed: inTok + outTok, cost };
+    } catch (e) { return { ok: false, error: e.message }; }
+  }
+  function serverComputeProgress(p) {
+    if (p.status === 'closed') return 100;
+    let pct = 10;
+    if (p.milaAssessment) pct = Math.max(pct, 35);
+    const chatterExchanges = (p.chatHistory || []).filter(m => m.from === 'chatter').length;
+    pct = Math.max(pct, 35 + Math.min(30, chatterExchanges * 10));
+    if (p.hasReport) pct = Math.max(pct, 90);
+    return Math.min(99, pct);
+  }
+  async function serverGenerateReport(p) {
+    const events = []; // server doesn't have the client's local eventLog; keep evidence honest and minimal instead of fabricating events
+    const dist = (p.distribution || []).map(d => `${AGENT_NAMES[d.agentId] || d.agentId}: ${d.task}`).join('; ') || 'none assigned';
+    const chatterCount = (p.chatHistory || []).filter(m => m.from === 'chatter').length;
+    const sys = `You are Mila writing a short, honest owner-facing report. Use only the REAL data given — never invent numbers or claim work that isn't described. Write one headline sentence, then 3-4 bullet findings (each starting with "-") referencing only the real data given, then one clear recommendation. If the real data shows little to no genuine progress, say that honestly instead of inflating it. Under 150 words.`;
+    const user = `Project: "${p.title}"\nImportance: ${p.importance}\nTeam: ${dist}\nReal AI-driven check-ins so far: ${chatterCount}\nReal AI spend on this project: ${p.tokensUsed || 0} tokens ($${(p.costSoFar || 0).toFixed(4)})`;
+    const result = await serverCallAI(sys, user);
+    const lines = result.ok ? result.text.split('\n').map(l => l.trim()).filter(Boolean) : [];
+    const headline = result.ok ? (lines[0] || result.text.slice(0, 120)) : `Real data report for "${p.title}" — AI narrative unavailable (${result.error}), numbers below are still real.`;
+    const findings = result.ok ? lines.slice(1).filter(l => l.startsWith('-')).map(l => l.replace(/^-\s*/, '')) : [`${chatterCount} real AI check-in(s) so far`, `Real AI spend: $${(p.costSoFar || 0).toFixed(4)}`];
+    if (result.ok) { p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0); p.costSoFar = (p.costSoFar || 0) + (result.cost || 0); }
+    return {
+      id: 'RPT-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+      title: `${p.title.length > 50 ? p.title.slice(0, 47) + '...' : p.title} — Report`,
+      owner: 'Mila — Creative Director',
+      created: new Date().toISOString().slice(11, 16),
+      status: 'Ready',
+      confidence: result.ok ? `Real project data + real AI narrative (auto-generated server-side)` : 'Real project data only — AI narrative unavailable',
+      summary: headline,
+      findings: findings.length ? findings : ['No findings recorded yet.'],
+      evidence: [`Project ID: ${p.id}`, `Team: ${dist}`, `Real check-ins: ${chatterCount}`],
+      chart: 'bars',
+      chartData: [{ label: 'Check-ins', value: chatterCount }],
+      projectId: p.id
+    };
+  }
+  let autonomousTickRunning = false;
+  async function autonomousTick() {
+    if (autonomousTickRunning) return; // don't overlap ticks if one is still running
+    autonomousTickRunning = true;
+    try {
+      if (!process.env.DEEPSEEK_API_KEY) return; // nothing to do without a real key — stay quiet, don't spam logs
+      const projects = await store.getState('projects');
+      if (!Array.isArray(projects) || !projects.length) return;
+      let changed = false;
+      let reportsChanged = false;
+      let reports = await store.getState('reports');
+      if (!Array.isArray(reports)) reports = [];
+      for (const p of projects) {
+        if (p.status === 'closed' || p.awaitingOwner) continue;
+        const progress = serverComputeProgress(p);
+        if (progress >= 90) continue;
+        const teamIds = (p.distribution || []).map(d => d.agentId).filter(id => id !== 'blue');
+        if (!teamIds.length) continue;
+        const initiatorId = teamIds[Math.floor(Math.random() * teamIds.length)];
+        const initiatorName = AGENT_NAMES[initiatorId] || initiatorId;
+        const otherIds = teamIds.filter(id => id !== initiatorId);
+        const otherNames = otherIds.map(id => AGENT_NAMES[id] || id);
+        const dist = (p.distribution || []).map(d => `${AGENT_NAMES[d.agentId] || d.agentId}: ${d.task}`).join('; ');
+        const sys = `You are ${initiatorName}, a real teammate autonomously working on this project right now, with nobody watching. Other real teammates on it: ${otherNames.join(', ') || 'none'}. Team assignments: ${dist || 'none'}. Give ONE short, specific, honest real update (under 35 words): either genuine progress on your part, a real question for a teammate (say their name at the start if so), or — if there is truly nothing new to report since last time — say that plainly instead of inventing progress. You do not have live web browsing; don't claim to have fetched real external data you don't have.`;
+        const user = `Project: "${p.title}"\nImportance: ${p.importance}`;
+        const result = await serverCallAI(sys, user);
+        if (!result.ok) continue;
+        p.tokensUsed = (p.tokensUsed || 0) + (result.tokensUsed || 0);
+        p.costSoFar = (p.costSoFar || 0) + (result.cost || 0);
+        const addressedId = otherIds.find(id => result.text.toLowerCase().includes((AGENT_NAMES[id] || '').toLowerCase()));
+        p.chatHistory = p.chatHistory || [];
+        p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result.text, time: new Date().toISOString().slice(11, 16), atMs: Date.now() });
+        changed = true;
+
+        const newProgress = serverComputeProgress(p);
+        if (newProgress >= 60 && !p.hasReport) {
+          const report = await serverGenerateReport(p);
+          reports.unshift(report);
+          p.hasReport = true;
+          reportsChanged = true;
+        }
+      }
+      if (changed) await store.setState('projects', projects);
+      if (reportsChanged) await store.setState('reports', reports);
+    } catch (e) { console.error('autonomousTick error:', e.message); }
+    finally { autonomousTickRunning = false; }
+  }
+  const AUTONOMOUS_TICK_MS = 5 * 60 * 1000; // every 5 real minutes, on the server, regardless of any open browser
+  setInterval(autonomousTick, AUTONOMOUS_TICK_MS);
+  setTimeout(autonomousTick, 15000); // one soon after boot too, not just 5 min later
+
   console.log(`🏢 Office app mounted at /office (storage: ${store.kind}${store.kind === 'json-file' ? ' — NOT persistent, add DATABASE_URL' : ''})`);
 }
 
