@@ -814,7 +814,7 @@ function mountOffice(app, requireAuth) {
       let reports = await store.getState('reports');
       if (!Array.isArray(reports)) reports = [];
       for (const p of projects) {
-        if (p.status === 'closed' || p.awaitingOwner) { skipped++; continue; }
+        if (p.status === 'closed') { skipped++; continue; }
         const progress = serverComputeProgress(p);
         if (progress >= 90) { skipped++; continue; }
         const teamIds = (p.distribution || []).map(d => d.agentId).filter(id => id !== 'blue');
@@ -825,7 +825,8 @@ function mountOffice(app, requireAuth) {
         const otherIds = teamIds.filter(id => id !== initiatorId);
         const otherNames = otherIds.map(id => AGENT_NAMES[id] || id);
         const dist = (p.distribution || []).map(d => `${AGENT_NAMES[d.agentId] || d.agentId}: ${d.task}`).join('; ');
-        const sys = `You are ${initiatorName}, a real teammate autonomously working on this project right now, with nobody watching. Other real teammates on it: ${otherNames.join(', ') || 'none'}. Team assignments: ${dist || 'none'}. Give ONE short, specific, honest real update (under 35 words): either genuine progress on your part, a real question for a teammate (say their name at the start if so), or — if there is truly nothing new to report since last time — say that plainly instead of inventing progress. You do not have live web browsing; don't claim to have fetched real external data you don't have.`;
+        const openQuestionNote = p.awaitingOwner ? ` The owner hasn't answered Mila's opening questions yet — don't wait on that; proceed with reasonable assumptions and note what you assumed.` : '';
+        const sys = `You are ${initiatorName}, a real teammate autonomously working on this project right now, with nobody watching.${openQuestionNote} Other real teammates on it: ${otherNames.join(', ') || 'none'}. Team assignments: ${dist || 'none'}. Give ONE short, specific, honest real update (under 35 words): either genuine progress on your part, a real question for a teammate (say their name at the start if so), or — if there is truly nothing new to report since last time — say that plainly instead of inventing progress. You do not have live web browsing; don't claim to have fetched real external data you don't have.`;
         const user = `Project: "${p.title}"\nImportance: ${p.importance}`;
         const result = await serverCallAI(sys, user);
         if (!result.ok) {
