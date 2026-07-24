@@ -12237,7 +12237,7 @@ function renderLeanBatches() {
   return `
     <div class="aos-summary-card">
       <div class="aos-summary-row"><b>What is this</b><span>Similar work grouped into batches instead of treated as separate, expensive workflows.</span></div>
-      <div class="aos-summary-row"><b>Language note</b><span>Effort units and work saved describe relative research effort — this demo does not show real money or token costs.</span></div>
+      <div class="aos-summary-row"><b>Language note</b><span>Effort units and work saved describe relative research effort — this view does not show real money or token costs.</span></div>
     </div>
     ${le.batches.map(renderLeanBatchCard).join('')}
   `;
@@ -12266,7 +12266,7 @@ function renderLeanRouter() {
   return `
     <div class="aos-summary-card">
       <div class="aos-summary-row"><b>What is this</b><span>A policy preview for how future AI work will be routed by task type, to control cost and keep the right level of judgment on the right task — not wired to real routing yet.</span></div>
-      <div class="aos-demo-note">Demo routing policy — actual provider routing and usage limits connect in Part 2.</div>
+      <div class="aos-demo-note">Policy preview — actual provider routing and usage limits are not wired up yet.</div>
     </div>
     <div class="aos-grid-2">
       ${le.workRoutes.map(renderLeanRouteCard).join('')}
@@ -12301,7 +12301,7 @@ function renderLeanMetricsView() {
   return `
     <div class="aos-summary-card">
       <div class="aos-summary-row"><b>What is this</b><span>How much wasted work the Lean Execution Engine is preventing, and how much evidence is being reused instead of re-created.</span></div>
-      <div class="aos-summary-row"><b>Note</b><span>No fake revenue, token counts, API spend or invented savings — every number here reflects a real demo state.</span></div>
+      <div class="aos-summary-row"><b>Note</b><span>No fake revenue, token counts, API spend or invented savings — every number here reflects real state.</span></div>
     </div>
     <div class="aos-grid-4 aos-section">
       ${card('Signal Packs active', m.signalPacksActive)}
@@ -12931,7 +12931,7 @@ function renderScenarioHistory() {
   const s = demoAgencyState.scenarioRunner;
   return `
     <div class="aos-summary-card">
-      <div class="aos-summary-row"><b>What is this</b><span>A record of every scenario run in this demo session — not permanent application data.</span></div>
+      <div class="aos-summary-row"><b>What is this</b><span>A record of every scenario run in this browser session — not permanent application data.</span></div>
       <div class="aos-demo-note">${SR_DEMO_NOTE}</div>
     </div>
     <div style="margin-bottom:10px;"><button class="aos-btn soft-coral" onclick="clearScenarioHistory()">Clear history</button></div>
@@ -15957,7 +15957,7 @@ function resetToLiveLaunch() {
     };
   });
 
-  addEventLogEntry('System', 'Live launch', 'Demo data cleared — starting from a real, empty state.', 'MODE', null);
+  addEventLogEntry('System', 'Live launch', 'Starting from a clean, empty state — ready for real work.', 'MODE', null);
 
   try { localStorage.setItem(LIVE_LAUNCH_LS_KEY, '1'); } catch (e) {}
 }

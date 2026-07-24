@@ -788,24 +788,38 @@ function mountOffice(app, requireAuth) {
       await store.setState('tickets', tickets.slice(0, 500));
     } catch (e) { console.error('createStalledWorkTicket error:', e.message); }
   }
+  let lastTickAt = null;
+  let lastTickSummary = 'never run yet';
   let autonomousTickRunning = false;
   async function autonomousTick() {
-    if (autonomousTickRunning) return; // don't overlap ticks if one is still running
+    if (autonomousTickRunning) { console.log('⏭ autonomousTick: previous tick still running, skipping this one'); return; }
     autonomousTickRunning = true;
+    lastTickAt = new Date().toISOString();
     try {
-      if (!process.env.DEEPSEEK_API_KEY) return; // nothing to do without a real key — stay quiet, don't spam logs
+      if (!process.env.DEEPSEEK_API_KEY) {
+        lastTickSummary = 'DEEPSEEK_API_KEY not set — nothing to do';
+        console.log('⏭ autonomousTick: DEEPSEEK_API_KEY not set, skipping (this is why nothing is happening if you expected real work).');
+        return;
+      }
       const projects = await store.getState('projects');
-      if (!Array.isArray(projects) || !projects.length) return;
+      if (!Array.isArray(projects) || !projects.length) {
+        lastTickSummary = 'no projects in the database yet';
+        console.log('⏭ autonomousTick: no projects found in store.');
+        return;
+      }
       let changed = false;
       let reportsChanged = false;
+      let touched = 0;
+      let skipped = 0;
       let reports = await store.getState('reports');
       if (!Array.isArray(reports)) reports = [];
       for (const p of projects) {
-        if (p.status === 'closed' || p.awaitingOwner) continue;
+        if (p.status === 'closed' || p.awaitingOwner) { skipped++; continue; }
         const progress = serverComputeProgress(p);
-        if (progress >= 90) continue;
+        if (progress >= 90) { skipped++; continue; }
         const teamIds = (p.distribution || []).map(d => d.agentId).filter(id => id !== 'blue');
-        if (!teamIds.length) continue;
+        if (!teamIds.length) { skipped++; continue; }
+        touched++;
         const initiatorId = teamIds[Math.floor(Math.random() * teamIds.length)];
         const initiatorName = AGENT_NAMES[initiatorId] || initiatorId;
         const otherIds = teamIds.filter(id => id !== initiatorId);
@@ -815,14 +829,10 @@ function mountOffice(app, requireAuth) {
         const user = `Project: "${p.title}"\nImportance: ${p.importance}`;
         const result = await serverCallAI(sys, user);
         if (!result.ok) {
-          // Real signal that work genuinely isn't happening — Mila notices,
-          // tells Sasha, Sasha opens a real ticket. Not simulated: this
-          // only fires when actual real AI calls keep actually failing.
+          console.log(`⚠ autonomousTick: real AI call failed for project "${p.title}": ${result.error}`);
           p.aiFailStreak = (p.aiFailStreak || 0) + 1;
-          changed = true; // persist the streak even though no chat message was added
-          if (p.aiFailStreak === 3) {
-            await createStalledWorkTicket(p, result.error);
-          }
+          changed = true;
+          if (p.aiFailStreak === 3) await createStalledWorkTicket(p, result.error);
           continue;
         }
         p.aiFailStreak = 0;
@@ -832,6 +842,7 @@ function mountOffice(app, requireAuth) {
         p.chatHistory = p.chatHistory || [];
         p.chatHistory.push({ from: 'chatter', agentId: initiatorId, toAgentId: addressedId || null, text: result.text, time: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }), atMs: Date.now() });
         changed = true;
+        console.log(`✓ autonomousTick: real check-in on "${p.title}" — ${initiatorName} (${result.tokensUsed} tokens, $${result.cost.toFixed(4)})`);
 
         const newProgress = serverComputeProgress(p);
         const chatterCount = p.chatHistory.filter(m => m.from === 'chatter').length;
@@ -845,13 +856,28 @@ function mountOffice(app, requireAuth) {
           p.lastReportAtChatterCount = chatterCount;
           p.reportCountCache = reportsForThisProject + 1;
           reportsChanged = true;
+          console.log(`✓ autonomousTick: real report generated for "${p.title}"`);
         }
       }
       if (changed) await store.setState('projects', projects);
       if (reportsChanged) await store.setState('reports', reports);
-    } catch (e) { console.error('autonomousTick error:', e.message); }
+      lastTickSummary = `${touched} project(s) worked, ${skipped} skipped (closed/awaiting-owner/done/no-team)`;
+      console.log(`✓ autonomousTick complete: ${lastTickSummary}`);
+    } catch (e) {
+      lastTickSummary = 'error: ' + e.message;
+      console.error('✗ autonomousTick error:', e.message);
+    }
     finally { autonomousTickRunning = false; }
   }
+  // Real, honest status — no guessing whether this is even running.
+  app.get('/office/api/autonomous-status', requireOfficeApiKey, (req, res) => {
+    res.json({
+      deepseekKeySet: !!process.env.DEEPSEEK_API_KEY,
+      tickIntervalMs: AUTONOMOUS_TICK_MS,
+      lastTickAt, lastTickSummary,
+      nextTickInMs: lastTickAt ? Math.max(0, AUTONOMOUS_TICK_MS - (Date.now() - new Date(lastTickAt).getTime())) : null
+    });
+  });
   const AUTONOMOUS_TICK_MS = 5 * 60 * 1000; // every 5 real minutes, on the server, regardless of any open browser
   setInterval(autonomousTick, AUTONOMOUS_TICK_MS);
   setTimeout(autonomousTick, 15000); // one soon after boot too, not just 5 min later
