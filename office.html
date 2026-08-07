@@ -2061,7 +2061,7 @@ body.mode-incident .search-pill{ box-shadow:0 2px 16px rgba(224,88,79,0.16), 0 0
     <div class="it-header">
       <span class="it-header-title">📷 Instagram — Alex</span>
       <div class="it-toptabs" id="ig-toptabs"></div>
-      <span class="it-header-sub">real DMs + real ad performance</span>
+      <span class="it-header-sub">Alex drafts, Mila reviews, real replies send automatically — no click needed</span>
       <div class="it-header-close" onclick="closeIGPanel()">✕</div>
     </div>
     <div class="it-body" id="ig-body-wrap"></div>
@@ -3588,10 +3588,11 @@ let phoneActiveTab = 'analytics';
 // ═══════════════════════════════════════════════════════════════
 let igActiveThread = null;
 const IG_TOPTABS = [
+  { id: 'activity', label: 'Activity', icon: '⚡' },
   { id: 'conversations', label: 'Conversations', icon: '💬' },
   { id: 'ads', label: 'Ads', icon: '📊' }
 ];
-let igActiveTab = 'conversations';
+let igActiveTab = 'activity';
 function openIGPanel() {
   const overlay = document.getElementById('ig-overlay');
   if (!overlay) return;
@@ -3615,9 +3616,57 @@ function renderIGBody() {
   if (igActiveTab === 'ads') {
     wrap.innerHTML = `<div class="it-ops-wrap" id="ig-ads-content"><div style="color:#8a8d93;font-size:12.5px;">Loading real ad data…</div></div>`;
     loadIGAds();
+  } else if (igActiveTab === 'activity') {
+    wrap.innerHTML = `<div class="it-ops-wrap" id="ig-activity-content"><div style="color:#8a8d93;font-size:12.5px;">Loading real activity…</div></div>`;
+    loadIGActivity();
   } else {
     wrap.innerHTML = `<div class="it-sidebar" id="ig-threads-sidebar"></div><div class="it-main" id="ig-thread-main"></div>`;
     loadIGThreads();
+  }
+}
+async function loadIGActivity() {
+  const el = document.getElementById('ig-activity-content');
+  if (!el) return;
+  if (typeof cloudAvailable !== 'function' || !cloudAvailable()) {
+    el.innerHTML = `<div style="color:#8a8d93;font-size:12.5px;padding:20px;">Connect Cloud Sync in Settings first.</div>`;
+    return;
+  }
+  try {
+    const [actRes, statusRes] = await Promise.all([
+      fetch(`${CLOUD_API_BASE}/instagram/activity`, { headers: { 'X-API-Key': cloudConfig.apiKey } }),
+      fetch(`${CLOUD_API_BASE}/instagram/autoresponder-status`, { headers: { 'X-API-Key': cloudConfig.apiKey } })
+    ]);
+    const activity = actRes.ok ? await actRes.json() : [];
+    const status = statusRes.ok ? await statusRes.json() : null;
+
+    let statusHtml = '';
+    if (status) {
+      if (!status.deepseekKeySet || !status.instagramTokenSet) {
+        statusHtml = `<div class="it-ops-card" style="border-left:3px solid #e0a944;margin-bottom:14px;"><b>⚠ Not fully connected</b><div style="font-size:11.5px;color:#6d6f78;margin-top:4px;">${!status.deepseekKeySet ? 'DEEPSEEK_API_KEY missing. ' : ''}${!status.instagramTokenSet ? 'INSTAGRAM_ACCESS_TOKEN missing.' : ''}</div></div>`;
+      } else {
+        statusHtml = `<div class="it-ops-card" style="border-left:3px solid #1e7a45;margin-bottom:14px;"><b>🟢 Alex is watching, live</b><div style="font-size:11.5px;color:#6d6f78;margin-top:4px;">Checks for new messages every 2 minutes, on the real server — no browser needed. Last run: ${status.lastTickAt ? new Date(status.lastTickAt).toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles'}) : 'not yet'} · ${escapeHtml(status.lastTickSummary || '')}</div></div>`;
+      }
+    }
+
+    const rows = activity.map(a => `
+      <div class="it-ops-card" style="margin-bottom:10px;border-left:3px solid ${a.verdict === 'approved' ? '#1e7a45' : '#a3781f'};">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+          <span style="font-size:11px;color:#9a9aa2;">@${escapeHtml(a.threadId)} · ${new Date(a.at).toLocaleString('en-US',{timeZone:'America/Los_Angeles',hour12:false,hour:'2-digit',minute:'2-digit',month:'short',day:'numeric'})}</span>
+          <span class="aos-badge" style="background:${a.verdict==='approved'?'#e3f5ea':'#fff4d6'};color:${a.verdict==='approved'?'#1e7a45':'#a3781f'};">${a.verdict === 'approved' ? (a.sent ? '✓ Sent' : '⚠ Approved but send failed') : '⏸ Held for review'}</span>
+        </div>
+        <div style="font-size:12.5px;margin-bottom:4px;"><b>Alex drafted:</b> ${escapeHtml(a.draft)}</div>
+        ${a.holdReason ? `<div style="font-size:11.5px;color:#a3781f;"><b>Mila held it:</b> ${escapeHtml(a.holdReason)}</div>` : ''}
+        ${a.sendError ? `<div style="font-size:11.5px;color:#b8433a;"><b>Send error:</b> ${escapeHtml(a.sendError)}</div>` : ''}
+        <div style="font-size:10px;color:#b0aeae;margin-top:4px;">${a.tokensUsed || 0} tokens · $${(a.cost||0).toFixed(4)}</div>
+      </div>`).join('');
+
+    el.innerHTML = `<div style="flex:1;overflow-y:auto;padding:22px 26px;background:#fafafa;">
+      ${statusHtml}
+      <div class="it-rack-title">REAL ACTIVITY — DRAFTED, REVIEWED, AND SENT AUTOMATICALLY</div>
+      ${rows || '<div style="color:#8a8d93;font-size:12.5px;">No activity yet — once real messages come in, Alex\'s drafts and Mila\'s reviews will show up here.</div>'}
+    </div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="padding:22px 26px;color:#b8433a;font-size:12.5px;">Could not load: ${escapeHtml(e.message)}</div>`;
   }
 }
 async function loadIGAds() {

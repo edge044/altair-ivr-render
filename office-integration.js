@@ -591,11 +591,9 @@ function mountOffice(app, requireAuth) {
   });
   // Real send — Alex's actual reply goes out through this, using your
   // real INSTAGRAM_ACCESS_TOKEN via the Graph API.
-  app.post('/office/api/instagram/reply', requireOfficeApiKey, async (req, res) => {
-    const { threadId, text } = req.body || {};
-    if (!threadId || !text) return res.status(400).json({ error: 'threadId and text are required' });
+  async function sendInstagramReply(threadId, text) {
     const token = process.env.INSTAGRAM_ACCESS_TOKEN;
-    if (!token) return res.status(503).json({ error: 'INSTAGRAM_ACCESS_TOKEN is not set on the server yet.' });
+    if (!token) return { ok: false, error: 'INSTAGRAM_ACCESS_TOKEN is not set on the server yet.' };
     try {
       const igRes = await fetch(`https://graph.facebook.com/v21.0/me/messages?access_token=${encodeURIComponent(token)}`, {
         method: 'POST',
@@ -603,10 +601,17 @@ function mountOffice(app, requireAuth) {
         body: JSON.stringify({ recipient: { id: threadId }, message: { text } })
       });
       const data = await igRes.json();
-      if (!igRes.ok) return res.status(igRes.status).json({ error: data.error ? data.error.message : 'Instagram API error', raw: data });
+      if (!igRes.ok) return { ok: false, error: (data.error && data.error.message) || 'Instagram API error', raw: data };
       await store.saveInstagramMessage(threadId, 'page', 'out', text, data);
-      res.json({ ok: true, data });
-    } catch (e) { res.status(502).json({ error: e.message }); }
+      return { ok: true, data };
+    } catch (e) { return { ok: false, error: e.message }; }
+  }
+  app.post('/office/api/instagram/reply', requireOfficeApiKey, async (req, res) => {
+    const { threadId, text } = req.body || {};
+    if (!threadId || !text) return res.status(400).json({ error: 'threadId and text are required' });
+    const result = await sendInstagramReply(threadId, text);
+    if (!result.ok) return res.status(502).json(result);
+    res.json(result);
   });
 
   // ── Real ad performance — Meta Marketing API (Ads Insights). Needs
@@ -882,6 +887,107 @@ function mountOffice(app, requireAuth) {
   const AUTONOMOUS_TICK_MS = 5 * 60 * 1000; // every 5 real minutes, on the server, regardless of any open browser
   setInterval(autonomousTick, AUTONOMOUS_TICK_MS);
   setTimeout(autonomousTick, 15000); // one soon after boot too, not just 5 min later
+
+  // ═══════════════════════════════════════════════════════════════
+  // INSTAGRAM AUTO-RESPONDER — Alex drafts a real reply to real customer
+  // messages, Mila (creative director) reviews it for real, and only if
+  // she approves does it actually send — no owner click needed. If Mila
+  // has real doubts, it holds and opens a real ticket for the owner
+  // instead of blindly sending something risky. Alex has no specific
+  // brand instructions yet (the owner will add those later) — his voice
+  // is generic-helpful until then.
+  // ═══════════════════════════════════════════════════════════════
+  let lastIgTickAt = null;
+  let lastIgTickSummary = 'never run yet';
+  let igTickRunning = false;
+  async function instagramAutoResponderTick() {
+    if (igTickRunning) return;
+    igTickRunning = true;
+    lastIgTickAt = new Date().toISOString();
+    try {
+      if (!process.env.DEEPSEEK_API_KEY || !process.env.INSTAGRAM_ACCESS_TOKEN) {
+        lastIgTickSummary = !process.env.DEEPSEEK_API_KEY ? 'DEEPSEEK_API_KEY not set' : 'INSTAGRAM_ACCESS_TOKEN not set';
+        return;
+      }
+      const threads = await store.getInstagramThreads();
+      if (!Array.isArray(threads) || !threads.length) { lastIgTickSummary = 'no Instagram conversations yet'; return; }
+
+      let activity = await store.getState('instagram_activity');
+      if (!Array.isArray(activity)) activity = [];
+      let handled = 0, held = 0;
+
+      for (const t of threads) {
+        const messages = await store.getInstagramMessages(t.threadId);
+        if (!messages.length) continue;
+        const last = messages[messages.length - 1];
+        if (last.direction !== 'in') continue; // already answered, or we sent last — nothing to do
+
+        const history = messages.slice(-10).map(m => `${m.direction === 'out' ? 'Alex' : 'Customer'}: ${m.text}`).join('\n');
+
+        // Alex drafts — generic-helpful voice until the owner gives real brand instructions.
+        const alexSys = `You are Alex, handling Instagram DMs for a small business. You haven't been given specific brand instructions yet, so be warm, helpful, and brief — answer what you reasonably can, and if something needs the owner's specific input, say you'll check and get back to them. Under 50 words. This is a REAL message going to a REAL customer.`;
+        const draft = await serverCallAI(alexSys, `Conversation so far:\n${history}\n\nDraft the next reply.`);
+        if (!draft.ok) continue;
+
+        // Mila reviews — real second opinion before anything goes out to a real customer.
+        const milaSys = `You are Mila, creative director, reviewing a teammate's draft reply before it goes out to a REAL customer on Instagram — nobody else will check this. Approve it only if it's reasonable, on-brand-neutral, doesn't make promises the business can't verify, and isn't rude or wrong. Respond with EXACTLY "APPROVE" on its own if it's fine to send as-is, or "HOLD: <short specific reason>" if it needs a human to look at it first.`;
+        const review = await serverCallAI(milaSys, `Customer conversation:\n${history}\n\nAlex's draft reply: "${draft.text}"`);
+
+        let tokensSpent = (draft.tokensUsed || 0) + (review.ok ? (review.tokensUsed || 0) : 0);
+        let costSpent = (draft.cost || 0) + (review.ok ? (review.cost || 0) : 0);
+        const approved = review.ok && /^APPROVE/i.test(review.text.trim());
+
+        if (approved) {
+          const sendResult = await sendInstagramReply(t.threadId, draft.text);
+          activity.unshift({
+            id: 'IGACT-' + Date.now() + '-' + Math.floor(Math.random() * 1000), threadId: t.threadId,
+            draft: draft.text, verdict: 'approved', sent: sendResult.ok, sendError: sendResult.ok ? null : sendResult.error,
+            tokensUsed: tokensSpent, cost: costSpent, at: new Date().toISOString()
+          });
+          handled++;
+        } else {
+          const reason = review.ok ? review.text.replace(/^HOLD:\s*/i, '') : `Mila's review call failed: ${review.error}`;
+          activity.unshift({
+            id: 'IGACT-' + Date.now() + '-' + Math.floor(Math.random() * 1000), threadId: t.threadId,
+            draft: draft.text, verdict: 'held', holdReason: reason, sent: false,
+            tokensUsed: tokensSpent, cost: costSpent, at: new Date().toISOString()
+          });
+          held++;
+          let tickets = await store.getState('tickets');
+          if (!Array.isArray(tickets)) tickets = [];
+          tickets.unshift({
+            id: 'TCK-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
+            fingerprint: `ig-hold|${t.threadId}|${Date.now()}`, kind: 'Instagram reply held',
+            title: `Mila held a reply to @${t.threadId} for review`,
+            message: `Alex drafted: "${draft.text}"\n\nMila's reason for holding: ${reason}`,
+            location: 'instagramAutoResponderTick', status: 'open', count: 1,
+            createdAt: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }), createdAtFull: new Date().toISOString(),
+            lastSeen: new Date().toLocaleTimeString('en-US', { timeZone: 'America/Los_Angeles', hour12: false, hour: '2-digit', minute: '2-digit' }), lastSeenFull: new Date().toISOString(),
+            suggestedFix: 'Open the Instagram panel, review the conversation, and send a reply manually.', aiTag: 'real'
+          });
+          await store.setState('tickets', tickets.slice(0, 500));
+        }
+      }
+      await store.setState('instagram_activity', activity.slice(0, 300));
+      lastIgTickSummary = `${handled} sent, ${held} held for review`;
+      if (handled || held) console.log(`✓ instagramAutoResponderTick: ${lastIgTickSummary}`);
+    } catch (e) {
+      lastIgTickSummary = 'error: ' + e.message;
+      console.error('✗ instagramAutoResponderTick error:', e.message);
+    } finally { igTickRunning = false; }
+  }
+  app.get('/office/api/instagram/activity', requireOfficeApiKey, async (req, res) => {
+    try { res.json((await store.getState('instagram_activity')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.get('/office/api/instagram/autoresponder-status', requireOfficeApiKey, (req, res) => {
+    res.json({
+      deepseekKeySet: !!process.env.DEEPSEEK_API_KEY, instagramTokenSet: !!process.env.INSTAGRAM_ACCESS_TOKEN,
+      tickIntervalMs: IG_TICK_MS, lastTickAt: lastIgTickAt, lastTickSummary: lastIgTickSummary
+    });
+  });
+  const IG_TICK_MS = 2 * 60 * 1000; // real customer DMs deserve a faster loop than internal project check-ins
+  setInterval(instagramAutoResponderTick, IG_TICK_MS);
+  setTimeout(instagramAutoResponderTick, 20000);
 
   console.log(`🏢 Office app mounted at /office (storage: ${store.kind}${store.kind === 'json-file' ? ' — NOT persistent, add DATABASE_URL' : ''})`);
 }
