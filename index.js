@@ -68,14 +68,8 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
 }
 
 // ======================================================
-// DATA STORAGE — real Postgres now, not files that Render wipes
+// DATA STORAGE
 // ======================================================
-// Same DATABASE_URL you already set up for the office. loadJSON/saveJSON
-// below keep their exact original synchronous signature on purpose — every
-// one of the ~20 call-handling routes below calls them exactly like
-// before, untouched. Under the hood they now read/write an in-memory
-// cache that's loaded from Postgres on boot and written through to
-// Postgres on every save (fire-and-forget, doesn't slow down a live call).
 
 const LOGS_DIR = process.env.LOGS_DIR || "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
@@ -89,76 +83,26 @@ const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const MESSAGES_PATH = `${CURRENT_LOGS_DIR}/messages.json`;
 
-const PHONE_CACHE_KEYS = { [DB_PATH]: 'appointments', [CALL_LOGS_PATH]: 'call_logs', [MESSAGES_PATH]: 'messages' };
-const phoneCache = { appointments: null, call_logs: null, messages: null };
-let phoneCacheReady = false;
-let pgPool = null;
-
-function loadJSONFromFile(filePath) {
+function loadJSON(filePath) {
   try {
-    if (!fs.existsSync(filePath)) return [];
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, '[]');
+      return [];
+    }
     const data = fs.readFileSync(filePath, "utf8");
     return JSON.parse(data || '[]');
-  } catch (error) { return []; }
-}
-
-async function initPhoneStorage() {
-  if (!process.env.DATABASE_URL) {
-    console.warn('⚠ Phone system: no DATABASE_URL — using local files. Render WIPES these on every deploy. Add a Postgres database and set DATABASE_URL to fix this for good.');
-    Object.keys(PHONE_CACHE_KEYS).forEach(fp => { phoneCache[PHONE_CACHE_KEYS[fp]] = loadJSONFromFile(fp); });
-    phoneCacheReady = true;
-    return;
+  } catch (error) {
+    return [];
   }
-  try {
-    const { Pool } = require('pg');
-    pgPool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
-    await pgPool.query(`CREATE TABLE IF NOT EXISTS phone_state (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());`);
-    for (const [filePath, key] of Object.entries(PHONE_CACHE_KEYS)) {
-      const r = await pgPool.query('SELECT value FROM phone_state WHERE key=$1', [key]);
-      if (r.rows.length) {
-        phoneCache[key] = r.rows[0].value;
-      } else {
-        // First real boot on Postgres — migrate whatever's in the (possibly
-        // about-to-be-wiped) local file once, so existing data isn't lost.
-        const fromFile = loadJSONFromFile(filePath);
-        phoneCache[key] = fromFile;
-        await pgPool.query('INSERT INTO phone_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO NOTHING', [key, JSON.stringify(fromFile)]);
-      }
-    }
-    phoneCacheReady = true;
-    console.log('✓ Phone system: Postgres connected — calls/appointments/messages now survive every deploy.');
-  } catch (e) {
-    console.error('✗ Phone system: Postgres setup failed, falling back to local files:', e.message);
-    Object.keys(PHONE_CACHE_KEYS).forEach(fp => { phoneCache[PHONE_CACHE_KEYS[fp]] = loadJSONFromFile(fp); });
-    phoneCacheReady = true;
-  }
-}
-function persistPhoneKey(key) {
-  if (!pgPool) return;
-  pgPool.query('INSERT INTO phone_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=now()', [key, JSON.stringify(phoneCache[key])])
-    .catch(e => console.error(`✗ Phone system: Postgres save failed for "${key}":`, e.message));
-}
-
-function loadJSON(filePath) {
-  const key = PHONE_CACHE_KEYS[filePath];
-  if (key && phoneCacheReady) return phoneCache[key] || [];
-  // Startup race guard (real requests basically never land in the first
-  // instant of boot, but fall back safely to the file instead of losing
-  // a real call if one somehow does).
-  return loadJSONFromFile(filePath);
 }
 
 function saveJSON(filePath, data) {
-  const key = PHONE_CACHE_KEYS[filePath];
-  if (key) {
-    phoneCache[key] = data;
-    persistPhoneKey(key);
-    return;
+  try {
+    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error("ERROR saving:", error);
   }
-  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch (error) { console.error("ERROR saving:", error); }
 }
-
-initPhoneStorage();
 
 function loadDB() { return loadJSON(DB_PATH); }
 function saveDB(data) { saveJSON(DB_PATH, data); }
@@ -733,7 +677,6 @@ app.get('/admin', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments <span class="count">${pending.length}</span></a>
             <a href="/messages">Messages <span class="count">${uniquePhones.size}</span></a>
             <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -833,7 +776,6 @@ app.get('/appointments-admin', requireAuth, (req, res) => {
             <a href="/appointments-admin" class="active">Appointments <span class="count">${pending.length}</span></a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -1058,7 +1000,6 @@ app.get('/messages', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages" class="active">Messages</a>
             <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -1218,134 +1159,6 @@ app.get('/calls', requireAuth, (req, res) => {
 });
 
 // ======================================================
-// ANALYTICS PAGE — real charts and tables from real call data
-// ======================================================
-
-function svgBarChartPhone(data, opts) {
-  opts = opts || {};
-  data = (data && data.length) ? data : [{ label: 'No data', value: 0 }];
-  const color = opts.color || '#1d1d1b';
-  const max = Math.max(...data.map(d => d.value), 1);
-  const barW = Math.max(10, Math.min(28, 620 / data.length - 4)), gap = 4, h = 140;
-  const totalW = Math.max(620, data.length * (barW + gap));
-  return `<svg viewBox="0 0 ${totalW} ${h + 34}" width="100%" height="${h + 44}" preserveAspectRatio="xMinYMid meet">
-    ${data.map((d, i) => {
-      const bh = (d.value / max) * h;
-      const x = i * (barW + gap);
-      return `<rect x="${x}" y="${h - bh}" width="${barW}" height="${Math.max(bh,1)}" rx="2" fill="${color}" opacity="0.88"><title>${d.label}: ${d.value}</title></rect>
-      ${d.value > 0 ? `<text x="${x + barW / 2}" y="${h - bh - 4}" text-anchor="middle" font-size="9" fill="#77716a">${d.value}</text>` : ''}
-      <text x="${x + barW / 2}" y="${h + 16}" text-anchor="middle" font-size="8" fill="#a39c92" transform="rotate(45,${x + barW / 2},${h + 16})">${d.label}</text>`;
-    }).join('')}
-  </svg>`;
-}
-
-app.get('/analytics', requireAuth, (req, res) => {
-  const calls = loadJSON(CALL_LOGS_PATH);
-  const appointments = loadDB();
-
-  // Real calls-per-day for the last 30 days
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().slice(0, 10));
-  }
-  const callsByDay = {};
-  calls.forEach(c => {
-    const d = (c.timestamp || '').slice(0, 10);
-    callsByDay[d] = (callsByDay[d] || 0) + (c.action === 'CALL_RECEIVED' ? 1 : 0);
-  });
-  const chartData = days.map(d => ({ label: d.slice(5), value: callsByDay[d] || 0 }));
-
-  // Real funnel — grouped by the actual events logged per call
-  const totalCallsReceived = calls.filter(c => c.action === 'CALL_RECEIVED').length;
-  const engaged = calls.filter(c => c.action === 'ENGAGED_APPOINTMENT_FLOW').length;
-  const bounced = calls.filter(c => c.action === 'CALL_BOUNCED').length;
-  const noInput = calls.filter(c => c.action === 'NO_INPUT_TIMEOUT').length;
-  const totalAppointments = appointments.length;
-
-  // Real most-frequent-callers table
-  const callerCounts = {};
-  calls.filter(c => c.action === 'CALL_RECEIVED').forEach(c => {
-    const p = c.phone || 'Unknown';
-    if (!callerCounts[p]) callerCounts[p] = { phone: p, count: 0, lastCall: c.timestamp };
-    callerCounts[p].count++;
-    if (c.timestamp > callerCounts[p].lastCall) callerCounts[p].lastCall = c.timestamp;
-  });
-  const frequentCallers = Object.values(callerCounts).sort((a, b) => b.count - a.count).slice(0, 15);
-
-  res.send(`
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Analytics — Manet Creative</title>
-      <style>${ADMIN_CSS}</style>
-    </head>
-    <body>
-      <div class="layout">
-        <aside class="sidebar">
-          <div class="sidebar-logo">Manet Creative</div>
-          <nav class="sidebar-nav">
-            <a href="/admin">Today</a>
-            <a href="/appointments-admin">Appointments</a>
-            <a href="/messages">Messages</a>
-            <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
-            <a href="/analytics" class="active">Analytics</a>
-            <a href="/summary">Summary</a>
-            <a href="/archive">Archive</a>
-            <a href="/settings">Settings</a>
-          </nav>
-        </aside>
-
-        <main class="main-content">
-          <h1 class="page-title">Analytics</h1>
-          <p class="page-subtitle">Real data — everything below comes from what actually happened on the line, going back to when logging started. Older history before this update won't have the detailed funnel steps, only raw call counts.</p>
-
-          <div class="card">
-            <div class="card-title">Calls per day — last 30 days</div>
-            ${svgBarChartPhone(chartData)}
-          </div>
-
-          <div class="stats-grid">
-            <div class="stat-item">
-              <div class="stat-number">${totalCallsReceived}</div>
-              <div class="stat-label">Total Calls (all time)</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-number">${engaged}</div>
-              <div class="stat-label">Pressed 1 — Engaged</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-number">${bounced + noInput}</div>
-              <div class="stat-label">Bounced / Robocalls / No Input</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-number">${totalAppointments}</div>
-              <div class="stat-label">Appointment Requests</div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-title">Most Frequent Callers</div>
-            <table>
-              <thead><tr><th>Phone</th><th>Calls</th><th>Last Called</th></tr></thead>
-              <tbody>
-                ${frequentCallers.map(c => `<tr><td>${c.phone}</td><td>${c.count}</td><td>${new Date(c.lastCall).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}</td></tr>`).join('')}
-                ${frequentCallers.length === 0 ? '<tr><td colspan="3" style="color:var(--muted);">No calls logged yet.</td></tr>' : ''}
-              </tbody>
-            </table>
-          </div>
-        </main>
-      </div>
-    </body>
-    </html>
-  `);
-});
-
-// ======================================================
 // SUMMARY PAGE
 // ======================================================
 
@@ -1406,7 +1219,6 @@ app.get('/summary', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
             <a href="/summary" class="active">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -1534,7 +1346,6 @@ app.get('/archive', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive" class="active">Archive</a>
             <a href="/settings">Settings</a>
@@ -1613,7 +1424,6 @@ app.get('/settings', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
-            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings" class="active">Settings</a>
@@ -1867,10 +1677,7 @@ app.post('/handle-key', (req, res) => {
   const digit = req.body.Digits;
   const phone = req.body.From;
 
-  logCall(phone, digit ? 'KEY_PRESSED' : 'NO_INPUT_TIMEOUT', { digit: digit || null });
-
   if (digit === '1') {
-    logCall(phone, 'ENGAGED_APPOINTMENT_FLOW');
     const appt = findAppointment(phone);
 
     if (appt) {
@@ -1899,7 +1706,6 @@ app.post('/handle-key', (req, res) => {
       twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
     }
   } else {
-    logCall(phone, 'CALL_BOUNCED', { reason: digit ? `pressed ${digit}` : 'no input / timeout' });
     twiml.say(
       "This phone number is only for appointment information, scheduling, rescheduling, or canceling appointments. For emergencies or general inquiries, please email mila at meetmanet dot com. Goodbye.",
       { voice: 'alice', language: 'en-US' }
@@ -2173,6 +1979,7 @@ app.get('/health', (req, res) => {
 });
 
 app.get('/', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.send(`<!-- MANET_LANDING_V3 -->
 <!DOCTYPE html>
 <html>
@@ -2377,6 +2184,7 @@ app.<span class="f2">use</span>((req, res, next) => {
 });
 
 app.get('/login', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   try { if (typeof hasValidSession === 'function' && hasValidSession(req)) return res.redirect('/choose'); } catch (e) {}
   res.send(`<!DOCTYPE html>
 <html>
@@ -2528,6 +2336,7 @@ app.get('/login', (req, res) => {
 });
 
 app.get('/choose', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -2601,7 +2410,7 @@ app.get('/choose', requireAuth, (req, res) => {
       }
     </style>
 <style>
-  .choose-wrap { max-width: 640px; margin: 90px auto; padding: 0 24px; text-align: center; }
+  .choose-wrap { max-width: 780px; margin: 90px auto; padding: 0 24px; text-align: center; }
   .choose-wrap h1 { font-size: 1.5rem; margin-bottom: 8px; font-weight: 700; font-family: -apple-system, sans-serif; }
   .choose-wrap .sub2 { color: #9a9488; margin-bottom: 40px; font-size: 0.82rem; }
   .choose-row { display: flex; gap: 18px; justify-content: center; }
@@ -2635,8 +2444,233 @@ app.get('/choose', requireAuth, (req, res) => {
     <div class="choose-row">
       <a href="/admin" class="choose-card"><div class="choose-icon">📞</div><div class="choose-label">Phone System</div><div class="choose-sub">Calls, messages, appointments</div></a>
       <a href="/office" class="choose-card"><div class="choose-icon">🏢</div><div class="choose-label">Our Office</div><div class="choose-sub">Team, projects, budget</div></a>
+      <a href="/email-manager" class="choose-card"><div class="choose-icon">✉️</div><div class="choose-label">Email Manager</div><div class="choose-sub">Outreach, follow-ups, replies</div></a>
     </div>
   </div>
+</body>
+</html>`);
+});
+
+
+app.get('/email-manager', requireAuth, (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Email Manager — Manet Creative</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f2f1ec; color: #161616; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e2ded2; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
+  .navbar a { color: #161616; text-decoration: none; font-size: 0.8rem; font-weight: 700; }
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 26px 28px 80px; }
+  h1 { font-size: 1.3rem; margin: 0 0 4px; }
+  .sub { color: #77716a; font-size: 0.8rem; margin-bottom: 20px; }
+  .upload-box { background: #fff; border: 1.5px dashed #d6d2c4; border-radius: 8px; padding: 22px; text-align: center; margin-bottom: 26px; }
+  .upload-box.drag { border-color: #161616; background: #f7f5ef; }
+  .btn { display: inline-block; padding: 9px 16px; border-radius: 5px; font-size: 0.78rem; font-weight: 700; border: 1.3px solid transparent; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #161616; color: #fff; }
+  .btn.outline { background: #fff; border-color: #d6d2c4; color: #161616; }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .batch { background: #fff; border: 1px solid #e2ded2; border-radius: 8px; margin-bottom: 22px; overflow: hidden; }
+  .batch-head { padding: 12px 16px; background: #fbfaf7; border-bottom: 1px solid #e2ded2; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+  .batch-head b { font-size: 0.82rem; }
+  .batch-head .meta { font-size: 0.72rem; color: #9a9488; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
+  th { text-align: left; padding: 8px 12px; background: #f7f5ef; color: #77716a; font-weight: 700; border-bottom: 1px solid #e2ded2; white-space: nowrap; }
+  td { padding: 8px 12px; border-bottom: 1px solid #eeece4; vertical-align: top; }
+  td.wrap-cell { max-width: 280px; white-space: pre-wrap; }
+  .status-pill { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.68rem; font-weight: 700; }
+  .status-pending { background: #fef3c7; color: #92400e; }
+  .status-waiting { background: #e0e7ff; color: #3730a3; }
+  .status-writing { background: #dbeafe; color: #1e3a8a; }
+  .status-ready { background: #dcfce7; color: #166534; }
+  .status-sent { background: #f3f4f6; color: #6b7280; }
+  .status-replied { background: #d1fae5; color: #065f46; }
+  .typewriter::after { content: '▍'; animation: blink 0.8s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .chat-box { position: fixed; bottom: 0; right: 24px; width: 340px; max-height: 420px; background: #fff; border: 1px solid #e2ded2; border-radius: 10px 10px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+  .chat-head { padding: 10px 14px; border-bottom: 1px solid #e2ded2; font-size: 0.78rem; font-weight: 700; background: #fbfaf7; border-radius: 10px 10px 0 0; }
+  .chat-msgs { flex: 1; overflow-y: auto; padding: 10px 14px; max-height: 260px; font-size: 0.74rem; }
+  .chat-msg { margin-bottom: 10px; }
+  .chat-msg b { display: block; font-size: 0.68rem; color: #9a9488; margin-bottom: 2px; }
+  .chat-input-row { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #e2ded2; }
+  .chat-input-row input { flex: 1; padding: 7px 9px; border: 1px solid #e2ded2; border-radius: 5px; font-size: 0.74rem; font-family: inherit; }
+  .empty { color: #9a9488; font-size: 0.78rem; padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div>✉️ <b>Email Manager</b></div>
+    <a href="/choose">← Back</a>
+  </div>
+  <div class="wrap">
+    <h1>Outreach Spreadsheet</h1>
+    <div class="sub">Real, growing database — new uploads add rows below, nothing here ever gets deleted or overwritten.</div>
+
+    <div class="upload-box" id="uploadBox">
+      <div style="margin-bottom:10px;font-size:0.8rem;">Drop an Excel file here, or</div>
+      <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
+      <button class="btn primary" onclick="document.getElementById('fileInput').click()">Choose Excel file</button>
+      <div style="margin-top:8px;font-size:0.68rem;color:#9a9488;">Columns expected: Email, Subject, Body</div>
+    </div>
+
+    <div id="batchesArea"><div class="empty">Loading real data…</div></div>
+  </div>
+
+  <div class="chat-box">
+    <div class="chat-head">💬 Mila</div>
+    <div class="chat-msgs" id="chatMsgs"></div>
+    <div class="chat-input-row">
+      <input id="chatInput" placeholder="Ask Mila about this data…" onkeydown="if(event.key==='Enter')sendChat();">
+      <button class="btn primary" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+<script>
+const knownFollowupText = {}; // id -> last-seen text, so we only animate NEW text once
+
+function statusFor(r) {
+  if (r.repliedAt) return { cls: 'status-replied', label: '✅ Replied' };
+  if (r.followupSentConfirmed) return { cls: 'status-sent', label: '📤 Follow-up sent — watching' };
+  if (r.followupText) return { cls: 'status-ready', label: '✍️ Follow-up ready' };
+  if (r.sentConfirmed) return { cls: 'status-waiting', label: '⏳ Waiting (4-day timer)' };
+  return { cls: 'status-pending', label: '❓ Confirm sent?' };
+}
+
+function typewriterReveal(el, text) {
+  el.classList.add('typewriter');
+  el.textContent = '';
+  let i = 0;
+  const timer = setInterval(() => {
+    el.textContent = text.slice(0, i);
+    i += Math.max(1, Math.floor(text.length / 60));
+    if (i >= text.length) { el.textContent = text; el.classList.remove('typewriter'); clearInterval(timer); }
+  }, 22);
+}
+
+async function loadRows() {
+  try {
+    const res = await fetch('/office/api/email-manager/rows', { credentials: 'include' });
+    if (!res.ok) { document.getElementById('batchesArea').innerHTML = '<div class="empty">Not logged in — refresh the page.</div>'; return; }
+    const rows = await res.json();
+    renderBatches(rows);
+  } catch (e) {
+    document.getElementById('batchesArea').innerHTML = '<div class="empty">Could not load: ' + e.message + '</div>';
+  }
+}
+
+function renderBatches(rows) {
+  const area = document.getElementById('batchesArea');
+  if (!rows.length) { area.innerHTML = '<div class="empty">Nothing uploaded yet.</div>'; return; }
+  const batchIds = [...new Set(rows.map(r => r.batchId))];
+  area.innerHTML = batchIds.map(bid => {
+    const batchRows = rows.filter(r => r.batchId === bid);
+    const allSentConfirmed = batchRows.every(r => r.sentConfirmed);
+    const allFollowupsReady = batchRows.every(r => r.followupText);
+    const allFollowupsSent = batchRows.every(r => r.followupSentConfirmed || !r.followupText);
+    let actionHtml = '';
+    if (!allSentConfirmed) {
+      actionHtml = '<button class="btn primary" data-batch="' + bid + '" onclick="confirmSent(this.dataset.batch)">Are all these sent? — Confirm</button>';
+    } else if (allFollowupsReady && !allFollowupsSent) {
+      actionHtml = '<button class="btn primary" data-batch="' + bid + '" onclick="downloadBatch(this.dataset.batch)">⬇ Download follow-ups Excel</button> <button class="btn outline" data-batch="' + bid + '" onclick="confirmFollowupSent(this.dataset.batch)">Mark follow-ups sent</button>';
+    } else if (!allFollowupsReady) {
+      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">AI is drafting follow-ups as the 4-day timer completes for each row…</span>';
+    }
+    return '<div class="batch"><div class="batch-head"><div><b>Batch — ' + batchRows.length + ' email' + (batchRows.length===1?'':'s') + '</b> <span class="meta">uploaded ' + new Date(batchRows[0].uploadedAt).toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric'}) + '</span></div><div>' + actionHtml + '</div></div>' +
+      '<table><thead><tr><th>Email</th><th>Subject</th><th>Status</th><th>Follow-up subject</th><th>Follow-up</th></tr></thead><tbody>' +
+      batchRows.map(r => {
+        const st = statusFor(r);
+        const isNew = r.followupText && knownFollowupText[r.id] !== r.followupText;
+        knownFollowupText[r.id] = r.followupText;
+        return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td><span class="status-pill ' + st.cls + '">' + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell" id="fu-' + r.id + '">' + (r.followupText ? (isNew ? '' : escapeHtmlJs(r.followupText)) : (r.sentConfirmed ? '<span style="color:#9a9488;">writing…</span>' : '—')) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }).join('');
+
+  rows.forEach(r => {
+    if (r.followupText) {
+      const el = document.getElementById('fu-' + r.id);
+      if (el && el.textContent.trim() === '') typewriterReveal(el, r.followupText);
+    }
+  });
+}
+
+function escapeHtmlJs(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+document.getElementById('fileInput').addEventListener('change', e => handleFile(e.target.files[0]));
+const uploadBox = document.getElementById('uploadBox');
+uploadBox.addEventListener('dragover', e => { e.preventDefault(); uploadBox.classList.add('drag'); });
+uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('drag'));
+uploadBox.addEventListener('drop', e => { e.preventDefault(); uploadBox.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const wb = XLSX.read(e.target.result, { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(sheet);
+    const rows = json.map(r => ({
+      email: r.Email || r.email || r['E-mail'] || '',
+      subject: r.Subject || r.subject || '',
+      body: r.Body || r.body || r.Message || r.message || ''
+    })).filter(r => r.email);
+    if (!rows.length) { alert('No rows with an Email column found.'); return; }
+    const res = await fetch('/office/api/email-manager/upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+      body: JSON.stringify({ rows })
+    });
+    if (res.ok) { document.getElementById('fileInput').value = ''; loadRows(); }
+    else alert('Upload failed.');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+async function confirmSent(batchId) {
+  if (!confirm('Confirm all emails in this batch were really sent? This starts the 4-day follow-up timer.')) return;
+  await fetch('/office/api/email-manager/confirm-sent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ batchId }) });
+  loadRows();
+}
+async function confirmFollowupSent(batchId) {
+  if (!confirm('Confirm all these follow-ups were really sent?')) return;
+  await fetch('/office/api/email-manager/confirm-followup-sent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ batchId }) });
+  loadRows();
+}
+function downloadBatch(batchId) {
+  window.location.href = '/office/api/email-manager/download/' + encodeURIComponent(batchId);
+  setTimeout(() => { if (confirm('Downloaded. Confirm these follow-ups are sent now?')) confirmFollowupSent(batchId); }, 1500);
+}
+
+async function loadChat() {
+  try {
+    const res = await fetch('/office/api/email-manager/chat', { credentials: 'include' });
+    if (!res.ok) return;
+    const chat = await res.json();
+    const el = document.getElementById('chatMsgs');
+    el.innerHTML = chat.map(m => '<div class="chat-msg"><b>' + (m.from === 'owner' ? 'You' : 'Mila') + '</b>' + escapeHtmlJs(m.text) + '</div>').join('') || '<div style="color:#9a9488;">No messages yet.</div>';
+    el.scrollTop = el.scrollHeight;
+  } catch (e) {}
+}
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  if (!input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+  await fetch('/office/api/email-manager/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+  loadChat();
+}
+
+loadRows();
+loadChat();
+setInterval(loadRows, 8000);
+setInterval(loadChat, 15000);
+</script>
 </body>
 </html>`);
 });
