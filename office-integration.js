@@ -246,7 +246,7 @@ function mountOffice(app, requireAuth) {
     // self). Tightens everything else, including blocking any framing.
     res.setHeader('Content-Security-Policy', [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: https:",
       "connect-src 'self'",
@@ -476,6 +476,14 @@ function mountOffice(app, requireAuth) {
     if (!key) return res.status(503).json({ error: 'OFFICE_API_KEY is not set on the server yet.' });
     if (!timingSafeStringEqual(req.header('X-API-Key'), key)) return res.status(401).json({ error: 'Invalid or missing X-API-Key header.' });
     next();
+  }
+  // For pages reached via a normal logged-in session (like /email-manager)
+  // rather than a manually-configured API key — accepts either.
+  function requireOfficeAuth(req, res, next) {
+    if (hasValidSession(req)) return next();
+    const key = process.env.OFFICE_API_KEY;
+    if (key && timingSafeStringEqual(req.header('X-API-Key'), key)) return next();
+    return res.status(401).json({ error: 'Not logged in.' });
   }
 
   // ── The office dashboard — behind your existing admin login ────────
@@ -905,6 +913,9 @@ function mountOffice(app, requireAuth) {
     igTickRunning = true;
     lastIgTickAt = new Date().toISOString();
     try {
+      const enabledSetting = await store.getState('instagram_autoresponder_enabled');
+      const enabled = enabledSetting !== false; // defaults to on
+      if (!enabled) { lastIgTickSummary = 'asleep — turned off from the Instagram panel'; return; }
       if (!process.env.DEEPSEEK_API_KEY || !process.env.INSTAGRAM_ACCESS_TOKEN) {
         lastIgTickSummary = !process.env.DEEPSEEK_API_KEY ? 'DEEPSEEK_API_KEY not set' : 'INSTAGRAM_ACCESS_TOKEN not set';
         return;
@@ -979,15 +990,225 @@ function mountOffice(app, requireAuth) {
   app.get('/office/api/instagram/activity', requireOfficeApiKey, async (req, res) => {
     try { res.json((await store.getState('instagram_activity')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
   });
-  app.get('/office/api/instagram/autoresponder-status', requireOfficeApiKey, (req, res) => {
+  app.get('/office/api/instagram/autoresponder-status', requireOfficeApiKey, async (req, res) => {
+    const enabledSetting = await store.getState('instagram_autoresponder_enabled').catch(() => null);
     res.json({
       deepseekKeySet: !!process.env.DEEPSEEK_API_KEY, instagramTokenSet: !!process.env.INSTAGRAM_ACCESS_TOKEN,
+      enabled: enabledSetting !== false,
       tickIntervalMs: IG_TICK_MS, lastTickAt: lastIgTickAt, lastTickSummary: lastIgTickSummary
     });
+  });
+  app.post('/office/api/instagram/toggle', requireOfficeApiKey, async (req, res) => {
+    const { enabled } = req.body || {};
+    try { await store.setState('instagram_autoresponder_enabled', !!enabled); res.json({ ok: true, enabled: !!enabled }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
   });
   const IG_TICK_MS = 2 * 60 * 1000; // real customer DMs deserve a faster loop than internal project check-ins
   setInterval(instagramAutoResponderTick, IG_TICK_MS);
   setTimeout(instagramAutoResponderTick, 20000);
+
+  // ═══════════════════════════════════════════════════════════════
+  // EMAIL MANAGER — a real, growing spreadsheet-style database. Upload
+  // an Excel of sent emails, confirm they went out, real AI drafts a
+  // custom follow-up per row once 4 real days pass (ONE real AI call per
+  // row — economical, never repeated), download the follow-ups as a real
+  // Excel file, confirm those went out too. New uploads always APPEND —
+  // nothing here ever gets overwritten or deleted. Real IMAP (zero AI
+  // cost) watches for real replies. If a batch goes quiet, Mila — once,
+  // not repeatedly — offers to look into why.
+  // ═══════════════════════════════════════════════════════════════
+  const EMAIL_FOLLOWUP_DELAY_MS = 4 * 24 * 60 * 60 * 1000;
+
+  app.post('/office/api/email-manager/upload', requireOfficeAuth, async (req, res) => {
+    const { rows } = req.body || {};
+    if (!Array.isArray(rows) || !rows.length) return res.status(400).json({ error: 'rows array is required' });
+    try {
+      let all = await store.getState('email_manager_rows');
+      if (!Array.isArray(all)) all = [];
+      const batchId = 'BATCH-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+      const uploadedAt = new Date().toISOString();
+      const newRows = rows.filter(r => r && r.email).map(r => ({
+        id: 'ROW-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+        batchId, uploadedAt,
+        email: String(r.email).trim(), subject: String(r.subject || '').trim(), body: String(r.body || '').trim(),
+        sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null,
+        followupSubject: null, followupText: null, followupGeneratedAt: null,
+        followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null
+      }));
+      all = all.concat(newRows); // always append — old rows are never touched
+      await store.setState('email_manager_rows', all);
+      res.json({ ok: true, batchId, count: newRows.length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/office/api/email-manager/rows', requireOfficeAuth, async (req, res) => {
+    try { res.json((await store.getState('email_manager_rows')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/office/api/email-manager/confirm-sent', requireOfficeAuth, async (req, res) => {
+    const { batchId } = req.body || {};
+    if (!batchId) return res.status(400).json({ error: 'batchId required' });
+    try {
+      let all = await store.getState('email_manager_rows');
+      if (!Array.isArray(all)) all = [];
+      const now = new Date();
+      const dueAt = new Date(now.getTime() + EMAIL_FOLLOWUP_DELAY_MS).toISOString();
+      let touched = 0;
+      all.forEach(r => {
+        if (r.batchId === batchId && !r.sentConfirmed) {
+          r.sentConfirmed = true; r.sentConfirmedAt = now.toISOString(); r.followupDueAt = dueAt;
+          touched++;
+        }
+      });
+      await store.setState('email_manager_rows', all);
+      res.json({ ok: true, touched });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.post('/office/api/email-manager/confirm-followup-sent', requireOfficeAuth, async (req, res) => {
+    const { batchId } = req.body || {};
+    if (!batchId) return res.status(400).json({ error: 'batchId required' });
+    try {
+      let all = await store.getState('email_manager_rows');
+      if (!Array.isArray(all)) all = [];
+      const now = new Date().toISOString();
+      let touched = 0;
+      all.forEach(r => {
+        if (r.batchId === batchId && r.followupText && !r.followupSentConfirmed) {
+          r.followupSentConfirmed = true; r.followupSentConfirmedAt = now;
+          touched++;
+        }
+      });
+      await store.setState('email_manager_rows', all);
+      res.json({ ok: true, touched });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/office/api/email-manager/download/:batchId', requireOfficeAuth, async (req, res) => {
+    let XLSX;
+    try { XLSX = require('xlsx'); } catch (e) { return res.status(500).send('The "xlsx" package is not installed on the server. Run: npm install xlsx'); }
+    try {
+      const all = (await store.getState('email_manager_rows')) || [];
+      const rows = all.filter(r => r.batchId === req.params.batchId && r.followupText);
+      if (!rows.length) return res.status(404).send('No ready follow-ups in this batch yet.');
+      const sheetData = rows.map(r => ({ Email: r.email, Subject: r.followupSubject || `Re: ${r.subject}`, 'Follow-up': r.followupText }));
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.json_to_sheet(sheetData);
+      XLSX.utils.book_append_sheet(wb, ws, 'Follow-ups');
+      const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="followups-${req.params.batchId}.xlsx"`);
+      res.send(buf);
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  app.get('/office/api/email-manager/chat', requireOfficeAuth, async (req, res) => {
+    try { res.json((await store.getState('email_manager_chat')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+  app.post('/office/api/email-manager/chat', requireOfficeAuth, async (req, res) => {
+    const { text } = req.body || {};
+    if (!text) return res.status(400).json({ error: 'text required' });
+    try {
+      let chat = await store.getState('email_manager_chat');
+      if (!Array.isArray(chat)) chat = [];
+      chat.push({ from: 'owner', text, at: new Date().toISOString() });
+      const all = (await store.getState('email_manager_rows')) || [];
+      const sys = `You are Mila, looking at real email outreach data for this business. Answer the owner's question specifically using the real data given — don't invent numbers. Under 100 words.`;
+      const summary = `Total rows: ${all.length}. Confirmed sent: ${all.filter(r=>r.sentConfirmed).length}. Follow-ups sent: ${all.filter(r=>r.followupSentConfirmed).length}. Replies: ${all.filter(r=>r.repliedAt).length}.`;
+      const result = await serverCallAI(sys, `${summary}\n\nOwner asked: "${text}"`);
+      chat.push({ from: 'mila', text: result.ok ? result.text : `(offline — ${result.error})`, at: new Date().toISOString() });
+      await store.setState('email_manager_chat', chat.slice(-200));
+      res.json({ ok: true });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
+  async function emailManagerFollowupTick() {
+    if (!process.env.DEEPSEEK_API_KEY) return;
+    try {
+      let all = await store.getState('email_manager_rows');
+      if (!Array.isArray(all) || !all.length) return;
+      let changed = false;
+      for (const r of all) {
+        if (!r.sentConfirmed || r.followupText || !r.followupDueAt) continue;
+        if (Date.now() < new Date(r.followupDueAt).getTime()) continue;
+        const sys = `You are Mila, writing a real, custom, friendly follow-up email to a real prospect who hasn't replied in 4 days. Reference the ORIGINAL email's real specific content — never generic. Warm, brief, genuinely well-written, one clear reason to reply, under 90 words. Respond with exactly two lines: first line "Subject: <subject line>", then a blank line, then the email body only.`;
+        const user = `Original email to ${r.email}:\nSubject: ${r.subject || '(none)'}\n\n${r.body}`;
+        const result = await serverCallAI(sys, user);
+        if (result.ok) {
+          const subjMatch = result.text.match(/^Subject:\s*(.+)$/mi);
+          r.followupSubject = subjMatch ? subjMatch[1].trim() : `Re: ${r.subject}`;
+          r.followupText = result.text.replace(/^Subject:\s*.+$/mi, '').trim();
+          r.followupGeneratedAt = new Date().toISOString();
+          changed = true;
+          console.log(`✓ emailManagerFollowupTick: real follow-up drafted for ${r.email}`);
+        }
+      }
+      if (changed) await store.setState('email_manager_rows', all);
+    } catch (e) { console.error('✗ emailManagerFollowupTick error:', e.message); }
+  }
+
+  async function emailManagerReplyCheckTick() {
+    const imapUser = process.env.EMAIL_IMAP_USER, imapPass = process.env.EMAIL_IMAP_PASS;
+    const imapHost = process.env.EMAIL_IMAP_HOST || 'imap.gmail.com';
+    if (!imapUser || !imapPass) return;
+    let ImapFlow;
+    try { ImapFlow = require('imapflow').ImapFlow; } catch (e) { return; }
+    try {
+      let all = await store.getState('email_manager_rows');
+      if (!Array.isArray(all) || !all.length) return;
+      const pending = all.filter(r => r.sentConfirmed && !r.repliedAt);
+      if (!pending.length) return;
+      const client = new ImapFlow({ host: imapHost, port: 993, secure: true, auth: { user: imapUser, pass: imapPass }, logger: false });
+      await client.connect();
+      let changed = false;
+      try {
+        const lock = await client.getMailboxLock('INBOX');
+        try {
+          for (const r of pending) {
+            const uids = await client.search({ from: r.email, since: new Date(r.sentConfirmedAt) });
+            if (uids && uids.length) { r.repliedAt = new Date().toISOString(); changed = true; }
+          }
+        } finally { lock.release(); }
+      } finally { await client.logout(); }
+      if (changed) await store.setState('email_manager_rows', all);
+    } catch (e) { console.error('✗ emailManagerReplyCheckTick error:', e.message); }
+  }
+
+  // Mila notices real silence — only speaks up ONCE per batch, only when
+  // real data genuinely warrants it (enough sent, enough time, no replies).
+  async function emailManagerNudgeTick() {
+    if (!process.env.DEEPSEEK_API_KEY) return;
+    try {
+      const all = (await store.getState('email_manager_rows')) || [];
+      let chat = await store.getState('email_manager_chat');
+      if (!Array.isArray(chat)) chat = [];
+      const batchIds = [...new Set(all.map(r => r.batchId))];
+      for (const batchId of batchIds) {
+        const rows = all.filter(r => r.batchId === batchId);
+        const sentRows = rows.filter(r => r.followupSentConfirmed);
+        if (sentRows.length < 5) continue; // too small a sample to mean anything
+        const oldestSend = Math.min(...sentRows.map(r => new Date(r.followupSentConfirmedAt).getTime()));
+        if (Date.now() - oldestSend < 3 * 24 * 60 * 60 * 1000) continue; // give it 3 real days
+        const replies = sentRows.filter(r => r.repliedAt).length;
+        if (replies > 0) continue; // there IS engagement, nothing to flag
+        const alreadyNudged = chat.some(c => c.batchId === batchId && c.kind === 'nudge');
+        if (alreadyNudged) continue;
+        chat.push({
+          from: 'mila', kind: 'nudge', batchId,
+          text: `Hmm — ${sentRows.length} follow-ups went out on this batch a few days ago and nobody's replied yet. Want me to look into why and suggest what to change?`,
+          at: new Date().toISOString()
+        });
+      }
+      await store.setState('email_manager_chat', chat.slice(-200));
+    } catch (e) { console.error('✗ emailManagerNudgeTick error:', e.message); }
+  }
+
+  setInterval(emailManagerFollowupTick, 60 * 60 * 1000);
+  setInterval(emailManagerReplyCheckTick, 30 * 60 * 1000);
+  setInterval(emailManagerNudgeTick, 6 * 60 * 60 * 1000);
+  setTimeout(emailManagerFollowupTick, 25000);
+  setTimeout(emailManagerReplyCheckTick, 30000);
+  setTimeout(emailManagerNudgeTick, 35000);
 
   console.log(`🏢 Office app mounted at /office (storage: ${store.kind}${store.kind === 'json-file' ? ' — NOT persistent, add DATABASE_URL' : ''})`);
 }
