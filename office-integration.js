@@ -1031,6 +1031,10 @@ function mountOffice(app, requireAuth) {
         id: 'ROW-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
         batchId, uploadedAt,
         email: String(r.email).trim(), subject: String(r.subject || '').trim(), body: String(r.body || '').trim(),
+        // If the sheet already had a written follow-up, use it instead of
+        // spending a real AI call once the 4-day timer completes.
+        presetFollowupSubject: String(r.followupSubject || '').trim() || null,
+        presetFollowupBody: String(r.followupBody || '').trim() || null,
         sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null,
         followupSubject: null, followupText: null, followupGeneratedAt: null,
         followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null
@@ -1123,7 +1127,6 @@ function mountOffice(app, requireAuth) {
   });
 
   async function emailManagerFollowupTick() {
-    if (!process.env.DEEPSEEK_API_KEY) return;
     try {
       let all = await store.getState('email_manager_rows');
       if (!Array.isArray(all) || !all.length) return;
@@ -1131,6 +1134,20 @@ function mountOffice(app, requireAuth) {
       for (const r of all) {
         if (!r.sentConfirmed || r.followupText || !r.followupDueAt) continue;
         if (Date.now() < new Date(r.followupDueAt).getTime()) continue;
+
+        // Already had a real, human-written follow-up in the sheet —
+        // use it directly. Zero AI cost, and it's real content someone
+        // already wrote, not something to discard.
+        if (r.presetFollowupBody) {
+          r.followupSubject = r.presetFollowupSubject || `Re: ${r.subject}`;
+          r.followupText = r.presetFollowupBody;
+          r.followupGeneratedAt = new Date().toISOString();
+          changed = true;
+          console.log(`✓ emailManagerFollowupTick: used preset follow-up for ${r.email} (no AI call)`);
+          continue;
+        }
+
+        if (!process.env.DEEPSEEK_API_KEY) continue; // no key AND no preset — genuinely nothing to do for this one yet
         const sys = `You are Mila, writing a real, custom, friendly follow-up email to a real prospect who hasn't replied in 4 days. Reference the ORIGINAL email's real specific content — never generic. Warm, brief, genuinely well-written, one clear reason to reply, under 90 words. Respond with exactly two lines: first line "Subject: <subject line>", then a blank line, then the email body only.`;
         const user = `Original email to ${r.email}:\nSubject: ${r.subject || '(none)'}\n\n${r.body}`;
         const result = await serverCallAI(sys, user);

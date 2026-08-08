@@ -2609,19 +2609,86 @@ uploadBox.addEventListener('dragover', e => { e.preventDefault(); uploadBox.clas
 uploadBox.addEventListener('dragleave', () => uploadBox.classList.remove('drag'));
 uploadBox.addEventListener('drop', e => { e.preventDefault(); uploadBox.classList.remove('drag'); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); });
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function findHeaderRowAndData(sheet) {
+  // Real spreadsheets often have a title row, a description row, then the
+  // real headers — not always row 1. Scan the first 10 rows for the one
+  // most likely to be real column headers (short text cells, several of
+  // them, at least one mentioning "email").
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  let headerRowIdx = 0;
+  let bestScore = -1;
+  for (let i = 0; i < Math.min(10, raw.length); i++) {
+    const row = raw[i];
+    const nonEmpty = row.filter(c => String(c).trim() !== '');
+    if (nonEmpty.length < 2) continue;
+    const hasEmailish = nonEmpty.some(c => /email/i.test(String(c)));
+    const avgLen = nonEmpty.reduce((s, c) => s + String(c).length, 0) / nonEmpty.length;
+    const score = nonEmpty.length + (hasEmailish ? 10 : 0) - (avgLen > 60 ? 20 : 0);
+    if (score > bestScore) { bestScore = score; headerRowIdx = i; }
+  }
+  const headers = raw[headerRowIdx].map(h => String(h || '').trim());
+  const dataRows = raw.slice(headerRowIdx + 1).filter(r => r.some(c => String(c).trim() !== ''));
+  return { headers, dataRows };
+}
+
+function classifyColumns(headers, dataRows) {
+  const lower = headers.map(h => h.toLowerCase());
+  // Find the REAL email column by checking actual values, not just the
+  // header name — real sheets often have several columns with "email"
+  // in the name (the address, the outreach email body, the follow-up
+  // email body). Only one of them actually contains real addresses.
+  let emailIdx = -1, bestEmailScore = 0;
+  headers.forEach((h, i) => {
+    const sample = dataRows.slice(0, 8).map(r => String(r[i] || '').trim()).filter(Boolean);
+    if (!sample.length) return;
+    const matchCount = sample.filter(v => EMAIL_RE.test(v)).length;
+    const score = matchCount / sample.length;
+    if (score > bestEmailScore) { bestEmailScore = score; emailIdx = i; }
+  });
+
+  const findIdx = (mustInclude, mustExclude) => {
+    for (let i = 0; i < lower.length; i++) {
+      if (i === emailIdx) continue;
+      if (mustInclude.some(k => lower[i].includes(k)) && !mustExclude.some(k => lower[i].includes(k))) return i;
+    }
+    return -1;
+  };
+  return {
+    emailIdx,
+    subjectIdx: findIdx(['subject'], ['follow']),
+    bodyIdx: findIdx(['email', 'outreach', 'message', 'body'], ['follow']),
+    followupSubjectIdx: findIdx(['follow'], []) !== -1 && lower.some((h,i)=>h.includes('follow')&&h.includes('subject')) ? lower.findIndex(h=>h.includes('follow')&&h.includes('subject')) : -1,
+    followupBodyIdx: lower.findIndex(h => h.includes('follow') && (h.includes('email') || h.includes('body') || h.includes('message')))
+  };
+}
+
 function handleFile(file) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = async (e) => {
     const wb = XLSX.read(e.target.result, { type: 'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const json = XLSX.utils.sheet_to_json(sheet);
-    const rows = json.map(r => ({
-      email: r.Email || r.email || r['E-mail'] || '',
-      subject: r.Subject || r.subject || '',
-      body: r.Body || r.body || r.Message || r.message || ''
-    })).filter(r => r.email);
-    if (!rows.length) { alert('No rows with an Email column found.'); return; }
+    let rows = [];
+    let usedSheet = null;
+    // Try every sheet, keep the one with the most real, usable rows —
+    // a file can have several sheets that technically contain an email
+    // address somewhere; the right one is the most complete.
+    for (const sheetName of wb.SheetNames) {
+      const { headers, dataRows } = findHeaderRowAndData(wb.Sheets[sheetName]);
+      if (!headers.length || !dataRows.length) continue;
+      const cols = classifyColumns(headers, dataRows);
+      if (cols.emailIdx === -1) continue;
+      const candidateRows = dataRows.map(r => ({
+        email: String(r[cols.emailIdx] || '').trim(),
+        subject: cols.subjectIdx !== -1 ? String(r[cols.subjectIdx] || '').trim() : '',
+        body: cols.bodyIdx !== -1 ? String(r[cols.bodyIdx] || '').trim() : '',
+        followupSubject: cols.followupSubjectIdx !== -1 ? String(r[cols.followupSubjectIdx] || '').trim() : '',
+        followupBody: cols.followupBodyIdx !== -1 ? String(r[cols.followupBodyIdx] || '').trim() : ''
+      })).filter(r => EMAIL_RE.test(r.email));
+      if (candidateRows.length > rows.length) { rows = candidateRows; usedSheet = sheetName; }
+    }
+    if (!rows.length) { alert('Could not find a column with real email addresses in any sheet. Check the file has at least one column of actual email addresses.'); return; }
     const res = await fetch('/office/api/email-manager/upload', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
       body: JSON.stringify({ rows })
