@@ -2462,48 +2462,64 @@ app.get('/email-manager', requireAuth, (req, res) => {
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f2f1ec; color: #161616; }
-  .navbar { background: #fbfaf7; border-bottom: 1px solid #e2ded2; padding: 14px 28px; display: flex; align-items: center; justify-content: space-between; }
-  .navbar a { color: #161616; text-decoration: none; font-size: 0.8rem; font-weight: 700; }
-  .wrap { max-width: 1280px; margin: 0 auto; padding: 26px 28px 80px; }
-  h1 { font-size: 1.3rem; margin: 0 0 4px; }
-  .sub { color: #77716a; font-size: 0.8rem; margin-bottom: 20px; }
-  .upload-box { background: #fff; border: 1.5px dashed #d6d2c4; border-radius: 8px; padding: 22px; text-align: center; margin-bottom: 26px; }
-  .upload-box.drag { border-color: #161616; background: #f7f5ef; }
-  .btn { display: inline-block; padding: 9px 16px; border-radius: 5px; font-size: 0.78rem; font-weight: 700; border: 1.3px solid transparent; cursor: pointer; font-family: inherit; }
-  .btn.primary { background: #161616; color: #fff; }
-  .btn.outline { background: #fff; border-color: #d6d2c4; color: #161616; }
-  .btn:disabled { opacity: 0.5; cursor: default; }
-  .batch { background: #fff; border: 1px solid #e2ded2; border-radius: 8px; margin-bottom: 22px; overflow: hidden; }
-  .batch-head { padding: 12px 16px; background: #fbfaf7; border-bottom: 1px solid #e2ded2; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
-  .batch-head b { font-size: 0.82rem; }
-  .batch-head .meta { font-size: 0.72rem; color: #9a9488; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.74rem; }
-  th { text-align: left; padding: 8px 12px; background: #f7f5ef; color: #77716a; font-weight: 700; border-bottom: 1px solid #e2ded2; white-space: nowrap; }
-  td { padding: 8px 12px; border-bottom: 1px solid #eeece4; vertical-align: top; }
-  td.wrap-cell { max-width: 280px; white-space: pre-wrap; }
-  .status-pill { display: inline-block; padding: 2px 8px; border-radius: 8px; font-size: 0.68rem; font-weight: 700; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; }
+  .navbar > div:first-child { font-size: 0.92rem; font-weight: 700; letter-spacing: -0.2px; }
+  .navbar a { color: #6b6558; text-decoration: none; font-size: 0.76rem; font-weight: 700; padding: 6px 12px; border-radius: 6px; transition: background 0.15s; }
+  .navbar a:hover { background: #eeece2; color: #1a1a16; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 40px 36px 100px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; letter-spacing: -0.4px; font-weight: 700; }
+  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 32px; line-height: 1.5; }
+  .upload-box { background: #fff; border: 1.5px dashed #d8d2c0; border-radius: 12px; padding: 40px 24px; text-align: center; margin-bottom: 32px; transition: all 0.15s; }
+  .upload-box.drag { border-color: #1a1a16; background: #f9f7f0; transform: scale(1.005); }
+  .upload-icon { font-size: 28px; margin-bottom: 12px; opacity: 0.6; }
+  .btn { display: inline-block; padding: 10px 20px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; border: 1.5px solid transparent; cursor: pointer; font-family: inherit; transition: all 0.15s; }
+  .btn.primary { background: #1a1a16; color: #fff; }
+  .btn.primary:hover { opacity: 0.85; transform: translateY(-1px); }
+  .btn.outline { background: #fff; border-color: #d8d2c0; color: #1a1a16; }
+  .btn.outline:hover { border-color: #1a1a16; }
+  .btn:disabled { opacity: 0.4; cursor: default; transform: none; }
+  .batch { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; margin-bottom: 28px; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.03); }
+  .batch-head { padding: 18px 22px; background: #fbfaf7; border-bottom: 1px solid #e6e1d4; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  .batch-head b { font-size: 0.86rem; }
+  .batch-head .meta { font-size: 0.72rem; color: #9a9488; margin-left: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.76rem; }
+  th { text-align: left; padding: 12px 18px; background: #f9f7f0; color: #8a8272; font-weight: 700; border-bottom: 1px solid #e6e1d4; white-space: nowrap; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.4px; }
+  td { padding: 14px 18px; border-bottom: 1px solid #f0ede3; vertical-align: top; line-height: 1.5; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fbfaf7; }
+  td.wrap-cell { max-width: 320px; white-space: pre-wrap; }
+  .status-pill { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 10px; font-size: 0.68rem; font-weight: 700; white-space: nowrap; }
   .status-pending { background: #fef3c7; color: #92400e; }
   .status-waiting { background: #e0e7ff; color: #3730a3; }
   .status-writing { background: #dbeafe; color: #1e3a8a; }
   .status-ready { background: #dcfce7; color: #166534; }
   .status-sent { background: #f3f4f6; color: #6b7280; }
   .status-replied { background: #d1fae5; color: #065f46; }
-  .typewriter::after { content: '▍'; animation: blink 0.8s step-end infinite; }
+  .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .live-cursor::after { content: '▍'; animation: blink 0.8s step-end infinite; color: #1e3a8a; }
   @keyframes blink { 50% { opacity: 0; } }
-  .chat-box { position: fixed; bottom: 0; right: 24px; width: 340px; max-height: 420px; background: #fff; border: 1px solid #e2ded2; border-radius: 10px 10px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
-  .chat-head { padding: 10px 14px; border-bottom: 1px solid #e2ded2; font-size: 0.78rem; font-weight: 700; background: #fbfaf7; border-radius: 10px 10px 0 0; }
-  .chat-msgs { flex: 1; overflow-y: auto; padding: 10px 14px; max-height: 260px; font-size: 0.74rem; }
-  .chat-msg { margin-bottom: 10px; }
-  .chat-msg b { display: block; font-size: 0.68rem; color: #9a9488; margin-bottom: 2px; }
-  .chat-input-row { display: flex; gap: 6px; padding: 10px; border-top: 1px solid #e2ded2; }
-  .chat-input-row input { flex: 1; padding: 7px 9px; border: 1px solid #e2ded2; border-radius: 5px; font-size: 0.74rem; font-family: inherit; }
-  .empty { color: #9a9488; font-size: 0.78rem; padding: 30px; text-align: center; }
+  .chat-box { position: fixed; bottom: 0; right: 28px; width: 360px; max-height: 460px; background: #fff; border: 1px solid #e6e1d4; border-radius: 12px 12px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,0.12); display: flex; flex-direction: column; }
+  .chat-head { padding: 14px 18px; border-bottom: 1px solid #e6e1d4; font-size: 0.8rem; font-weight: 700; background: #fbfaf7; border-radius: 12px 12px 0 0; }
+  .chat-msgs { flex: 1; overflow-y: auto; padding: 14px 18px; max-height: 280px; font-size: 0.76rem; }
+  .chat-msg { margin-bottom: 14px; line-height: 1.5; }
+  .chat-msg b { display: block; font-size: 0.68rem; color: #9a9488; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 0.3px; }
+  .chat-input-row { display: flex; gap: 8px; padding: 14px; border-top: 1px solid #e6e1d4; }
+  .chat-input-row input { flex: 1; padding: 9px 11px; border: 1.5px solid #e6e1d4; border-radius: 7px; font-size: 0.76rem; font-family: inherit; }
+  .chat-input-row input:focus { outline: none; border-color: #1a1a16; }
+  .empty { color: #9a9488; font-size: 0.8rem; padding: 40px; text-align: center; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(20,18,12,0.4); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal-box { background: #fff; border-radius: 14px; padding: 28px; max-width: 380px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.2); }
+  .modal-box h3 { margin: 0 0 10px; font-size: 1rem; }
+  .modal-box p { margin: 0 0 22px; font-size: 0.8rem; color: #6b6558; line-height: 1.55; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
 </style>
 </head>
 <body>
   <div class="navbar">
-    <div>✉️ <b>Email Manager</b></div>
+    <div>✉️ Email Manager</div>
     <a href="/choose">← Back</a>
   </div>
   <div class="wrap">
@@ -2511,10 +2527,11 @@ app.get('/email-manager', requireAuth, (req, res) => {
     <div class="sub">Real, growing database — new uploads add rows below, nothing here ever gets deleted or overwritten.</div>
 
     <div class="upload-box" id="uploadBox">
-      <div style="margin-bottom:10px;font-size:0.8rem;">Drop an Excel file here, or</div>
+      <div class="upload-icon">📥</div>
+      <div style="margin-bottom:14px;font-size:0.84rem;">Drop an Excel file here, or</div>
       <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
       <button class="btn primary" onclick="document.getElementById('fileInput').click()">Choose Excel file</button>
-      <div style="margin-top:8px;font-size:0.68rem;color:#9a9488;">Columns expected: Email, Subject, Body</div>
+      <div style="margin-top:12px;font-size:0.68rem;color:#9a9488;">Any real sheet works — email column is found automatically by checking the actual addresses, not the column name.</div>
     </div>
 
     <div id="batchesArea"><div class="empty">Loading real data…</div></div>
@@ -2529,26 +2546,43 @@ app.get('/email-manager', requireAuth, (req, res) => {
     </div>
   </div>
 
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-box">
+      <h3 id="modalTitle"></h3>
+      <p id="modalMsg"></p>
+      <div class="modal-actions">
+        <button class="btn outline" id="modalCancelBtn">Cancel</button>
+        <button class="btn primary" id="modalOkBtn">OK</button>
+      </div>
+    </div>
+  </div>
+
 <script>
-const knownFollowupText = {}; // id -> last-seen text, so we only animate NEW text once
+const activelyStreaming = {}; // rowId -> true while real tokens are arriving live
 
 function statusFor(r) {
   if (r.repliedAt) return { cls: 'status-replied', label: '✅ Replied' };
   if (r.followupSentConfirmed) return { cls: 'status-sent', label: '📤 Follow-up sent — watching' };
+  if (activelyStreaming[r.id]) return { cls: 'status-writing', label: '✍️ Mila is writing…' };
   if (r.followupText) return { cls: 'status-ready', label: '✍️ Follow-up ready' };
   if (r.sentConfirmed) return { cls: 'status-waiting', label: '⏳ Waiting (4-day timer)' };
   return { cls: 'status-pending', label: '❓ Confirm sent?' };
 }
 
-function typewriterReveal(el, text) {
-  el.classList.add('typewriter');
-  el.textContent = '';
-  let i = 0;
-  const timer = setInterval(() => {
-    el.textContent = text.slice(0, i);
-    i += Math.max(1, Math.floor(text.length / 60));
-    if (i >= text.length) { el.textContent = text; el.classList.remove('typewriter'); clearInterval(timer); }
-  }, 22);
+// ── Custom modal — replaces the native browser confirm() popup with
+// something that actually matches the app, on every browser.
+function customConfirm(title, message) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('modalOverlay');
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalMsg').textContent = message;
+    overlay.classList.add('open');
+    const okBtn = document.getElementById('modalOkBtn');
+    const cancelBtn = document.getElementById('modalCancelBtn');
+    const cleanup = (result) => { overlay.classList.remove('open'); okBtn.onclick = null; cancelBtn.onclick = null; resolve(result); };
+    okBtn.onclick = () => cleanup(true);
+    cancelBtn.onclick = () => cleanup(false);
+  });
 }
 
 async function loadRows() {
@@ -2577,24 +2611,46 @@ function renderBatches(rows) {
     } else if (allFollowupsReady && !allFollowupsSent) {
       actionHtml = '<button class="btn primary" data-batch="' + bid + '" onclick="downloadBatch(this.dataset.batch)">⬇ Download follow-ups Excel</button> <button class="btn outline" data-batch="' + bid + '" onclick="confirmFollowupSent(this.dataset.batch)">Mark follow-ups sent</button>';
     } else if (!allFollowupsReady) {
-      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">AI is drafting follow-ups as the 4-day timer completes for each row…</span>';
+      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">AI is drafting follow-ups live as the 4-day timer completes for each row…</span>';
     }
     return '<div class="batch"><div class="batch-head"><div><b>Batch — ' + batchRows.length + ' email' + (batchRows.length===1?'':'s') + '</b> <span class="meta">uploaded ' + new Date(batchRows[0].uploadedAt).toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric'}) + '</span></div><div>' + actionHtml + '</div></div>' +
       '<table><thead><tr><th>Email</th><th>Subject</th><th>Status</th><th>Follow-up subject</th><th>Follow-up</th></tr></thead><tbody>' +
       batchRows.map(r => {
         const st = statusFor(r);
-        const isNew = r.followupText && knownFollowupText[r.id] !== r.followupText;
-        knownFollowupText[r.id] = r.followupText;
-        return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td><span class="status-pill ' + st.cls + '">' + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell" id="fu-' + r.id + '">' + (r.followupText ? (isNew ? '' : escapeHtmlJs(r.followupText)) : (r.sentConfirmed ? '<span style="color:#9a9488;">writing…</span>' : '—')) + '</td></tr>';
+        const statusIcon = activelyStreaming[r.id] ? '<span class="pulse-dot"></span>' : '';
+        const cellContent = activelyStreaming[r.id] ? (r._liveText || '') : (r.followupText ? escapeHtmlJs(r.followupText) : (r.sentConfirmed ? '<span style="color:#9a9488;">waiting for its turn…</span>' : '—'));
+        return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }).join('');
+}
 
-  rows.forEach(r => {
-    if (r.followupText) {
-      const el = document.getElementById('fu-' + r.id);
-      if (el && el.textContent.trim() === '') typewriterReveal(el, r.followupText);
-    }
+// ── Real live streaming — connects once, stays open, shows real tokens
+// the instant the server actually generates them (not a fake animation).
+function connectLiveStream() {
+  const es = new EventSource('/office/api/email-manager/stream');
+  es.addEventListener('writing-start', (e) => {
+    const { rowId } = JSON.parse(e.data);
+    activelyStreaming[rowId] = true;
+    const el = document.getElementById('fu-' + rowId);
+    if (el) { el.textContent = ''; el.classList.add('live-cursor'); }
+    loadRows();
   });
+  es.addEventListener('chunk', (e) => {
+    const { rowId, delta } = JSON.parse(e.data);
+    const el = document.getElementById('fu-' + rowId);
+    if (el) el.textContent += delta; // real text, arriving in real time, appended live
+  });
+  es.addEventListener('writing-done', (e) => {
+    const { rowId } = JSON.parse(e.data);
+    delete activelyStreaming[rowId];
+    loadRows();
+  });
+  es.addEventListener('writing-error', (e) => {
+    const { rowId } = JSON.parse(e.data);
+    delete activelyStreaming[rowId];
+    loadRows();
+  });
+  es.onerror = () => { setTimeout(connectLiveStream, 4000); };
 }
 
 function escapeHtmlJs(s) {
@@ -2700,18 +2756,20 @@ function handleFile(file) {
 }
 
 async function confirmSent(batchId) {
-  if (!confirm('Confirm all emails in this batch were really sent? This starts the 4-day follow-up timer.')) return;
+  const ok = await customConfirm('Confirm sent?', 'Confirm all emails in this batch were really sent? This starts the real 4-day follow-up timer.');
+  if (!ok) return;
   await fetch('/office/api/email-manager/confirm-sent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ batchId }) });
   loadRows();
 }
 async function confirmFollowupSent(batchId) {
-  if (!confirm('Confirm all these follow-ups were really sent?')) return;
+  const ok = await customConfirm('Confirm sent?', 'Confirm all these follow-ups were really sent?');
+  if (!ok) return;
   await fetch('/office/api/email-manager/confirm-followup-sent', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ batchId }) });
   loadRows();
 }
 function downloadBatch(batchId) {
   window.location.href = '/office/api/email-manager/download/' + encodeURIComponent(batchId);
-  setTimeout(() => { if (confirm('Downloaded. Confirm these follow-ups are sent now?')) confirmFollowupSent(batchId); }, 1500);
+  setTimeout(async () => { if (await customConfirm('Downloaded', 'Confirm these follow-ups are sent now?')) confirmFollowupSent(batchId); }, 1500);
 }
 
 async function loadChat() {
@@ -2735,6 +2793,7 @@ async function sendChat() {
 
 loadRows();
 loadChat();
+connectLiveStream();
 setInterval(loadRows, 8000);
 setInterval(loadChat, 15000);
 </script>

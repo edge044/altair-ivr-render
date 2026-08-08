@@ -742,6 +742,70 @@ function mountOffice(app, requireAuth) {
       return { ok: true, text, tokensUsed: inTok + outTok, cost };
     } catch (e) { return { ok: false, error: e.message }; }
   }
+
+  // ── Real SSE broadcast — browsers on the Email Manager page connect
+  // here and see real AI tokens the instant they're generated, not a
+  // fake typing animation played over already-finished text.
+  const sseClients = new Set();
+  function broadcastSSE(event, data) {
+    const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (const client of sseClients) { try { client.write(payload); } catch (e) { sseClients.delete(client); } }
+  }
+  app.get('/office/api/email-manager/stream', requireOfficeAuth, (req, res) => {
+    res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
+    res.flushHeaders();
+    res.write(': connected\n\n');
+    sseClients.add(res);
+    req.on('close', () => sseClients.delete(res));
+  });
+
+  // Real streaming call — used specifically for the live-writing effect.
+  // Same real DeepSeek call as serverCallAI, just reads the response as
+  // it arrives and reports each real chunk via onChunk immediately.
+  async function serverCallAIStream(systemPrompt, userPrompt, onChunk) {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    if (!apiKey) return { ok: false, error: 'DEEPSEEK_API_KEY not set on the server.' };
+    try {
+      const res = await fetch('https://api.deepseek.com/anthropic/v1/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({
+          model: 'deepseek-v4-flash', max_tokens: 700, thinking: { type: 'disabled' }, stream: true,
+          system: systemPrompt, messages: [{ role: 'user', content: userPrompt }]
+        })
+      });
+      if (!res.ok || !res.body) {
+        let errText = 'HTTP ' + res.status;
+        try { const j = await res.json(); errText = (j.error && j.error.message) || errText; } catch (e) {}
+        return { ok: false, error: errText };
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '', fullText = '', inTok = 0, outTok = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let evt;
+          try { evt = JSON.parse(line.slice(6)); } catch (e) { continue; }
+          if (evt.type === 'content_block_delta' && evt.delta && evt.delta.type === 'text_delta') {
+            fullText += evt.delta.text;
+            if (onChunk) onChunk(evt.delta.text);
+          }
+          if (evt.type === 'message_delta' && evt.usage) { outTok = evt.usage.output_tokens || outTok; }
+          if (evt.type === 'message_start' && evt.message && evt.message.usage) { inTok = evt.message.usage.input_tokens || 0; }
+        }
+      }
+      if (!fullText.trim()) return { ok: false, error: 'empty response' };
+      const cost = (inTok / 1e6) * 0.14 + (outTok / 1e6) * 0.28;
+      return { ok: true, text: fullText.trim(), tokensUsed: inTok + outTok, cost };
+    } catch (e) { return { ok: false, error: e.message }; }
+  }
+
   function serverComputeProgress(p) {
     if (p.status === 'closed') return 100;
     let pct = 10;
@@ -1143,6 +1207,7 @@ function mountOffice(app, requireAuth) {
           r.followupText = r.presetFollowupBody;
           r.followupGeneratedAt = new Date().toISOString();
           changed = true;
+          broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText, instant: true });
           console.log(`✓ emailManagerFollowupTick: used preset follow-up for ${r.email} (no AI call)`);
           continue;
         }
@@ -1150,14 +1215,18 @@ function mountOffice(app, requireAuth) {
         if (!process.env.DEEPSEEK_API_KEY) continue; // no key AND no preset — genuinely nothing to do for this one yet
         const sys = `You are Mila, writing a real, custom, friendly follow-up email to a real prospect who hasn't replied in 4 days. Reference the ORIGINAL email's real specific content — never generic. Warm, brief, genuinely well-written, one clear reason to reply, under 90 words. Respond with exactly two lines: first line "Subject: <subject line>", then a blank line, then the email body only.`;
         const user = `Original email to ${r.email}:\nSubject: ${r.subject || '(none)'}\n\n${r.body}`;
-        const result = await serverCallAI(sys, user);
+        broadcastSSE('writing-start', { rowId: r.id });
+        const result = await serverCallAIStream(sys, user, (delta) => broadcastSSE('chunk', { rowId: r.id, delta }));
         if (result.ok) {
           const subjMatch = result.text.match(/^Subject:\s*(.+)$/mi);
           r.followupSubject = subjMatch ? subjMatch[1].trim() : `Re: ${r.subject}`;
           r.followupText = result.text.replace(/^Subject:\s*.+$/mi, '').trim();
           r.followupGeneratedAt = new Date().toISOString();
           changed = true;
-          console.log(`✓ emailManagerFollowupTick: real follow-up drafted for ${r.email}`);
+          broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText });
+          console.log(`✓ emailManagerFollowupTick: real follow-up drafted for ${r.email} (streamed live)`);
+        } else {
+          broadcastSSE('writing-error', { rowId: r.id, error: result.error });
         }
       }
       if (changed) await store.setState('email_manager_rows', all);
