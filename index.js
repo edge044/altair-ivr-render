@@ -68,8 +68,14 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
 }
 
 // ======================================================
-// DATA STORAGE
+// DATA STORAGE — real Postgres now, not files that Render wipes
 // ======================================================
+// Same DATABASE_URL you already set up for the office. loadJSON/saveJSON
+// below keep their exact original synchronous signature on purpose — every
+// one of the ~20 call-handling routes below calls them exactly like
+// before, untouched. Under the hood they now read/write an in-memory
+// cache that's loaded from Postgres on boot and written through to
+// Postgres on every save (fire-and-forget, doesn't slow down a live call).
 
 const LOGS_DIR = process.env.LOGS_DIR || "./logs";
 const CURRENT_LOGS_DIR = `${LOGS_DIR}/current`;
@@ -83,26 +89,76 @@ const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const MESSAGES_PATH = `${CURRENT_LOGS_DIR}/messages.json`;
 
-function loadJSON(filePath) {
+const PHONE_CACHE_KEYS = { [DB_PATH]: 'appointments', [CALL_LOGS_PATH]: 'call_logs', [MESSAGES_PATH]: 'messages' };
+const phoneCache = { appointments: null, call_logs: null, messages: null };
+let phoneCacheReady = false;
+let pgPool = null;
+
+function loadJSONFromFile(filePath) {
   try {
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, '[]');
-      return [];
-    }
+    if (!fs.existsSync(filePath)) return [];
     const data = fs.readFileSync(filePath, "utf8");
     return JSON.parse(data || '[]');
-  } catch (error) {
-    return [];
+  } catch (error) { return []; }
+}
+
+async function initPhoneStorage() {
+  if (!process.env.DATABASE_URL) {
+    console.warn('⚠ Phone system: no DATABASE_URL — using local files. Render WIPES these on every deploy. Add a Postgres database and set DATABASE_URL to fix this for good.');
+    Object.keys(PHONE_CACHE_KEYS).forEach(fp => { phoneCache[PHONE_CACHE_KEYS[fp]] = loadJSONFromFile(fp); });
+    phoneCacheReady = true;
+    return;
   }
+  try {
+    const { Pool } = require('pg');
+    pgPool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    await pgPool.query(`CREATE TABLE IF NOT EXISTS phone_state (key TEXT PRIMARY KEY, value JSONB NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now());`);
+    for (const [filePath, key] of Object.entries(PHONE_CACHE_KEYS)) {
+      const r = await pgPool.query('SELECT value FROM phone_state WHERE key=$1', [key]);
+      if (r.rows.length) {
+        phoneCache[key] = r.rows[0].value;
+      } else {
+        // First real boot on Postgres — migrate whatever's in the (possibly
+        // about-to-be-wiped) local file once, so existing data isn't lost.
+        const fromFile = loadJSONFromFile(filePath);
+        phoneCache[key] = fromFile;
+        await pgPool.query('INSERT INTO phone_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO NOTHING', [key, JSON.stringify(fromFile)]);
+      }
+    }
+    phoneCacheReady = true;
+    console.log('✓ Phone system: Postgres connected — calls/appointments/messages now survive every deploy.');
+  } catch (e) {
+    console.error('✗ Phone system: Postgres setup failed, falling back to local files:', e.message);
+    Object.keys(PHONE_CACHE_KEYS).forEach(fp => { phoneCache[PHONE_CACHE_KEYS[fp]] = loadJSONFromFile(fp); });
+    phoneCacheReady = true;
+  }
+}
+function persistPhoneKey(key) {
+  if (!pgPool) return;
+  pgPool.query('INSERT INTO phone_state (key, value) VALUES ($1,$2) ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=now()', [key, JSON.stringify(phoneCache[key])])
+    .catch(e => console.error(`✗ Phone system: Postgres save failed for "${key}":`, e.message));
+}
+
+function loadJSON(filePath) {
+  const key = PHONE_CACHE_KEYS[filePath];
+  if (key && phoneCacheReady) return phoneCache[key] || [];
+  // Startup race guard (real requests basically never land in the first
+  // instant of boot, but fall back safely to the file instead of losing
+  // a real call if one somehow does).
+  return loadJSONFromFile(filePath);
 }
 
 function saveJSON(filePath, data) {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error("ERROR saving:", error);
+  const key = PHONE_CACHE_KEYS[filePath];
+  if (key) {
+    phoneCache[key] = data;
+    persistPhoneKey(key);
+    return;
   }
+  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch (error) { console.error("ERROR saving:", error); }
 }
+
+initPhoneStorage();
 
 function loadDB() { return loadJSON(DB_PATH); }
 function saveDB(data) { saveJSON(DB_PATH, data); }
@@ -677,6 +733,7 @@ app.get('/admin', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments <span class="count">${pending.length}</span></a>
             <a href="/messages">Messages <span class="count">${uniquePhones.size}</span></a>
             <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -776,6 +833,7 @@ app.get('/appointments-admin', requireAuth, (req, res) => {
             <a href="/appointments-admin" class="active">Appointments <span class="count">${pending.length}</span></a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -1000,6 +1058,7 @@ app.get('/messages', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages" class="active">Messages</a>
             <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -1159,6 +1218,134 @@ app.get('/calls', requireAuth, (req, res) => {
 });
 
 // ======================================================
+// ANALYTICS PAGE — real charts and tables from real call data
+// ======================================================
+
+function svgBarChartPhone(data, opts) {
+  opts = opts || {};
+  data = (data && data.length) ? data : [{ label: 'No data', value: 0 }];
+  const color = opts.color || '#1d1d1b';
+  const max = Math.max(...data.map(d => d.value), 1);
+  const barW = Math.max(10, Math.min(28, 620 / data.length - 4)), gap = 4, h = 140;
+  const totalW = Math.max(620, data.length * (barW + gap));
+  return `<svg viewBox="0 0 ${totalW} ${h + 34}" width="100%" height="${h + 44}" preserveAspectRatio="xMinYMid meet">
+    ${data.map((d, i) => {
+      const bh = (d.value / max) * h;
+      const x = i * (barW + gap);
+      return `<rect x="${x}" y="${h - bh}" width="${barW}" height="${Math.max(bh,1)}" rx="2" fill="${color}" opacity="0.88"><title>${d.label}: ${d.value}</title></rect>
+      ${d.value > 0 ? `<text x="${x + barW / 2}" y="${h - bh - 4}" text-anchor="middle" font-size="9" fill="#77716a">${d.value}</text>` : ''}
+      <text x="${x + barW / 2}" y="${h + 16}" text-anchor="middle" font-size="8" fill="#a39c92" transform="rotate(45,${x + barW / 2},${h + 16})">${d.label}</text>`;
+    }).join('')}
+  </svg>`;
+}
+
+app.get('/analytics', requireAuth, (req, res) => {
+  const calls = loadJSON(CALL_LOGS_PATH);
+  const appointments = loadDB();
+
+  // Real calls-per-day for the last 30 days
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  const callsByDay = {};
+  calls.forEach(c => {
+    const d = (c.timestamp || '').slice(0, 10);
+    callsByDay[d] = (callsByDay[d] || 0) + (c.action === 'CALL_RECEIVED' ? 1 : 0);
+  });
+  const chartData = days.map(d => ({ label: d.slice(5), value: callsByDay[d] || 0 }));
+
+  // Real funnel — grouped by the actual events logged per call
+  const totalCallsReceived = calls.filter(c => c.action === 'CALL_RECEIVED').length;
+  const engaged = calls.filter(c => c.action === 'ENGAGED_APPOINTMENT_FLOW').length;
+  const bounced = calls.filter(c => c.action === 'CALL_BOUNCED').length;
+  const noInput = calls.filter(c => c.action === 'NO_INPUT_TIMEOUT').length;
+  const totalAppointments = appointments.length;
+
+  // Real most-frequent-callers table
+  const callerCounts = {};
+  calls.filter(c => c.action === 'CALL_RECEIVED').forEach(c => {
+    const p = c.phone || 'Unknown';
+    if (!callerCounts[p]) callerCounts[p] = { phone: p, count: 0, lastCall: c.timestamp };
+    callerCounts[p].count++;
+    if (c.timestamp > callerCounts[p].lastCall) callerCounts[p].lastCall = c.timestamp;
+  });
+  const frequentCallers = Object.values(callerCounts).sort((a, b) => b.count - a.count).slice(0, 15);
+
+  res.send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Analytics — Manet Creative</title>
+      <style>${ADMIN_CSS}</style>
+    </head>
+    <body>
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="sidebar-logo">Manet Creative</div>
+          <nav class="sidebar-nav">
+            <a href="/admin">Today</a>
+            <a href="/appointments-admin">Appointments</a>
+            <a href="/messages">Messages</a>
+            <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
+            <a href="/analytics" class="active">Analytics</a>
+            <a href="/summary">Summary</a>
+            <a href="/archive">Archive</a>
+            <a href="/settings">Settings</a>
+          </nav>
+        </aside>
+
+        <main class="main-content">
+          <h1 class="page-title">Analytics</h1>
+          <p class="page-subtitle">Real data — everything below comes from what actually happened on the line, going back to when logging started. Older history before this update won't have the detailed funnel steps, only raw call counts.</p>
+
+          <div class="card">
+            <div class="card-title">Calls per day — last 30 days</div>
+            ${svgBarChartPhone(chartData)}
+          </div>
+
+          <div class="stats-grid">
+            <div class="stat-item">
+              <div class="stat-number">${totalCallsReceived}</div>
+              <div class="stat-label">Total Calls (all time)</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number">${engaged}</div>
+              <div class="stat-label">Pressed 1 — Engaged</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number">${bounced + noInput}</div>
+              <div class="stat-label">Bounced / Robocalls / No Input</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-number">${totalAppointments}</div>
+              <div class="stat-label">Appointment Requests</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">Most Frequent Callers</div>
+            <table>
+              <thead><tr><th>Phone</th><th>Calls</th><th>Last Called</th></tr></thead>
+              <tbody>
+                ${frequentCallers.map(c => `<tr><td>${c.phone}</td><td>${c.count}</td><td>${new Date(c.lastCall).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })}</td></tr>`).join('')}
+                ${frequentCallers.length === 0 ? '<tr><td colspan="3" style="color:var(--muted);">No calls logged yet.</td></tr>' : ''}
+              </tbody>
+            </table>
+          </div>
+        </main>
+      </div>
+    </body>
+    </html>
+  `);
+});
+
+// ======================================================
 // SUMMARY PAGE
 // ======================================================
 
@@ -1219,6 +1406,7 @@ app.get('/summary', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
             <a href="/summary" class="active">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings">Settings</a>
@@ -1346,6 +1534,7 @@ app.get('/archive', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive" class="active">Archive</a>
             <a href="/settings">Settings</a>
@@ -1424,6 +1613,7 @@ app.get('/settings', requireAuth, (req, res) => {
             <a href="/appointments-admin">Appointments</a>
             <a href="/messages">Messages</a>
             <a href="/calls">Calls</a>
+            <a href="/analytics">Analytics</a>
             <a href="/summary">Summary</a>
             <a href="/archive">Archive</a>
             <a href="/settings" class="active">Settings</a>
@@ -1677,7 +1867,10 @@ app.post('/handle-key', (req, res) => {
   const digit = req.body.Digits;
   const phone = req.body.From;
 
+  logCall(phone, digit ? 'KEY_PRESSED' : 'NO_INPUT_TIMEOUT', { digit: digit || null });
+
   if (digit === '1') {
+    logCall(phone, 'ENGAGED_APPOINTMENT_FLOW');
     const appt = findAppointment(phone);
 
     if (appt) {
@@ -1706,6 +1899,7 @@ app.post('/handle-key', (req, res) => {
       twiml.redirect(`/get-name?phone=${encodeURIComponent(phone)}`);
     }
   } else {
+    logCall(phone, 'CALL_BOUNCED', { reason: digit ? `pressed ${digit}` : 'no input / timeout' });
     twiml.say(
       "This phone number is only for appointment information, scheduling, rescheduling, or canceling appointments. For emergencies or general inquiries, please email mila at meetmanet dot com. Goodbye.",
       { voice: 'alice', language: 'en-US' }
