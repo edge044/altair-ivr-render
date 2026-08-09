@@ -92,14 +92,53 @@ function analyzeCooldownOk(key, cooldownMs) {
 app.get('/api/business/notes', requireAuth, async (req, res) => {
   try { const s = leadsStore(); res.json((await s.getState('business_notes')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
 });
+const NOTE_CATEGORIES = ['General', 'Marketing', 'Finance', 'Ops', 'Hiring', 'Product'];
 app.post('/api/business/notes', requireAuth, async (req, res) => {
+  const text = safeText(req.body && req.body.text);
+  const category = NOTE_CATEGORIES.includes(req.body && req.body.category) ? req.body.category : 'General';
+  const priority = ['low', 'normal', 'high'].includes(req.body && req.body.priority) ? req.body.priority : 'normal';
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    let notes = (await s.getState('business_notes')) || [];
+    notes.push({ id: 'BNOTE-' + Date.now(), text, category, priority, pinned: false, at: new Date().toISOString(), editedAt: null });
+    await s.setState('business_notes', notes);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/notes/:nid/edit', requireAuth, async (req, res) => {
   const text = safeText(req.body && req.body.text);
   if (!text) return res.status(400).json({ error: 'text required' });
   try {
     const s = leadsStore();
     let notes = (await s.getState('business_notes')) || [];
-    notes.push({ id: 'BNOTE-' + Date.now(), text, at: new Date().toISOString() });
+    const note = notes.find(n => n.id === req.params.nid);
+    if (!note) return res.status(404).json({ error: 'Not found.' });
+    note.text = text;
+    if (NOTE_CATEGORIES.includes(req.body.category)) note.category = req.body.category;
+    if (['low','normal','high'].includes(req.body.priority)) note.priority = req.body.priority;
+    note.editedAt = new Date().toISOString();
     await s.setState('business_notes', notes);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/notes/:nid/pin', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let notes = (await s.getState('business_notes')) || [];
+    const note = notes.find(n => n.id === req.params.nid);
+    if (!note) return res.status(404).json({ error: 'Not found.' });
+    note.pinned = !note.pinned;
+    await s.setState('business_notes', notes);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/business/notes/:nid', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let notes = (await s.getState('business_notes')) || [];
+    const filtered = notes.filter(n => n.id !== req.params.nid);
+    await s.setState('business_notes', filtered);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -108,14 +147,14 @@ app.get('/api/business/mila-thoughts', requireAuth, async (req, res) => {
   try { const s = leadsStore(); res.json((await s.getState('business_mila_thoughts')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post('/api/business/mila-analyze', requireAuth, async (req, res) => {
-  if (!analyzeCooldownOk('business')) return res.status(429).json({ error: 'Just analyzed recently — wait a bit before asking again (real AI calls cost real money).' });
+  if (!analyzeCooldownOk('business')) return res.status(429).json({ error: 'Just analyzed recently — wait a bit before asking again (real AI calls cost real money).', retryInMs: 30000 });
   try {
     const s = leadsStore();
     const notes = (await s.getState('business_notes')) || [];
     const leads = (await s.getState('leads')) || [];
     const emailRows = (await s.getState('email_manager_rows')) || [];
     const calls = loadJSON(CALL_LOGS_PATH).filter(c => c.action === 'CALL_RECEIVED');
-    const summary = `Real business state: ${leads.length} leads tracked, ${emailRows.length} emails in outreach (${emailRows.filter(r=>r.repliedAt).length} replied), ${calls.length} total calls logged.\nOwner's real business notes:\n${notes.slice(-10).map(n=>'- '+n.text).join('\n') || '(none yet)'}`;
+    const summary = `Real business state: ${leads.length} leads tracked, ${emailRows.length} emails in outreach (${emailRows.filter(r=>r.repliedAt).length} replied), ${calls.length} total calls logged.\nOwner's real business notes:\n${notes.slice(-10).map(n=>'- ['+n.category+'] '+n.text).join('\n') || '(none yet)'}`;
     const sys = `You are Mila, creative director, thinking about the business itself — not any one client. This is your own private space, separate from the owner's notes. Give one genuinely useful, specific thought: a real pattern you notice in the real numbers, or a concrete next move for the business as a whole. Under 80 words. Don't just restate the numbers.`;
     const result = await callRealAI(sys, summary);
     if (!result.ok) return res.status(502).json({ error: result.error });
@@ -132,11 +171,26 @@ app.get('/api/business/reminders', requireAuth, async (req, res) => {
 app.post('/api/business/reminders', requireAuth, async (req, res) => {
   const text = safeText(req.body && req.body.text, 500);
   const dueAt = req.body && req.body.dueAt;
+  const priority = ['low', 'normal', 'high'].includes(req.body && req.body.priority) ? req.body.priority : 'normal';
   if (!text) return res.status(400).json({ error: 'text required' });
   try {
     const s = leadsStore();
     let reminders = (await s.getState('business_reminders')) || [];
-    reminders.push({ id: 'BREM-' + Date.now(), text, dueAt: dueAt || null, done: false, createdAt: new Date().toISOString() });
+    reminders.push({ id: 'BREM-' + Date.now(), text, dueAt: dueAt || null, priority, done: false, createdAt: new Date().toISOString() });
+    await s.setState('business_reminders', reminders);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/reminders/:rid/edit', requireAuth, async (req, res) => {
+  const text = safeText(req.body && req.body.text, 500);
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    let reminders = (await s.getState('business_reminders')) || [];
+    const rem = reminders.find(r => r.id === req.params.rid);
+    if (!rem) return res.status(404).json({ error: 'Not found.' });
+    rem.text = text;
+    if (req.body.dueAt !== undefined) rem.dueAt = req.body.dueAt || null;
     await s.setState('business_reminders', reminders);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -149,6 +203,15 @@ app.post('/api/business/reminders/:rid/toggle', requireAuth, async (req, res) =>
     if (!rem) return res.status(404).json({ error: 'Not found.' });
     rem.done = !rem.done;
     await s.setState('business_reminders', reminders);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/business/reminders/:rid', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let reminders = (await s.getState('business_reminders')) || [];
+    const filtered = reminders.filter(r => r.id !== req.params.rid);
+    await s.setState('business_reminders', filtered);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

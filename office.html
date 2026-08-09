@@ -3111,6 +3111,48 @@ function renderITServerStatus() {
 // ── Real system health — every box/node below is computed from actual
 // live state (crash count, real AI call results, real storage size, real
 // budget numbers). Nothing here is random or scripted.
+// ── Real whole-server health — fetched from the actual backend
+// (/api/server-health, /api/business/*, /api/leads, email-manager, IG),
+// not simulated. Cached here since computeSystemHealth() runs
+// synchronously inside SVG render — the fetch happens in the background
+// and just updates this cache for the next render.
+let realServerHealthCache = null;
+let realBusinessCache = null;
+let realLeadsCache = null;
+let realEmailCache = null;
+let realIgCache = null;
+async function fetchRealServerHealth() {
+  try {
+    const res = await fetch('/api/server-health', { credentials: 'include' });
+    if (res.ok) realServerHealthCache = await res.json();
+  } catch (e) {}
+  try {
+    const [notesRes, remRes] = await Promise.all([
+      fetch('/api/business/notes', { credentials: 'include' }),
+      fetch('/api/business/reminders', { credentials: 'include' })
+    ]);
+    const notes = notesRes.ok ? await notesRes.json() : [];
+    const reminders = remRes.ok ? await remRes.json() : [];
+    realBusinessCache = { notes: notes.length, openReminders: reminders.filter(r => !r.done).length };
+  } catch (e) {}
+  try {
+    const res = await fetch('/api/leads', { credentials: 'include' });
+    if (res.ok) { const leads = await res.json(); realLeadsCache = { total: leads.length }; }
+  } catch (e) {}
+  if (typeof cloudAvailable === 'function' && cloudAvailable()) {
+    try {
+      const res = await fetch(`${CLOUD_API_BASE}/email-manager/rows`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+      if (res.ok) { const rows = await res.json(); realEmailCache = { total: rows.length, replied: rows.filter(r => r.repliedAt).length }; }
+    } catch (e) {}
+    try {
+      const res = await fetch(`${CLOUD_API_BASE}/instagram/autoresponder-status`, { headers: { 'X-API-Key': cloudConfig.apiKey } });
+      if (res.ok) realIgCache = await res.json();
+    } catch (e) {}
+  }
+}
+setTimeout(fetchRealServerHealth, 1500);
+setInterval(fetchRealServerHealth, 30000);
+
 function computeSystemHealth() {
   const boxes = {};
   const crashCount = itState.crashes.length;
@@ -3221,6 +3263,46 @@ function computeSystemHealth() {
       { label: 'Output tokens', value: (typeof aiSpendToday !== 'undefined' ? aiSpendToday.outputTokens.toLocaleString() : '0') },
       { label: 'Cache write / read', value: (typeof aiSpendToday !== 'undefined' ? `${(aiSpendToday.cacheWriteTokens||0).toLocaleString()} / ${(aiSpendToday.cacheReadTokens||0).toLocaleString()}` : '0 / 0') },
       { label: '% of daily budget used', value: `${Math.round(pct * 100)}%` }
+    ]
+  };
+
+  const h = realServerHealthCache;
+  boxes.phone = {
+    status: !h ? 'yellow' : h.phone.bounceRatePct > 60 ? 'red' : h.phone.bounceRatePct > 35 ? 'yellow' : 'green',
+    note: !h ? 'Loading real phone data from the server…' : `${h.phone.totalCalls} real calls total, ${h.phone.last24h} in the last 24h. ${h.phone.bounceRatePct}% bounce rate.`,
+    metrics: !h ? [{ label: 'Status', value: 'loading' }] : [
+      { label: 'Calls (24h)', value: String(h.phone.last24h) },
+      { label: 'Total calls', value: String(h.phone.totalCalls) },
+      { label: 'Engaged (pressed 1)', value: String(h.phone.engaged) },
+      { label: 'Bounced', value: String(h.phone.bounced) },
+      { label: 'Bounce rate', value: h.phone.bounceRatePct + '%' }
+    ]
+  };
+  boxes.emailsys = {
+    status: !realEmailCache ? 'yellow' : (h && h.email.overdueFollowup > 0) ? 'yellow' : 'green',
+    note: !realEmailCache ? 'Loading real email outreach data…' : `${realEmailCache.total} real emails tracked, ${realEmailCache.replied} replied.`,
+    metrics: !realEmailCache ? [{ label: 'Status', value: 'loading' }] : [
+      { label: 'Total tracked', value: String(realEmailCache.total) },
+      { label: 'Replied', value: String(realEmailCache.replied) },
+      { label: 'Overdue follow-ups', value: h ? String(h.email.overdueFollowup) : '—' }
+    ]
+  };
+  boxes.leadsbiz = {
+    status: 'green',
+    note: `${realLeadsCache ? realLeadsCache.total : '…'} real leads tracked. ${realBusinessCache ? realBusinessCache.notes : '…'} business notes, ${realBusinessCache ? realBusinessCache.openReminders : '…'} open reminders.`,
+    metrics: [
+      { label: 'Leads tracked', value: realLeadsCache ? String(realLeadsCache.total) : 'loading' },
+      { label: 'Business notes', value: realBusinessCache ? String(realBusinessCache.notes) : 'loading' },
+      { label: 'Open business reminders', value: realBusinessCache ? String(realBusinessCache.openReminders) : 'loading' }
+    ]
+  };
+  boxes.igsys = {
+    status: !realIgCache ? 'yellow' : (!realIgCache.deepseekKeySet || !realIgCache.instagramTokenSet) ? 'yellow' : (realIgCache.enabled === false ? 'yellow' : 'green'),
+    note: !realIgCache ? 'Instagram auto-responder status not loaded (needs Cloud Sync connected).' : (realIgCache.enabled === false ? 'Alex is paused.' : `Alex is watching live — last check: ${realIgCache.lastTickSummary || 'not yet'}.`),
+    metrics: !realIgCache ? [{ label: 'Status', value: 'not connected' }] : [
+      { label: 'Enabled', value: realIgCache.enabled === false ? 'no — paused' : 'yes' },
+      { label: 'DeepSeek key set', value: realIgCache.deepseekKeySet ? 'yes' : 'no' },
+      { label: 'Instagram token set', value: realIgCache.instagramTokenSet ? 'yes' : 'no' }
     ]
   };
 
@@ -3392,7 +3474,7 @@ function renderITFlowTab() {
     ['ls_budget', 'ls_chat', 'ls_it', 'ls_aispend', 'ls_training', 'ls_cloudcfg'],
     ['cloud_save', 'cloud_load', 'ai_chat', 'ai_job', 'ai_bug', 'ai_precheck'],
     ['budget_gate', 'sasha', 'hostinv', 'staffing', 'cost_firewall', 'quality_gate'],
-    ['office_sim', 'office_ghost', 'training_sys', 'agency_queue', 'owner_inbox', 'incidents', 'memory_system'],
+    ['office_sim', 'office_ghost', 'training_sys', 'agency_queue', 'owner_inbox', 'incidents', 'memory_system', 'phone_sys', 'email_sys2', 'leads_biz_sys', 'ig_sys2'],
     ['console_cmds', 'chat_pipeline', 'job_form', 'settings_panel'],
     ['xss_escape', 'code_viewer', 'python_hl', 'eventlog']
   ];
@@ -3429,6 +3511,10 @@ function renderITFlowTab() {
     owner_inbox:  { label: 'OWNER INBOX',      sub: 'approvals waiting',     shape: SH.rrect, status: 'green',        note: 'Drafts, proof verification, and escalations waiting on you specifically.' },
     incidents:    { label: 'INCIDENTS',        sub: 'quality escalations',   shape: SH.rrect, status: 'green',        note: 'Opened by Mila when something needs your direct review.' },
     memory_system:{ label: 'AGENCY MEMORY',    sub: 'guidance + taste',      shape: SH.rrect, status: 'green',        note: "Guidance you've saved, applied to how the team works going forward." },
+    phone_sys:    { label: 'PHONE / IVR',      sub: 'real call system',      shape: SH.rrect, status: h.phone.status, note: h.phone.note },
+    email_sys2:   { label: 'EMAIL MANAGER',    sub: 'outreach + follow-ups', shape: SH.rrect, status: h.emailsys.status, note: h.emailsys.note },
+    leads_biz_sys:{ label: 'LEADS + BUSINESS', sub: 'CRM + plans',           shape: SH.rrect, status: h.leadsbiz.status, note: h.leadsbiz.note },
+    ig_sys2:      { label: 'INSTAGRAM (ALEX)', sub: 'auto-responder',        shape: SH.rrect, status: h.igsys.status, note: h.igsys.note },
     console_cmds: { label: 'CONSOLE COMMANDS', sub: '/practice /advises',    shape: SH.pill,  status: 'green',        note: 'The terminal command parser at the bottom of the screen.' },
     chat_pipeline:{ label: 'CHAT PIPELINE',    sub: '@mention → AI → render',shape: SH.pill,  status: h.spos.status,  note: 'Team Chat: parses @mentions, calls real AI, falls back honestly, renders the result.' },
     job_form:     { label: 'JOB PLANNING FORM',sub: 'Plan a Job',            shape: SH.pill,  status: h.spos.status,  note: "Mila's budget assessment for a specific job — real AI or an honest offline estimate." },
