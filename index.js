@@ -280,13 +280,16 @@ app.get('/api/briefing/latest', requireAuth, async (req, res) => {
 // then it actually happens — no need to know which of the 5 pages it
 // belongs on.
 // ======================================================
-async function executeCommand(input) {
+async function executeCommand(input, history) {
   const s = leadsStore();
   const leads = (await s.getState('leads')) || [];
   const leadList = leads.map(l => `${l.id}: ${l.name || ''} ${l.email || ''} ${l.phone || ''} ${l.instagram || ''}`.trim()).join('\n') || '(no leads yet)';
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+  const bizReminders = ((await s.getState('business_reminders')) || []).filter(r => !r.done);
+  const bizNotes = (await s.getState('business_notes')) || [];
+  const historyText = (history || []).slice(-6).map(h => `${h.role === 'owner' ? 'Owner' : 'Mila'}: ${h.text}`).join('\n');
 
-  const sys = `You are a command router. The owner typed a free-text instruction. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "lookup_lead" | "add_email" | "answer_question" | "unclear", "leadId": "<exact id from the list above, or null>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\nPick add_lead_* only if you can match a specific real lead from the list above by name/email/phone. Pick "answer_question" for ANY question asking to know/check something (server status, how many calls/emails/replies, is everything ok, how's X going) rather than an instruction to create/change something. Otherwise use add_business_* for general reminders/notes, or "unclear" if you genuinely can't tell what they want.`;
+  const sys = `You are a command router. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nOpen business reminders right now: ${bizReminders.map(r => `[${r.id}] ${r.text}`).join(' | ') || 'none'}\nBusiness notes right now: ${bizNotes.map(n => `[${n.id}] ${n.text}`).join(' | ') || 'none'}\n${historyText ? `\nRecent conversation, for resolving "it"/"yes"/vague references:\n${historyText}\n` : ''}\nThe owner just said: "${input}"\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "delete_business_reminder" | "delete_business_note" | "lookup_lead" | "add_email" | "answer_question" | "check_server_now" | "unclear", "leadId": "<exact id from the list above, or null>", "targetId": "<exact reminder/note id to delete, from the lists above, or null if unclear which>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\n\nKey distinctions:\n- add_business_reminder = a note-to-self for the OWNER to do something later themselves.\n- check_server_now = the owner wants MILA/SASHA to actually go check/monitor/audit something right now (e.g. "keep an eye on the server", "do a server audit", "check for problems") — this is a real action to perform immediately, not a reminder.\n- delete_business_reminder / delete_business_note = owner wants something removed. Use the conversation history and the current lists above to figure out targetId — if they say "delete it" right after you did something, match that. If genuinely ambiguous, leave targetId null and we'll remove the most recent one.\n- answer_question = they're asking to know/check something (status, counts) conversationally.\n- Pick add_lead_* only if you can match a specific real lead from the list by name/email/phone. Otherwise "unclear" if you truly can't tell.`;
   const result = await callRealAI(sys, input);
   if (!result.ok) return { ok: false, error: result.error };
 
@@ -308,6 +311,26 @@ async function executeCommand(input) {
       notes.push({ id: 'BNOTE-' + Date.now(), text: parsed.content || input, category: 'General', priority: 'normal', pinned: false, at: new Date().toISOString(), editedAt: null });
       await s.setState('business_notes', notes);
       message = `Added business note: "${parsed.content || input}"`;
+      break;
+    }
+    case 'delete_business_reminder': {
+      let reminders = (await s.getState('business_reminders')) || [];
+      let target = parsed.targetId ? reminders.find(r => r.id === parsed.targetId) : null;
+      if (!target) target = reminders.slice().sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))[0]; // most recent, real fallback
+      if (!target) { message = "No reminders to delete."; break; }
+      const remaining = reminders.filter(r => r.id !== target.id);
+      await s.setState('business_reminders', remaining);
+      message = `Deleted reminder: "${target.text}"`;
+      break;
+    }
+    case 'delete_business_note': {
+      let notes = (await s.getState('business_notes')) || [];
+      let target = parsed.targetId ? notes.find(n => n.id === parsed.targetId) : null;
+      if (!target) target = notes.slice().sort((a, b) => new Date(b.at) - new Date(a.at))[0];
+      if (!target) { message = "No notes to delete."; break; }
+      const remaining = notes.filter(n => n.id !== target.id);
+      await s.setState('business_notes', remaining);
+      message = `Deleted note: "${target.text}"`;
       break;
     }
     case 'add_lead_reminder': {
@@ -346,12 +369,12 @@ async function executeCommand(input) {
       message = `Added ${email} to the outreach spreadsheet.`;
       break;
     }
-    case 'answer_question': {
-      // Mila "checks with Sasha" — pulls the real, current state of every
-      // real system, then answers using only that, never invented numbers.
+    case 'answer_question':
+    case 'check_server_now': {
+      // check_server_now: the owner asked Mila/Sasha to actually check
+      // something right now — real immediate action, not a deferred
+      // reminder. Uses the exact same real-data grounding as a question.
       const health = await computeServerHealth();
-      const bizReminders = ((await s.getState('business_reminders')) || []).filter(r => !r.done);
-      const bizNotes = (await s.getState('business_notes')) || [];
       const emailRows = (await s.getState('email_manager_rows')) || [];
       const igActivity = (await s.getState('instagram_activity')) || [];
       const snapshot = `
@@ -364,7 +387,9 @@ Leads: ${leads.length} tracked.
 Open business reminders: ${bizReminders.length} — ${bizReminders.map(r=>r.text).join('; ') || 'none'}
 Business notes: ${bizNotes.length}
 `.trim();
-      const qaSys = `You are Mila. The owner just asked you a real question in chat. You checked with Sasha (IT) and pulled the real current system state below — answer their actual question directly and conversationally using ONLY this real data. Never invent numbers. If the data doesn't answer what they asked, say so honestly. Under 80 words.`;
+      const qaSys = parsed.action === 'check_server_now'
+        ? `You are Mila. The owner just asked you to actually go check/audit the server right now. You checked with Sasha (IT) and pulled the real current system state below — report what you actually found, plainly, flagging anything that looks off (like a high bounce rate or stalled projects) and reassuring on what's fine. Use ONLY this real data, never invent numbers. Under 90 words.`
+        : `You are Mila. The owner just asked you a real question in chat. You checked with Sasha (IT) and pulled the real current system state below — answer their actual question directly and conversationally using ONLY this real data. Never invent numbers. If the data doesn't answer what they asked, say so honestly. Under 80 words.`;
       const qaResult = await callRealAI(qaSys, `Real system state:\n${snapshot}\n\nOwner asked: "${input}"`);
       message = qaResult.ok ? qaResult.text : `Couldn't check right now: ${qaResult.error}`;
       break;
@@ -430,8 +455,13 @@ app.post('/telegram/webhook', async (req, res) => {
       return;
     }
 
-    const result = await executeCommand(text);
-    await sendTelegramMessage(chatId, result.ok ? result.message : ('Error: ' + result.error));
+    let history = (await s.getState('telegram_history')) || [];
+    const result = await executeCommand(text, history);
+    const replyText = result.ok ? result.message : ('Error: ' + result.error);
+    await sendTelegramMessage(chatId, replyText);
+
+    history.push({ role: 'owner', text }, { role: 'mila', text: replyText });
+    await s.setState('telegram_history', history.slice(-20)); // real recent context, bounded so it doesn't grow forever
   } catch (e) { console.error('telegram webhook error:', e.message); }
 });
 
