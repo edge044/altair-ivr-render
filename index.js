@@ -65,6 +65,93 @@ function leadsStore() {
   if (!s) throw new Error('Office store not ready yet.');
   return s;
 }
+const MAX_NOTE_LEN = 2000;
+function safeText(raw, maxLen) {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  return trimmed.slice(0, maxLen || MAX_NOTE_LEN);
+}
+// Real cost-abuse guard — a real AI call costs real money every time;
+// this stops someone from spamming the analyze button into a real bill.
+const _lastAnalyzeAt = {};
+function analyzeCooldownOk(key, cooldownMs) {
+  const now = Date.now();
+  const last = _lastAnalyzeAt[key] || 0;
+  if (now - last < (cooldownMs || 30000)) return false;
+  _lastAnalyzeAt[key] = now;
+  return true;
+}
+
+// ======================================================
+// BUSINESS PLANS — general business notes, Mila's own business-level
+// thinking, and business reminders. Completely separate from any client
+// — this is about the business itself, not any one lead.
+// ======================================================
+
+app.get('/api/business/notes', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('business_notes')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/notes', requireAuth, async (req, res) => {
+  const text = safeText(req.body && req.body.text);
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    let notes = (await s.getState('business_notes')) || [];
+    notes.push({ id: 'BNOTE-' + Date.now(), text, at: new Date().toISOString() });
+    await s.setState('business_notes', notes);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/business/mila-thoughts', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('business_mila_thoughts')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/mila-analyze', requireAuth, async (req, res) => {
+  if (!analyzeCooldownOk('business')) return res.status(429).json({ error: 'Just analyzed recently — wait a bit before asking again (real AI calls cost real money).' });
+  try {
+    const s = leadsStore();
+    const notes = (await s.getState('business_notes')) || [];
+    const leads = (await s.getState('leads')) || [];
+    const emailRows = (await s.getState('email_manager_rows')) || [];
+    const calls = loadJSON(CALL_LOGS_PATH).filter(c => c.action === 'CALL_RECEIVED');
+    const summary = `Real business state: ${leads.length} leads tracked, ${emailRows.length} emails in outreach (${emailRows.filter(r=>r.repliedAt).length} replied), ${calls.length} total calls logged.\nOwner's real business notes:\n${notes.slice(-10).map(n=>'- '+n.text).join('\n') || '(none yet)'}`;
+    const sys = `You are Mila, creative director, thinking about the business itself — not any one client. This is your own private space, separate from the owner's notes. Give one genuinely useful, specific thought: a real pattern you notice in the real numbers, or a concrete next move for the business as a whole. Under 80 words. Don't just restate the numbers.`;
+    const result = await callRealAI(sys, summary);
+    if (!result.ok) return res.status(502).json({ error: result.error });
+    let thoughts = (await s.getState('business_mila_thoughts')) || [];
+    thoughts.push({ id: 'BMT-' + Date.now(), text: result.text, at: new Date().toISOString(), tokensUsed: result.tokensUsed, cost: result.cost });
+    await s.setState('business_mila_thoughts', thoughts);
+    res.json({ ok: true, thought: result.text });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/business/reminders', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('business_reminders')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/reminders', requireAuth, async (req, res) => {
+  const text = safeText(req.body && req.body.text, 500);
+  const dueAt = req.body && req.body.dueAt;
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    let reminders = (await s.getState('business_reminders')) || [];
+    reminders.push({ id: 'BREM-' + Date.now(), text, dueAt: dueAt || null, done: false, createdAt: new Date().toISOString() });
+    await s.setState('business_reminders', reminders);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/business/reminders/:rid/toggle', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let reminders = (await s.getState('business_reminders')) || [];
+    const rem = reminders.find(r => r.id === req.params.rid);
+    if (!rem) return res.status(404).json({ error: 'Not found.' });
+    rem.done = !rem.done;
+    await s.setState('business_reminders', reminders);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.post('/api/leads', requireAuth, async (req, res) => {
   const { name, phone, email, instagram } = req.body || {};
@@ -137,7 +224,7 @@ app.get('/api/leads/:id', requireAuth, async (req, res) => {
 });
 
 app.post('/api/leads/:id/notes', requireAuth, async (req, res) => {
-  const { text } = req.body || {};
+  const text = safeText(req.body && req.body.text);
   if (!text) return res.status(400).json({ error: 'text required' });
   try {
     const s = leadsStore();
@@ -151,7 +238,8 @@ app.post('/api/leads/:id/notes', requireAuth, async (req, res) => {
 });
 
 app.post('/api/leads/:id/reminders', requireAuth, async (req, res) => {
-  const { text, dueAt } = req.body || {};
+  const text = safeText(req.body && req.body.text, 500);
+  const dueAt = req.body && req.body.dueAt;
   if (!text) return res.status(400).json({ error: 'text required' });
   try {
     const s = leadsStore();
@@ -181,6 +269,7 @@ app.post('/api/leads/:id/reminders/:rid/toggle', requireAuth, async (req, res) =
 // Mila's own real analysis — separate from the owner's notes entirely.
 // Real AI call grounded in the real cross-channel timeline.
 app.post('/api/leads/:id/mila-analyze', requireAuth, async (req, res) => {
+  if (!analyzeCooldownOk('lead:' + req.params.id)) return res.status(429).json({ error: 'Just analyzed this lead recently — wait a bit before asking again (real AI calls cost real money).' });
   try {
     const s = leadsStore();
     const leads = (await s.getState('leads')) || [];
@@ -1440,6 +1529,51 @@ app.get('/summary', requireAuth, (req, res) => {
 // DASHBOARD STATS — real numbers for the /choose landing page
 // ======================================================
 
+app.get('/api/server-health', requireAuth, async (req, res) => {
+  try {
+    const mem = process.memoryUsage();
+    const calls = loadJSON(CALL_LOGS_PATH);
+    const callsReceived = calls.filter(c => c.action === 'CALL_RECEIVED');
+    const bounced = calls.filter(c => c.action === 'CALL_BOUNCED').length;
+    const engaged = calls.filter(c => c.action === 'ENGAGED_APPOINTMENT_FLOW').length;
+    const noInput = calls.filter(c => c.action === 'NO_INPUT_TIMEOUT').length;
+    const now = Date.now();
+    const last24h = callsReceived.filter(c => now - new Date(c.timestamp).getTime() < 24 * 60 * 60 * 1000).length;
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().slice(0, 10);
+      days.push({ label: dayStr.slice(5), value: callsReceived.filter(c => (c.timestamp || '').slice(0, 10) === dayStr).length });
+    }
+
+    let office = { activeProjects: 0, totalTokensUsed: 0 }, email = { total: 0, pending: 0 }, instagram = { activity: 0 };
+    try {
+      const s = getStore();
+      const projects = (await s.getState('projects')) || [];
+      office = {
+        activeProjects: projects.filter(p => p.status !== 'closed').length,
+        stalledProjects: projects.filter(p => (p.aiFailStreak || 0) >= 2).length,
+        totalTokensUsed: projects.reduce((sum, p) => sum + (p.tokensUsed || 0), 0)
+      };
+      const emailRows = (await s.getState('email_manager_rows')) || [];
+      email = {
+        total: emailRows.length,
+        awaitingFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText).length,
+        overdueFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText && r.followupDueAt && new Date(r.followupDueAt) < new Date()).length
+      };
+      const igActivity = (await s.getState('instagram_activity')) || [];
+      const heldTickets = igActivity.filter(a => a.verdict === 'held').length;
+      instagram = { totalActivity: igActivity.length, held: heldTickets };
+    } catch (e) {}
+
+    res.json({
+      server: { uptimeSeconds: Math.round(process.uptime()), memoryUsedMB: Math.round(mem.heapUsed / 1024 / 1024), memoryTotalMB: Math.round(mem.heapTotal / 1024 / 1024), nodeVersion: process.version },
+      phone: { totalCalls: callsReceived.length, last24h, bounced, engaged, noInput, bounceRatePct: callsReceived.length ? Math.round((bounced / callsReceived.length) * 100) : 0, dailyLoad: days },
+      office, email, instagram
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/dashboard/phone-stats', requireAuth, (req, res) => {
   try {
     const calls = loadJSON(CALL_LOGS_PATH).filter(c => c.action === 'CALL_RECEIVED');
@@ -2550,6 +2684,7 @@ app.get('/choose', requireAuth, (req, res) => {
       <a href="/office" class="nav-btn"><span class="ic">🏢</span> Our Office</a>
       <a href="/email-manager" class="nav-btn"><span class="ic">✉️</span> Email Manager</a>
       <a href="/leads" class="nav-btn"><span class="ic">👥</span> Leads</a>
+      <a href="/business" class="nav-btn"><span class="ic">📋</span> Business</a>
     </div>
     <a href="/login" class="logout-link">Switch account</a>
   </div>
@@ -2582,6 +2717,19 @@ app.get('/choose', requireAuth, (req, res) => {
         <div class="section-title">🏢 Office</div>
         <div class="section-sub">Real project and AI spend state</div>
         <div id="officeStats" class="loading-text">Loading…</div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="section-card">
+        <div class="section-title">📋 Business notes</div>
+        <div class="section-sub">Latest — <a href="/business" style="color:#8a8272;">see all →</a></div>
+        <div id="bizNotesPreview" class="loading-text">Loading…</div>
+      </div>
+      <div class="section-card">
+        <div class="section-title">⏰ Open business reminders</div>
+        <div class="section-sub"><a href="/business" style="color:#8a8272;">see all →</a></div>
+        <div id="bizRemindersPreview" class="loading-text">Loading…</div>
       </div>
     </div>
 
@@ -2676,14 +2824,228 @@ async function loadMilaNote() {
   } catch (e) {}
 }
 
+function escDash(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+async function loadBusinessPreview() {
+  try {
+    const [notesRes, remRes] = await Promise.all([
+      fetch('/api/business/notes', { credentials: 'include' }),
+      fetch('/api/business/reminders', { credentials: 'include' })
+    ]);
+    const notes = notesRes.ok ? await notesRes.json() : [];
+    const reminders = remRes.ok ? await remRes.json() : [];
+    const notesEl = document.getElementById('bizNotesPreview');
+    notesEl.classList.remove('loading-text');
+    notesEl.innerHTML = notes.length ? notes.slice(-3).reverse().map(n => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #f0ede3;">' + escDash(n.text) + '</div>').join('') : '<div style="color:#b0a992;font-size:0.78rem;">No business notes yet.</div>';
+    const remEl = document.getElementById('bizRemindersPreview');
+    remEl.classList.remove('loading-text');
+    const openRem = reminders.filter(r => !r.done);
+    remEl.innerHTML = openRem.length ? openRem.slice(0, 4).map(r => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #f0ede3;">⏰ ' + escDash(r.text) + (r.dueAt ? ' <span style="color:#b0a992;">— ' + r.dueAt + '</span>' : '') + '</div>').join('') : '<div style="color:#b0a992;font-size:0.78rem;">Nothing pending.</div>';
+  } catch (e) {}
+}
+
 loadDashboard();
 loadMilaNote();
+loadBusinessPreview();
 </script>
 </body>
 </html>`);
 });
 
 
+
+
+app.get('/business', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Business — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; }
+  .navbar a { color: #6b6558; text-decoration: none; font-size: 0.76rem; font-weight: 700; padding: 6px 12px; border-radius: 6px; }
+  .navbar a:hover { background: #eeece2; color: #1a1a16; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 30px 36px 100px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; }
+  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 24px; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+  .tab-btn { padding: 9px 18px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; background: #fff; border: 1.5px solid #e6e1d4; color: #6b6558; cursor: pointer; }
+  .tab-btn.active { background: #1a1a16; color: #fff; border-color: #1a1a16; }
+  .btn { display: inline-block; padding: 8px 16px; border-radius: 7px; font-size: 0.74rem; font-weight: 700; border: 1.5px solid transparent; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #1a1a16; color: #fff; }
+  .btn.outline { background: #fff; border-color: #d8d2c0; color: #1a1a16; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+  .panel { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .panel-title { font-size: 0.86rem; font-weight: 700; margin-bottom: 12px; }
+  .panel-item { font-size: 0.78rem; padding: 10px 0; border-bottom: 1px solid #f0ede3; line-height: 1.5; }
+  .panel-item:last-child { border-bottom: none; }
+  .panel-item .pdate { font-size: 0.64rem; color: #b0a992; margin-top: 4px; }
+  .panel textarea, .panel input { width: 100%; padding: 8px 11px; border: 1.5px solid #e6e1d4; border-radius: 7px; font-size: 0.76rem; font-family: inherit; margin-bottom: 8px; }
+  .reminder-row { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; padding: 8px 0; border-bottom: 1px solid #f0ede3; }
+  .reminder-row.done { opacity: 0.5; text-decoration: line-through; }
+  .empty { color: #b0a992; font-size: 0.76rem; padding: 16px 0; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .stat-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 16px; }
+  .stat-card .l { font-size: 0.64rem; color: #8a8272; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 4px; }
+  .stat-card .n { font-size: 1.5rem; font-weight: 700; }
+  .stat-card.warn .n { color: #b45309; }
+  .stat-card.ok .n { color: #166534; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div>📋 Business</div>
+    <a href="/choose">← Back</a>
+  </div>
+  <div class="wrap">
+    <h1>Business</h1>
+    <div class="sub">General plans and whole-server health — not tied to any one client.</div>
+
+    <div class="tabs">
+      <div class="tab-btn active" data-tab="plans" onclick="switchTab('plans')">📋 Plans & Notes</div>
+      <div class="tab-btn" data-tab="health" onclick="switchTab('health')">🖥️ Server Health (Sasha)</div>
+    </div>
+
+    <div id="tabPlans">
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-title">📝 My business notes — goals, next moves</div>
+          <div id="notesList"></div>
+          <textarea id="newNoteText" rows="2" placeholder="What's the plan?"></textarea>
+          <button class="btn primary" onclick="addBusinessNote()">Add note</button>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Mila's thoughts — her own read on the business</div>
+          <div id="milaThoughtsList"></div>
+          <button class="btn primary" onclick="askMilaBusiness()">Ask Mila to think about it</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Business reminders</div>
+        <div id="remindersList"></div>
+        <input id="newRemText" placeholder="e.g. Renew domain, update pricing page">
+        <input id="newRemDate" type="date" style="width:auto;">
+        <button class="btn outline" onclick="addBusinessReminder()">Add reminder</button>
+      </div>
+    </div>
+
+    <div id="tabHealth" style="display:none;">
+      <div class="stats-grid" id="healthStats"><div class="empty">Loading real server data…</div></div>
+      <div class="panel">
+        <div class="panel-title">Call load — last 30 days</div>
+        <div id="loadChart"></div>
+      </div>
+      <div class="two-col">
+        <div class="panel">
+          <div class="panel-title">Office</div>
+          <div id="officeHealth" class="empty">Loading…</div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Email & Instagram</div>
+          <div id="channelHealth" class="empty">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('tabPlans').style.display = tab === 'plans' ? 'block' : 'none';
+  document.getElementById('tabHealth').style.display = tab === 'health' ? 'block' : 'none';
+  if (tab === 'health') loadHealth();
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function loadPlans() {
+  const [notesRes, thoughtsRes, remRes] = await Promise.all([
+    fetch('/api/business/notes', { credentials: 'include' }),
+    fetch('/api/business/mila-thoughts', { credentials: 'include' }),
+    fetch('/api/business/reminders', { credentials: 'include' })
+  ]);
+  const notes = notesRes.ok ? await notesRes.json() : [];
+  const thoughts = thoughtsRes.ok ? await thoughtsRes.json() : [];
+  const reminders = remRes.ok ? await remRes.json() : [];
+  document.getElementById('notesList').innerHTML = notes.length ? notes.slice().reverse().map(n => '<div class="panel-item">' + esc(n.text) + '<div class="pdate">' + new Date(n.at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) + '</div></div>').join('') : '<div class="empty">Nothing yet.</div>';
+  document.getElementById('milaThoughtsList').innerHTML = thoughts.length ? thoughts.slice().reverse().map(n => '<div class="panel-item">' + esc(n.text) + '<div class="pdate">' + new Date(n.at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) + '</div></div>').join('') : '<div class="empty">Nothing yet — ask her to think about it.</div>';
+  document.getElementById('remindersList').innerHTML = reminders.length ? reminders.map(r => '<div class="reminder-row' + (r.done?' done':'') + '"><input type="checkbox" ' + (r.done?'checked':'') + ' data-rem="' + r.id + '" onchange="toggleBusinessReminder(this)"> ' + esc(r.text) + (r.dueAt ? ' <span style="color:#b0a992;">— due ' + r.dueAt + '</span>' : '') + '</div>').join('') : '<div class="empty">No reminders yet.</div>';
+}
+async function addBusinessNote() {
+  const text = document.getElementById('newNoteText').value.trim();
+  if (!text) return;
+  await fetch('/api/business/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+  document.getElementById('newNoteText').value = '';
+  loadPlans();
+}
+async function askMilaBusiness() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Mila is thinking…';
+  const res = await fetch('/api/business/mila-analyze', { method: 'POST', credentials: 'include' });
+  if (!res.ok) { const err = await res.json(); alert(err.error || 'Could not analyze.'); }
+  btn.disabled = false; btn.textContent = 'Ask Mila to think about it';
+  loadPlans();
+}
+async function addBusinessReminder() {
+  const text = document.getElementById('newRemText').value.trim();
+  const dueAt = document.getElementById('newRemDate').value;
+  if (!text) return;
+  await fetch('/api/business/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, dueAt }) });
+  document.getElementById('newRemText').value = '';
+  loadPlans();
+}
+async function toggleBusinessReminder(cb) {
+  await fetch('/api/business/reminders/' + cb.dataset.rem + '/toggle', { method: 'POST', credentials: 'include' });
+  loadPlans();
+}
+
+function barChart(data, color) {
+  if (!data || !data.length) return '<div class="empty">No data yet.</div>';
+  const max = Math.max(...data.map(d => d.value), 1);
+  const barW = Math.max(8, Math.min(24, 1200 / data.length - 4)), gap = 4, h = 100;
+  const totalW = Math.max(600, data.length * (barW + gap));
+  const bars = data.map((d, i) => {
+    const bh = (d.value / max) * h;
+    const x = i * (barW + gap);
+    return '<rect x="' + x + '" y="' + (h - bh) + '" width="' + barW + '" height="' + Math.max(bh,1) + '" rx="2" fill="' + color + '" opacity="0.85"><title>' + d.label + ': ' + d.value + '</title></rect>';
+  }).join('');
+  return '<svg viewBox="0 0 ' + totalW + ' ' + (h+10) + '" width="100%" height="' + (h+20) + '" preserveAspectRatio="xMinYMid meet">' + bars + '</svg>';
+}
+
+async function loadHealth() {
+  try {
+    const res = await fetch('/api/server-health', { credentials: 'include' });
+    if (!res.ok) { document.getElementById('healthStats').innerHTML = '<div class="empty">Could not load.</div>'; return; }
+    const h = await res.json();
+    const uptimeH = Math.floor(h.server.uptimeSeconds / 3600), uptimeM = Math.floor((h.server.uptimeSeconds % 3600) / 60);
+    document.getElementById('healthStats').innerHTML =
+      '<div class="stat-card ok"><div class="l">Server uptime</div><div class="n">' + uptimeH + 'h ' + uptimeM + 'm</div></div>' +
+      '<div class="stat-card"><div class="l">Memory used</div><div class="n">' + h.server.memoryUsedMB + ' MB</div></div>' +
+      '<div class="stat-card"><div class="l">Calls (24h)</div><div class="n">' + h.phone.last24h + '</div></div>' +
+      '<div class="stat-card ' + (h.phone.bounceRatePct > 50 ? 'warn' : '') + '"><div class="l">Call bounce rate</div><div class="n">' + h.phone.bounceRatePct + '%</div></div>' +
+      '<div class="stat-card ' + (h.office.stalledProjects > 0 ? 'warn' : '') + '"><div class="l">Stalled projects</div><div class="n">' + h.office.stalledProjects + '</div></div>' +
+      '<div class="stat-card ' + (h.email.overdueFollowup > 0 ? 'warn' : '') + '"><div class="l">Overdue follow-ups</div><div class="n">' + h.email.overdueFollowup + '</div></div>';
+    document.getElementById('loadChart').innerHTML = barChart(h.phone.dailyLoad, '#1a1a16');
+    document.getElementById('officeHealth').innerHTML =
+      '<div class="panel-item">Active projects: <b>' + h.office.activeProjects + '</b></div>' +
+      '<div class="panel-item">Real tokens used: <b>' + h.office.totalTokensUsed.toLocaleString() + '</b></div>' +
+      '<div class="panel-item">Stalled (AI failing 2+ times): <b>' + h.office.stalledProjects + '</b></div>';
+    document.getElementById('channelHealth').innerHTML =
+      '<div class="panel-item">Email rows tracked: <b>' + h.email.total + '</b></div>' +
+      '<div class="panel-item">Overdue follow-ups: <b>' + h.email.overdueFollowup + '</b></div>' +
+      '<div class="panel-item">Instagram real activity: <b>' + h.instagram.totalActivity + '</b> (' + h.instagram.held + ' held for review)</div>' +
+      '<div class="panel-item">Calls: <b>' + h.phone.totalCalls + '</b> total — <b>' + h.phone.engaged + '</b> engaged, <b>' + h.phone.bounced + '</b> bounced, <b>' + h.phone.noInput + '</b> no input</div>';
+  } catch (e) { document.getElementById('healthStats').innerHTML = '<div class="empty">' + e.message + '</div>'; }
+}
+
+loadPlans();
+</script>
+</body>
+</html>`);
+});
 
 app.get('/leads', requireAuth, (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
