@@ -286,7 +286,7 @@ async function executeCommand(input) {
   const leadList = leads.map(l => `${l.id}: ${l.name || ''} ${l.email || ''} ${l.phone || ''} ${l.instagram || ''}`.trim()).join('\n') || '(no leads yet)';
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
 
-  const sys = `You are a command router. The owner typed a free-text instruction. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "lookup_lead" | "add_email" | "unclear", "leadId": "<exact id from the list above, or null>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\nPick add_lead_* only if you can match a specific real lead from the list above by name/email/phone — otherwise use add_business_* for general reminders/notes, or "unclear" if you genuinely can't tell what they want.`;
+  const sys = `You are a command router. The owner typed a free-text instruction. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "lookup_lead" | "add_email" | "answer_question" | "unclear", "leadId": "<exact id from the list above, or null>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\nPick add_lead_* only if you can match a specific real lead from the list above by name/email/phone. Pick "answer_question" for ANY question asking to know/check something (server status, how many calls/emails/replies, is everything ok, how's X going) rather than an instruction to create/change something. Otherwise use add_business_* for general reminders/notes, or "unclear" if you genuinely can't tell what they want.`;
   const result = await callRealAI(sys, input);
   if (!result.ok) return { ok: false, error: result.error };
 
@@ -344,6 +344,29 @@ async function executeCommand(input) {
       all.push({ id: 'ROW-' + Date.now(), batchId, uploadedAt: new Date().toISOString(), email, subject: '', body: '', presetFollowupSubject: null, presetFollowupBody: null, sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null, followupSubject: null, followupText: null, followupGeneratedAt: null, followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null });
       await s.setState('email_manager_rows', all);
       message = `Added ${email} to the outreach spreadsheet.`;
+      break;
+    }
+    case 'answer_question': {
+      // Mila "checks with Sasha" — pulls the real, current state of every
+      // real system, then answers using only that, never invented numbers.
+      const health = await computeServerHealth();
+      const bizReminders = ((await s.getState('business_reminders')) || []).filter(r => !r.done);
+      const bizNotes = (await s.getState('business_notes')) || [];
+      const emailRows = (await s.getState('email_manager_rows')) || [];
+      const igActivity = (await s.getState('instagram_activity')) || [];
+      const snapshot = `
+Server: up ${Math.round(health.server.uptimeSeconds/60)} min, ${health.server.memoryUsedMB}MB memory used.
+Phone: ${health.phone.totalCalls} total calls, ${health.phone.last24h} in last 24h, ${health.phone.bounceRatePct}% bounce rate, ${health.phone.engaged} engaged.
+Office: ${health.office.activeProjects} active projects, ${health.office.stalledProjects} stalled, ${health.office.totalTokensUsed} real tokens used.
+Email: ${emailRows.length} tracked, ${emailRows.filter(r=>r.repliedAt).length} replied, ${health.email.overdueFollowup} overdue follow-ups.
+Instagram: ${igActivity.length} real activity entries, ${health.instagram.held} held for review.
+Leads: ${leads.length} tracked.
+Open business reminders: ${bizReminders.length} — ${bizReminders.map(r=>r.text).join('; ') || 'none'}
+Business notes: ${bizNotes.length}
+`.trim();
+      const qaSys = `You are Mila. The owner just asked you a real question in chat. You checked with Sasha (IT) and pulled the real current system state below — answer their actual question directly and conversationally using ONLY this real data. Never invent numbers. If the data doesn't answer what they asked, say so honestly. Under 80 words.`;
+      const qaResult = await callRealAI(qaSys, `Real system state:\n${snapshot}\n\nOwner asked: "${input}"`);
+      message = qaResult.ok ? qaResult.text : `Couldn't check right now: ${qaResult.error}`;
       break;
     }
     default:
@@ -1847,49 +1870,51 @@ app.get('/summary', requireAuth, (req, res) => {
 // DASHBOARD STATS — real numbers for the /choose landing page
 // ======================================================
 
-app.get('/api/server-health', requireAuth, async (req, res) => {
+async function computeServerHealth() {
+  const mem = process.memoryUsage();
+  const calls = loadJSON(CALL_LOGS_PATH);
+  const callsReceived = calls.filter(c => c.action === 'CALL_RECEIVED');
+  const bounced = calls.filter(c => c.action === 'CALL_BOUNCED').length;
+  const engaged = calls.filter(c => c.action === 'ENGAGED_APPOINTMENT_FLOW').length;
+  const noInput = calls.filter(c => c.action === 'NO_INPUT_TIMEOUT').length;
+  const now = Date.now();
+  const last24h = callsReceived.filter(c => now - new Date(c.timestamp).getTime() < 24 * 60 * 60 * 1000).length;
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    const dayStr = d.toISOString().slice(0, 10);
+    days.push({ label: dayStr.slice(5), value: callsReceived.filter(c => (c.timestamp || '').slice(0, 10) === dayStr).length });
+  }
+
+  let office = { activeProjects: 0, totalTokensUsed: 0 }, email = { total: 0, pending: 0 }, instagram = { activity: 0 };
   try {
-    const mem = process.memoryUsage();
-    const calls = loadJSON(CALL_LOGS_PATH);
-    const callsReceived = calls.filter(c => c.action === 'CALL_RECEIVED');
-    const bounced = calls.filter(c => c.action === 'CALL_BOUNCED').length;
-    const engaged = calls.filter(c => c.action === 'ENGAGED_APPOINTMENT_FLOW').length;
-    const noInput = calls.filter(c => c.action === 'NO_INPUT_TIMEOUT').length;
-    const now = Date.now();
-    const last24h = callsReceived.filter(c => now - new Date(c.timestamp).getTime() < 24 * 60 * 60 * 1000).length;
-    const days = [];
-    for (let i = 29; i >= 0; i--) {
-      const d = new Date(); d.setDate(d.getDate() - i);
-      const dayStr = d.toISOString().slice(0, 10);
-      days.push({ label: dayStr.slice(5), value: callsReceived.filter(c => (c.timestamp || '').slice(0, 10) === dayStr).length });
-    }
+    const s = getStore();
+    const projects = (await s.getState('projects')) || [];
+    office = {
+      activeProjects: projects.filter(p => p.status !== 'closed').length,
+      stalledProjects: projects.filter(p => (p.aiFailStreak || 0) >= 2).length,
+      totalTokensUsed: projects.reduce((sum, p) => sum + (p.tokensUsed || 0), 0)
+    };
+    const emailRows = (await s.getState('email_manager_rows')) || [];
+    email = {
+      total: emailRows.length,
+      awaitingFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText).length,
+      overdueFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText && r.followupDueAt && new Date(r.followupDueAt) < new Date()).length
+    };
+    const igActivity = (await s.getState('instagram_activity')) || [];
+    const heldTickets = igActivity.filter(a => a.verdict === 'held').length;
+    instagram = { totalActivity: igActivity.length, held: heldTickets };
+  } catch (e) {}
 
-    let office = { activeProjects: 0, totalTokensUsed: 0 }, email = { total: 0, pending: 0 }, instagram = { activity: 0 };
-    try {
-      const s = getStore();
-      const projects = (await s.getState('projects')) || [];
-      office = {
-        activeProjects: projects.filter(p => p.status !== 'closed').length,
-        stalledProjects: projects.filter(p => (p.aiFailStreak || 0) >= 2).length,
-        totalTokensUsed: projects.reduce((sum, p) => sum + (p.tokensUsed || 0), 0)
-      };
-      const emailRows = (await s.getState('email_manager_rows')) || [];
-      email = {
-        total: emailRows.length,
-        awaitingFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText).length,
-        overdueFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText && r.followupDueAt && new Date(r.followupDueAt) < new Date()).length
-      };
-      const igActivity = (await s.getState('instagram_activity')) || [];
-      const heldTickets = igActivity.filter(a => a.verdict === 'held').length;
-      instagram = { totalActivity: igActivity.length, held: heldTickets };
-    } catch (e) {}
+  return {
+    server: { uptimeSeconds: Math.round(process.uptime()), memoryUsedMB: Math.round(mem.heapUsed / 1024 / 1024), memoryTotalMB: Math.round(mem.heapTotal / 1024 / 1024), nodeVersion: process.version },
+    phone: { totalCalls: callsReceived.length, last24h, bounced, engaged, noInput, bounceRatePct: callsReceived.length ? Math.round((bounced / callsReceived.length) * 100) : 0, dailyLoad: days },
+    office, email, instagram
+  };
+}
 
-    res.json({
-      server: { uptimeSeconds: Math.round(process.uptime()), memoryUsedMB: Math.round(mem.heapUsed / 1024 / 1024), memoryTotalMB: Math.round(mem.heapTotal / 1024 / 1024), nodeVersion: process.version },
-      phone: { totalCalls: callsReceived.length, last24h, bounced, engaged, noInput, bounceRatePct: callsReceived.length ? Math.round((bounced / callsReceived.length) * 100) : 0, dailyLoad: days },
-      office, email, instagram
-    });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+app.get('/api/server-health', requireAuth, async (req, res) => {
+  try { res.json(await computeServerHealth()); } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.get('/api/dashboard/phone-stats', requireAuth, (req, res) => {
