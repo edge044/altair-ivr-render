@@ -2617,7 +2617,7 @@ function renderBatches(rows) {
       actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">' + (dueLabel ? 'Real 4-day timer — next one writes ' + dueLabel + ' PT' : 'Waiting on the 4-day timer') + '</span> <button class="btn outline" data-batch="' + bid + '" onclick="generateNow(this.dataset.batch)" style="margin-left:8px;">✍️ Write now instead (skip the wait)</button>';
     }
     return '<div class="batch"><div class="batch-head"><div><b>Batch — ' + batchRows.length + ' email' + (batchRows.length===1?'':'s') + '</b> <span class="meta">uploaded ' + new Date(batchRows[0].uploadedAt).toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric'}) + '</span></div><div>' + actionHtml + '</div></div>' +
-      '<table><thead><tr><th>Email</th><th>Subject</th><th>Status</th><th>Follow-up subject</th><th>Follow-up</th></tr></thead><tbody>' +
+      '<table><thead><tr><th>Email</th><th>Subject</th><th>Original email</th><th>Status</th><th>Follow-up subject</th><th>Follow-up</th></tr></thead><tbody>' +
       batchRows.map(r => {
         const st = statusFor(r);
         const statusIcon = activelyStreaming[r.id] ? '<span class="pulse-dot"></span>' : '';
@@ -2627,7 +2627,7 @@ function renderBatches(rows) {
           waitingLabel = due.getTime() <= Date.now() ? 'due now — writing shortly…' : ('writes ' + due.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT');
         }
         const cellContent = activelyStreaming[r.id] ? (r._liveText || '') : (r.followupText ? escapeHtmlJs(r.followupText) : (r.sentConfirmed ? '<span style="color:#9a9488;">' + waitingLabel + '</span>' : '—'));
-        return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
+        return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td class="wrap-cell orig-cell">' + originalEmailCell(r) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }).join('');
 }
@@ -2667,6 +2667,24 @@ function connectLiveStream() {
   es.onerror = () => { setTimeout(connectLiveStream, 4000); };
 }
 
+function originalEmailCell(r) {
+  const full = r.body || '';
+  if (!full) return '<span style="color:#c4bfae;">—</span>';
+  if (full.length <= 140) return escapeHtmlJs(full);
+  const preview = escapeHtmlJs(full.slice(0, 140)) + '…';
+  return '<span class="orig-preview">' + preview + '</span>' +
+    '<span class="orig-full" style="display:none;">' + escapeHtmlJs(full) + '</span>' +
+    ' <a href="#" onclick="event.preventDefault();toggleOriginal(this)" style="font-size:0.68rem;color:#6b6558;text-decoration:underline;">show full</a>';
+}
+function toggleOriginal(link) {
+  const cell = link.closest('td');
+  const preview = cell.querySelector('.orig-preview');
+  const full = cell.querySelector('.orig-full');
+  const showingFull = full.style.display !== 'none';
+  full.style.display = showingFull ? 'none' : 'inline';
+  preview.style.display = showingFull ? 'inline' : 'none';
+  link.textContent = showingFull ? 'show full' : 'show less';
+}
 function escapeHtmlJs(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
