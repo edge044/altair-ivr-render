@@ -216,6 +216,146 @@ app.delete('/api/business/reminders/:rid', requireAuth, async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ======================================================
+// MORNING BRIEFING — Mila reads everything real across every system and
+// writes one concrete, prioritized plan in plain language, with direct
+// links. One page to open instead of five.
+// ======================================================
+app.post('/api/briefing/generate', requireAuth, async (req, res) => {
+  if (!analyzeCooldownOk('briefing', 60000)) return res.status(429).json({ error: 'Just generated a briefing recently — wait a bit (real AI call).' });
+  try {
+    const s = leadsStore();
+    const now = Date.now();
+
+    const bizReminders = ((await s.getState('business_reminders')) || []).filter(r => !r.done);
+    const overdueBizRem = bizReminders.filter(r => r.dueAt && new Date(r.dueAt).getTime() < now);
+
+    const leads = (await s.getState('leads')) || [];
+    const overdueLeadRem = [];
+    leads.forEach(l => (l.reminders || []).forEach(r => { if (!r.done && r.dueAt && new Date(r.dueAt).getTime() < now) overdueLeadRem.push({ lead: l.name || l.email || l.phone, text: r.text, dueAt: r.dueAt }); }));
+
+    const emailRows = (await s.getState('email_manager_rows')) || [];
+    const recentEmailReplies = emailRows.filter(r => r.repliedAt && now - new Date(r.repliedAt).getTime() < 3 * 24 * 60 * 60 * 1000);
+    const overdueFollowups = emailRows.filter(r => r.sentConfirmed && !r.followupText && r.followupDueAt && new Date(r.followupDueAt).getTime() < now);
+
+    const igActivity = (await s.getState('instagram_activity')) || [];
+    const recentIg = igActivity.filter(a => now - new Date(a.at).getTime() < 24 * 60 * 60 * 1000);
+    const igSentCount = recentIg.filter(a => a.verdict === 'approved' && a.sent).length;
+    const igHeldCount = recentIg.filter(a => a.verdict === 'held').length;
+    const igSample = recentIg.filter(a => a.sent).slice(0, 5).map(a => `@${a.threadId}: "${(a.draft || '').slice(0, 80)}"`).join('\n');
+
+    const projects = (await s.getState('projects')) || [];
+    const stalled = projects.filter(p => (p.aiFailStreak || 0) >= 2 && p.status !== 'closed');
+
+    const dataBlock = `
+Overdue business reminders: ${overdueBizRem.length} — ${overdueBizRem.map(r => r.text).join('; ') || 'none'}
+Overdue lead reminders: ${overdueLeadRem.length} — ${overdueLeadRem.map(r => `${r.lead}: ${r.text}`).join('; ') || 'none'}
+Recent email replies (last 3 days): ${recentEmailReplies.length} — ${recentEmailReplies.map(r => r.email).join(', ') || 'none'}
+Overdue email follow-ups (real AI hasn't written them yet or owner hasn't sent): ${overdueFollowups.length}
+Instagram — real replies sent in last 24h: ${igSentCount}, held for review: ${igHeldCount}
+Sample of what Alex actually said on Instagram:
+${igSample || '(nothing sent in the last 24h)'}
+Stalled office projects (real AI repeatedly failing): ${stalled.length} — ${stalled.map(p => p.title).join(', ') || 'none'}
+`.trim();
+
+    const sys = `You are Mila, writing the owner's morning briefing. You have the REAL current state of every system below — use ONLY this real data, never invent numbers or names not given. Write a short, concrete, prioritized plan in plain human language — what to actually do today and why, in order of real urgency. If something is genuinely fine, say so briefly instead of padding. Mention the real Instagram reply count and give a real example of what was said if there's a sample. Under 200 words. No headers, just clear prose, maybe short paragraphs.`;
+    const result = await callRealAI(sys, dataBlock);
+    if (!result.ok) return res.status(502).json({ error: result.error });
+
+    const briefing = {
+      text: result.text, generatedAt: new Date().toISOString(),
+      raw: { overdueBizRem: overdueBizRem.length, overdueLeadRem: overdueLeadRem.length, recentEmailReplies: recentEmailReplies.length, overdueFollowups: overdueFollowups.length, igSentCount, igHeldCount, stalled: stalled.length }
+    };
+    await s.setState('latest_briefing', briefing);
+    res.json({ ok: true, briefing });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/briefing/latest', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('latest_briefing')) || null); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ======================================================
+// UNIVERSAL COMMAND BAR — "@Mila, remind me to call X Friday" from
+// anywhere. Real AI parses what you actually mean into a real action,
+// then it actually happens — no need to know which of the 5 pages it
+// belongs on.
+// ======================================================
+app.post('/api/command', requireAuth, async (req, res) => {
+  const input = safeText(req.body && req.body.text, 500);
+  if (!input) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    const leadList = leads.map(l => `${l.id}: ${l.name || ''} ${l.email || ''} ${l.phone || ''} ${l.instagram || ''}`.trim()).join('\n') || '(no leads yet)';
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+
+    const sys = `You are a command router. The owner typed a free-text instruction. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "lookup_lead" | "add_email" | "unclear", "leadId": "<exact id from the list above, or null>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\nPick add_lead_* only if you can match a specific real lead from the list above by name/email/phone — otherwise use add_business_* for general reminders/notes, or "unclear" if you genuinely can't tell what they want.`;
+    const result = await callRealAI(sys, input);
+    if (!result.ok) return res.status(502).json({ error: result.error });
+
+    let parsed;
+    try { parsed = JSON.parse(result.text.trim().replace(/^```json\s*|\s*```$/g, '')); }
+    catch (e) { return res.json({ ok: true, action: 'unclear', message: "Couldn't quite parse that — try being more specific." }); }
+
+    let message = '';
+    switch (parsed.action) {
+      case 'add_business_reminder': {
+        let reminders = (await s.getState('business_reminders')) || [];
+        reminders.push({ id: 'BREM-' + Date.now(), text: parsed.content || input, dueAt: parsed.dueAt || null, priority: 'normal', done: false, createdAt: new Date().toISOString() });
+        await s.setState('business_reminders', reminders);
+        message = `Added business reminder: "${parsed.content || input}"` + (parsed.dueAt ? ` (due ${parsed.dueAt})` : '');
+        break;
+      }
+      case 'add_business_note': {
+        let notes = (await s.getState('business_notes')) || [];
+        notes.push({ id: 'BNOTE-' + Date.now(), text: parsed.content || input, category: 'General', priority: 'normal', pinned: false, at: new Date().toISOString(), editedAt: null });
+        await s.setState('business_notes', notes);
+        message = `Added business note: "${parsed.content || input}"`;
+        break;
+      }
+      case 'add_lead_reminder': {
+        const lead = leads.find(l => l.id === parsed.leadId);
+        if (!lead) { message = "Couldn't find that lead — try naming them more specifically."; break; }
+        lead.reminders = lead.reminders || [];
+        lead.reminders.push({ id: 'REM-' + Date.now(), text: parsed.content || input, dueAt: parsed.dueAt || null, done: false, createdAt: new Date().toISOString() });
+        await s.setState('leads', leads);
+        message = `Added reminder for ${lead.name || lead.email || lead.phone}: "${parsed.content || input}"` + (parsed.dueAt ? ` (due ${parsed.dueAt})` : '');
+        break;
+      }
+      case 'add_lead_note': {
+        const lead = leads.find(l => l.id === parsed.leadId);
+        if (!lead) { message = "Couldn't find that lead — try naming them more specifically."; break; }
+        lead.ownerNotes = lead.ownerNotes || [];
+        lead.ownerNotes.push({ id: 'NOTE-' + Date.now(), text: parsed.content || input, at: new Date().toISOString() });
+        await s.setState('leads', leads);
+        message = `Added note for ${lead.name || lead.email || lead.phone}: "${parsed.content || input}"`;
+        break;
+      }
+      case 'lookup_lead': {
+        const lead = leads.find(l => l.id === parsed.leadId);
+        if (!lead) { message = "Couldn't find that lead."; break; }
+        const timeline = await buildLeadTimeline(lead);
+        message = `${lead.name || lead.email || lead.phone}: ${timeline.length} real events on record, ${(lead.ownerNotes||[]).length} notes, ${(lead.reminders||[]).filter(r=>!r.done).length} open reminders.`;
+        parsed.leadIdForLink = lead.id;
+        break;
+      }
+      case 'add_email': {
+        const email = parsed.email || (input.match(/[^\s@]+@[^\s@]+\.[^\s@]+/) || [])[0];
+        if (!email) { message = "Couldn't find a real email address in that."; break; }
+        let all = (await s.getState('email_manager_rows')) || [];
+        const batchId = 'BATCH-' + Date.now() + '-cmd';
+        all.push({ id: 'ROW-' + Date.now(), batchId, uploadedAt: new Date().toISOString(), email, subject: '', body: '', presetFollowupSubject: null, presetFollowupBody: null, sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null, followupSubject: null, followupText: null, followupGeneratedAt: null, followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null });
+        await s.setState('email_manager_rows', all);
+        message = `Added ${email} to the outreach spreadsheet.`;
+        break;
+      }
+      default:
+        message = "Not sure what you want me to do — try something like \"remind me to call X Friday\" or \"note: raise prices next quarter\".";
+    }
+    res.json({ ok: true, action: parsed.action, message, leadId: parsed.leadIdForLink || null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post('/api/leads', requireAuth, async (req, res) => {
   const { name, phone, email, instagram } = req.body || {};
   if (!name && !phone && !email && !instagram) return res.status(400).json({ error: 'Give at least a name or one identifier (phone/email/instagram).' });
@@ -2702,6 +2842,49 @@ app.get('/login', (req, res) => {
 </html>`);
 });
 
+// ── Universal command bar — injected into every real page via
+// ${commandBarHtml()}. Built as its own function (not literal source
+// inside another template literal) so embedding it is just a runtime
+// string substitution — no nested-escaping headaches.
+function commandBarHtml() {
+  return `
+<div id="cmdBarOverlay" style="position:fixed;inset:0;background:rgba(20,18,12,0.35);display:none;align-items:flex-start;justify-content:center;z-index:2000;padding-top:14vh;" onmousedown="if(event.target===this)closeCmdBar();">
+  <div style="background:#fff;border-radius:14px;max-width:560px;width:90%;box-shadow:0 24px 70px rgba(0,0,0,0.25);overflow:hidden;">
+    <input id="cmdBarInput" placeholder="Ask Mila — e.g. remind me to call Whitney Friday" style="width:100%;box-sizing:border-box;padding:18px 20px;border:none;outline:none;font-size:0.95rem;font-family:'SF Mono','Roboto Mono',Consolas,monospace;" onkeydown="if(event.key==='Enter')submitCmdBar();if(event.key==='Escape')closeCmdBar();">
+    <div id="cmdBarResult" style="padding:0 20px 18px;font-size:0.8rem;color:#6b6558;display:none;border-top:1px solid #eeece4;padding-top:14px;"></div>
+  </div>
+</div>
+<button id="cmdBarTrigger" onclick="openCmdBar()" style="position:fixed;bottom:22px;right:22px;background:#1a1a16;color:#fff;border:none;border-radius:24px;padding:11px 18px;font-size:0.76rem;font-weight:700;font-family:'SF Mono','Roboto Mono',Consolas,monospace;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,0.25);z-index:1500;">⌘K Ask Mila</button>
+<script>
+function openCmdBar() {
+  document.getElementById('cmdBarOverlay').style.display = 'flex';
+  document.getElementById('cmdBarInput').value = '';
+  document.getElementById('cmdBarResult').style.display = 'none';
+  setTimeout(() => document.getElementById('cmdBarInput').focus(), 50);
+}
+function closeCmdBar() { document.getElementById('cmdBarOverlay').style.display = 'none'; }
+document.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openCmdBar(); }
+});
+async function submitCmdBar() {
+  const input = document.getElementById('cmdBarInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const resultBox = document.getElementById('cmdBarResult');
+  resultBox.style.display = 'block';
+  resultBox.textContent = 'Thinking…';
+  try {
+    const res = await fetch('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+    const data = await res.json();
+    resultBox.textContent = data.message || data.error || 'Done.';
+    if (data.ok && typeof loadRows === 'function') loadRows();
+    if (data.ok && typeof loadPlans === 'function') loadPlans();
+    if (data.ok && typeof loadLeads === 'function') loadLeads();
+  } catch (e) { resultBox.textContent = 'Error: ' + e.message; }
+}
+</script>`;
+}
+
 app.get('/choose', requireAuth, (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.send(`<!DOCTYPE html>
@@ -2910,6 +3093,7 @@ loadDashboard();
 loadMilaNote();
 loadBusinessPreview();
 </script>
+${commandBarHtml()}
 </body>
 </html>`);
 });
@@ -3106,6 +3290,89 @@ async function loadHealth() {
 
 loadPlans();
 </script>
+${commandBarHtml()}
+</body>
+</html>`);
+});
+
+app.get('/briefing', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Morning Briefing — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; }
+  .navbar a { color: #6b6558; text-decoration: none; font-size: 0.76rem; font-weight: 700; padding: 6px 12px; border-radius: 6px; }
+  .navbar a:hover { background: #eeece2; color: #1a1a16; }
+  .wrap { max-width: 760px; margin: 0 auto; padding: 50px 36px 100px; }
+  h1 { font-size: 1.7rem; margin: 0 0 6px; }
+  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 30px; }
+  .btn { display: inline-block; padding: 10px 20px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; border: 1.5px solid transparent; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #1a1a16; color: #fff; }
+  .briefing-card { background: linear-gradient(135deg, #fff8ee, #fbfaf7); border: 1.5px solid #f0e4cc; border-radius: 14px; padding: 28px; margin-bottom: 20px; }
+  .briefing-text { font-size: 0.94rem; line-height: 1.75; }
+  .briefing-date { font-size: 0.7rem; color: #b0a992; margin-top: 16px; }
+  .stats-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+  .stat-pill { background: #fff; border: 1px solid #e6e1d4; border-radius: 8px; padding: 8px 14px; font-size: 0.72rem; }
+  .stat-pill b { font-size: 0.9rem; }
+  .empty { color: #b0a992; font-size: 0.82rem; padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div>☀️ Morning Briefing</div>
+    <a href="/choose">← Back</a>
+  </div>
+  <div class="wrap">
+    <h1>Good morning.</h1>
+    <div class="sub">Mila reads everything real — calls, emails, leads, Instagram, business notes — and tells you what actually matters today.</div>
+
+    <div id="statsRow" class="stats-row"></div>
+    <div id="briefingArea"><div class="empty">Loading…</div></div>
+    <button class="btn primary" onclick="generateBriefing()">🔄 Get today's briefing</button>
+  </div>
+
+<script>
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function loadLatest() {
+  try {
+    const res = await fetch('/api/briefing/latest', { credentials: 'include' });
+    const briefing = res.ok ? await res.json() : null;
+    renderBriefing(briefing);
+  } catch (e) {}
+}
+function renderBriefing(briefing) {
+  const area = document.getElementById('briefingArea');
+  const statsRow = document.getElementById('statsRow');
+  if (!briefing) { area.innerHTML = '<div class="empty">No briefing yet — click below to get your first one.</div>'; statsRow.innerHTML = ''; return; }
+  area.innerHTML = '<div class="briefing-card"><div class="briefing-text">' + esc(briefing.text) + '</div><div class="briefing-date">Generated ' + new Date(briefing.generatedAt).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) + '</div></div>';
+  const r = briefing.raw || {};
+  statsRow.innerHTML =
+    '<div class="stat-pill"><b>' + (r.overdueBizRem||0) + '</b> overdue business reminders</div>' +
+    '<div class="stat-pill"><b>' + (r.overdueLeadRem||0) + '</b> overdue lead reminders</div>' +
+    '<div class="stat-pill"><b>' + (r.recentEmailReplies||0) + '</b> email replies (3d)</div>' +
+    '<div class="stat-pill"><b>' + (r.igSentCount||0) + '</b> Instagram replies (24h)</div>' +
+    '<div class="stat-pill"><b>' + (r.stalled||0) + '</b> stalled projects</div>';
+}
+async function generateBriefing() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Mila is reading everything…';
+  const res = await fetch('/api/briefing/generate', { method: 'POST', credentials: 'include' });
+  const data = await res.json();
+  btn.disabled = false; btn.textContent = '🔄 Get today\\'s briefing';
+  if (!res.ok) { alert(data.error || 'Could not generate briefing.'); return; }
+  renderBriefing(data.briefing);
+}
+
+loadLatest();
+</script>
+${commandBarHtml()}
 </body>
 </html>`);
 });
@@ -3312,6 +3579,7 @@ function esc(s) { const d = document.createElement('div'); d.textContent = s || 
 
 loadLeads();
 </script>
+${commandBarHtml()}
 </body>
 </html>`);
 });
@@ -3762,6 +4030,7 @@ setInterval(loadChat, 15000);
 // highlights before marking them seen for next time.
 setTimeout(() => { localStorage.setItem(LAST_VIEWED_REPLIES_KEY, new Date().toISOString()); }, 6000);
 </script>
+${commandBarHtml()}
 </body>
 </html>`);
 });
