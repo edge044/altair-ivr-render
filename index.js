@@ -2611,17 +2611,31 @@ function renderBatches(rows) {
     } else if (allFollowupsReady && !allFollowupsSent) {
       actionHtml = '<button class="btn primary" data-batch="' + bid + '" onclick="downloadBatch(this.dataset.batch)">⬇ Download follow-ups Excel</button> <button class="btn outline" data-batch="' + bid + '" onclick="confirmFollowupSent(this.dataset.batch)">Mark follow-ups sent</button>';
     } else if (!allFollowupsReady) {
-      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">AI is drafting follow-ups live as the 4-day timer completes for each row…</span>';
+      const dueDates = batchRows.filter(r => r.followupDueAt && !r.followupText).map(r => new Date(r.followupDueAt));
+      const earliestDue = dueDates.length ? new Date(Math.min(...dueDates)) : null;
+      const dueLabel = earliestDue ? earliestDue.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">' + (dueLabel ? 'Real 4-day timer — next one writes ' + dueLabel + ' PT' : 'Waiting on the 4-day timer') + '</span> <button class="btn outline" data-batch="' + bid + '" onclick="generateNow(this.dataset.batch)" style="margin-left:8px;">✍️ Write now instead (skip the wait)</button>';
     }
     return '<div class="batch"><div class="batch-head"><div><b>Batch — ' + batchRows.length + ' email' + (batchRows.length===1?'':'s') + '</b> <span class="meta">uploaded ' + new Date(batchRows[0].uploadedAt).toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric'}) + '</span></div><div>' + actionHtml + '</div></div>' +
       '<table><thead><tr><th>Email</th><th>Subject</th><th>Status</th><th>Follow-up subject</th><th>Follow-up</th></tr></thead><tbody>' +
       batchRows.map(r => {
         const st = statusFor(r);
         const statusIcon = activelyStreaming[r.id] ? '<span class="pulse-dot"></span>' : '';
-        const cellContent = activelyStreaming[r.id] ? (r._liveText || '') : (r.followupText ? escapeHtmlJs(r.followupText) : (r.sentConfirmed ? '<span style="color:#9a9488;">waiting for its turn…</span>' : '—'));
+        let waitingLabel = 'waiting for its turn…';
+        if (r.followupDueAt && !r.followupText) {
+          const due = new Date(r.followupDueAt);
+          waitingLabel = due.getTime() <= Date.now() ? 'due now — writing shortly…' : ('writes ' + due.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT');
+        }
+        const cellContent = activelyStreaming[r.id] ? (r._liveText || '') : (r.followupText ? escapeHtmlJs(r.followupText) : (r.sentConfirmed ? '<span style="color:#9a9488;">' + waitingLabel + '</span>' : '—'));
         return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }).join('');
+}
+
+async function generateNow(batchId) {
+  const ok = await customConfirm('Skip the wait?', 'This writes real follow-ups right now instead of waiting for the real 4-day timer. Real AI, real cost — just earlier than usual.');
+  if (!ok) return;
+  await fetch('/office/api/email-manager/generate-now', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ batchId }) });
 }
 
 // ── Real live streaming — connects once, stays open, shows real tokens

@@ -1190,6 +1190,58 @@ function mountOffice(app, requireAuth) {
     } catch (e) { res.status(500).json({ error: e.message }); }
   });
 
+  async function generateFollowupForRow(r) {
+    // Already had a real, human-written follow-up in the sheet — use it
+    // directly. Zero AI cost, and it's real content someone already wrote.
+    if (r.presetFollowupBody) {
+      r.followupSubject = r.presetFollowupSubject || `Re: ${r.subject}`;
+      r.followupText = r.presetFollowupBody;
+      r.followupGeneratedAt = new Date().toISOString();
+      broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText, instant: true });
+      console.log(`✓ generateFollowupForRow: used preset follow-up for ${r.email} (no AI call)`);
+      return true;
+    }
+    if (!process.env.DEEPSEEK_API_KEY) return false;
+    const sys = `You are Mila, writing a real, custom, friendly follow-up email to a real prospect who hasn't replied in 4 days. Reference the ORIGINAL email's real specific content — never generic. Warm, brief, genuinely well-written, one clear reason to reply, under 90 words. Respond with exactly two lines: first line "Subject: <subject line>", then a blank line, then the email body only.`;
+    const user = `Original email to ${r.email}:\nSubject: ${r.subject || '(none)'}\n\n${r.body}`;
+    broadcastSSE('writing-start', { rowId: r.id });
+    const result = await serverCallAIStream(sys, user, (delta) => broadcastSSE('chunk', { rowId: r.id, delta }));
+    if (result.ok) {
+      const subjMatch = result.text.match(/^Subject:\s*(.+)$/mi);
+      r.followupSubject = subjMatch ? subjMatch[1].trim() : `Re: ${r.subject}`;
+      r.followupText = result.text.replace(/^Subject:\s*.+$/mi, '').trim();
+      r.followupGeneratedAt = new Date().toISOString();
+      broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText });
+      console.log(`✓ generateFollowupForRow: real follow-up drafted for ${r.email} (streamed live)`);
+      return true;
+    }
+    broadcastSSE('writing-error', { rowId: r.id, error: result.error });
+    return false;
+  }
+
+  // Real manual override — the 4-day wait is real and honest by default,
+  // but it's the owner's own tool, so they can choose to skip it (for a
+  // test, or because a lead is urgent) rather than being stuck waiting.
+  app.post('/office/api/email-manager/generate-now', requireOfficeAuth, async (req, res) => {
+    const { batchId } = req.body || {};
+    if (!batchId) return res.status(400).json({ error: 'batchId required' });
+    try {
+      let all = await store.getState('email_manager_rows');
+      if (!Array.isArray(all)) all = [];
+      const targets = all.filter(r => r.batchId === batchId && r.sentConfirmed && !r.followupText);
+      if (!targets.length) return res.json({ ok: true, count: 0 });
+      res.json({ ok: true, count: targets.length }); // respond immediately, real generation streams live via SSE
+      (async () => {
+        let changed = false;
+        for (const r of targets) {
+          const ok = await generateFollowupForRow(r);
+          if (ok) changed = true;
+        }
+        if (changed) await store.setState('email_manager_rows', all);
+      })();
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   async function emailManagerFollowupTick() {
     try {
       let all = await store.getState('email_manager_rows');
@@ -1198,36 +1250,8 @@ function mountOffice(app, requireAuth) {
       for (const r of all) {
         if (!r.sentConfirmed || r.followupText || !r.followupDueAt) continue;
         if (Date.now() < new Date(r.followupDueAt).getTime()) continue;
-
-        // Already had a real, human-written follow-up in the sheet —
-        // use it directly. Zero AI cost, and it's real content someone
-        // already wrote, not something to discard.
-        if (r.presetFollowupBody) {
-          r.followupSubject = r.presetFollowupSubject || `Re: ${r.subject}`;
-          r.followupText = r.presetFollowupBody;
-          r.followupGeneratedAt = new Date().toISOString();
-          changed = true;
-          broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText, instant: true });
-          console.log(`✓ emailManagerFollowupTick: used preset follow-up for ${r.email} (no AI call)`);
-          continue;
-        }
-
-        if (!process.env.DEEPSEEK_API_KEY) continue; // no key AND no preset — genuinely nothing to do for this one yet
-        const sys = `You are Mila, writing a real, custom, friendly follow-up email to a real prospect who hasn't replied in 4 days. Reference the ORIGINAL email's real specific content — never generic. Warm, brief, genuinely well-written, one clear reason to reply, under 90 words. Respond with exactly two lines: first line "Subject: <subject line>", then a blank line, then the email body only.`;
-        const user = `Original email to ${r.email}:\nSubject: ${r.subject || '(none)'}\n\n${r.body}`;
-        broadcastSSE('writing-start', { rowId: r.id });
-        const result = await serverCallAIStream(sys, user, (delta) => broadcastSSE('chunk', { rowId: r.id, delta }));
-        if (result.ok) {
-          const subjMatch = result.text.match(/^Subject:\s*(.+)$/mi);
-          r.followupSubject = subjMatch ? subjMatch[1].trim() : `Re: ${r.subject}`;
-          r.followupText = result.text.replace(/^Subject:\s*.+$/mi, '').trim();
-          r.followupGeneratedAt = new Date().toISOString();
-          changed = true;
-          broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText });
-          console.log(`✓ emailManagerFollowupTick: real follow-up drafted for ${r.email} (streamed live)`);
-        } else {
-          broadcastSSE('writing-error', { rowId: r.id, error: result.error });
-        }
+        const ok = await generateFollowupForRow(r);
+        if (ok) changed = true;
       }
       if (changed) await store.setState('email_manager_rows', all);
     } catch (e) { console.error('✗ emailManagerFollowupTick error:', e.message); }
