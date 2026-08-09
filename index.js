@@ -7,7 +7,7 @@ const twilioClient = require('twilio')(
   process.env.TWILIO_AUTH_TOKEN
 );
 const basicAuth = require('basic-auth');
-const { hasValidSession } = require('./office-integration');
+const { hasValidSession, getStore, callRealAI } = require('./office-integration');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -52,6 +52,152 @@ function requireAuth(req, res, next) {
 
 const mountOffice = require('./office-integration');
 mountOffice(app, requireAuth);
+
+// ======================================================
+// LEADS — one card per real contact, auto-aggregating their real
+// history across phone/email/Instagram. Two separate spaces: your own
+// notes and goals, and Mila's own analysis — never mixed together.
+// Plus real reminders.
+// ======================================================
+
+function leadsStore() {
+  const s = getStore();
+  if (!s) throw new Error('Office store not ready yet.');
+  return s;
+}
+
+app.post('/api/leads', requireAuth, async (req, res) => {
+  const { name, phone, email, instagram } = req.body || {};
+  if (!name && !phone && !email && !instagram) return res.status(400).json({ error: 'Give at least a name or one identifier (phone/email/instagram).' });
+  try {
+    const s = leadsStore();
+    let leads = (await s.getState('leads')) || [];
+    const lead = {
+      id: 'LEAD-' + Date.now() + '-' + Math.floor(Math.random() * 100000),
+      createdAt: new Date().toISOString(),
+      name: name || '', phone: phone || '', email: email || '', instagram: instagram || '',
+      ownerNotes: [], milaThoughts: [], reminders: []
+    };
+    leads.unshift(lead);
+    await s.setState('leads', leads);
+    res.json({ ok: true, lead });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/leads', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    res.json(leads);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Builds the real cross-channel timeline for a lead — pulls from the
+// actual call log (by phone), the actual email outreach data (by
+// email), and actual Instagram messages (by handle). Nothing here is
+// stored twice; it's assembled fresh from the real source each time.
+async function buildLeadTimeline(lead) {
+  const events = [];
+  if (lead.phone) {
+    const calls = loadJSON(CALL_LOGS_PATH).filter(c => c.phone === lead.phone);
+    calls.forEach(c => events.push({ type: 'call', at: c.timestamp, summary: c.action + (c.details ? ' — ' + JSON.stringify(c.details) : '') }));
+    const appts = loadDB().filter(a => a.phone === lead.phone);
+    appts.forEach(a => events.push({ type: 'appointment', at: a.createdAt || a.timestamp, summary: (a.serviceType || 'Appointment request') + (a.status ? ' — ' + a.status : '') }));
+  }
+  if (lead.email) {
+    try {
+      const s = leadsStore();
+      const emailRows = (await s.getState('email_manager_rows')) || [];
+      emailRows.filter(r => r.email === lead.email).forEach(r => {
+        events.push({ type: 'email_sent', at: r.uploadedAt, summary: r.subject || '(no subject)' });
+        if (r.followupSentConfirmedAt) events.push({ type: 'email_followup', at: r.followupSentConfirmedAt, summary: r.followupSubject || 'Follow-up sent' });
+        if (r.repliedAt) events.push({ type: 'email_reply', at: r.repliedAt, summary: 'They replied' });
+      });
+    } catch (e) {}
+  }
+  if (lead.instagram) {
+    try {
+      const s = leadsStore();
+      const igMessages = await s.getInstagramMessages(lead.instagram);
+      igMessages.forEach(m => events.push({ type: 'instagram_' + m.direction, at: m.createdAt, summary: m.text || '' }));
+    } catch (e) {}
+  }
+  return events.sort((a, b) => new Date(a.at) - new Date(b.at));
+}
+
+app.get('/api/leads/:id', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    const lead = leads.find(l => l.id === req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Not found.' });
+    const timeline = await buildLeadTimeline(lead);
+    res.json({ lead, timeline });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/leads/:id/notes', requireAuth, async (req, res) => {
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    const lead = leads.find(l => l.id === req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Not found.' });
+    lead.ownerNotes.push({ id: 'NOTE-' + Date.now(), text, at: new Date().toISOString() });
+    await s.setState('leads', leads);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/leads/:id/reminders', requireAuth, async (req, res) => {
+  const { text, dueAt } = req.body || {};
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    const lead = leads.find(l => l.id === req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Not found.' });
+    lead.reminders.push({ id: 'REM-' + Date.now(), text, dueAt: dueAt || null, done: false, createdAt: new Date().toISOString() });
+    await s.setState('leads', leads);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/leads/:id/reminders/:rid/toggle', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    const lead = leads.find(l => l.id === req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Not found.' });
+    const rem = lead.reminders.find(r => r.id === req.params.rid);
+    if (!rem) return res.status(404).json({ error: 'Reminder not found.' });
+    rem.done = !rem.done;
+    await s.setState('leads', leads);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Mila's own real analysis — separate from the owner's notes entirely.
+// Real AI call grounded in the real cross-channel timeline.
+app.post('/api/leads/:id/mila-analyze', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const leads = (await s.getState('leads')) || [];
+    const lead = leads.find(l => l.id === req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Not found.' });
+    const timeline = await buildLeadTimeline(lead);
+    if (!timeline.length) return res.status(400).json({ error: 'No real activity yet for this lead — nothing to analyze.' });
+    const timelineText = timeline.map(e => `${e.at}: [${e.type}] ${e.summary}`.slice(0, 200)).join('\n');
+    const sys = `You are Mila, creative director, writing your own private analysis of a real lead — this is your own thinking space, separate from the owner's notes. Look at their real activity history and give a genuinely useful, specific read: where they seem to be in their decision, what you'd try next, any risk you notice. Under 90 words. Don't repeat the raw events back — actually interpret them.`;
+    const user = `Lead: ${lead.name || lead.email || lead.phone || lead.instagram}\n\nReal activity timeline:\n${timelineText}`;
+    const result = await callRealAI(sys, user);
+    if (!result.ok) return res.status(502).json({ error: result.error });
+    lead.milaThoughts.push({ id: 'MT-' + Date.now(), text: result.text, at: new Date().toISOString(), tokensUsed: result.tokensUsed, cost: result.cost });
+    await s.setState('leads', leads);
+    res.json({ ok: true, thought: result.text });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ======================================================
 // SELF-PING SYSTEM
@@ -2403,6 +2549,7 @@ app.get('/choose', requireAuth, (req, res) => {
       <a href="/admin" class="nav-btn"><span class="ic">📞</span> Phone System</a>
       <a href="/office" class="nav-btn"><span class="ic">🏢</span> Our Office</a>
       <a href="/email-manager" class="nav-btn"><span class="ic">✉️</span> Email Manager</a>
+      <a href="/leads" class="nav-btn"><span class="ic">👥</span> Leads</a>
     </div>
     <a href="/login" class="logout-link">Switch account</a>
   </div>
@@ -2416,6 +2563,7 @@ app.get('/choose', requireAuth, (req, res) => {
       <div class="stat-card"><div class="stat-label">Appointments</div><div class="stat-num loading-text">…</div></div>
       <div class="stat-card"><div class="stat-label">Emails replied</div><div class="stat-num loading-text">…</div></div>
       <div class="stat-card"><div class="stat-label">Active projects</div><div class="stat-num loading-text">…</div></div>
+      <div class="stat-card"><div class="stat-label">Total AI tokens used</div><div class="stat-num loading-text">…</div></div>
     </div>
 
     <div class="section-card">
@@ -2488,6 +2636,11 @@ async function loadDashboard() {
       stats[2].classList.remove('loading-text');
       stats[3].textContent = officeData.office.activeProjects;
       stats[3].classList.remove('loading-text');
+      if (officeData.grandTotal) {
+        stats[4].textContent = officeData.grandTotal.tokens.toLocaleString();
+        stats[4].classList.remove('loading-text');
+        stats[4].title = 'Office: ' + officeData.grandTotal.breakdown.office.toLocaleString() + ' · Email: ' + officeData.grandTotal.breakdown.email.toLocaleString() + ' · Instagram: ' + officeData.grandTotal.breakdown.instagram.toLocaleString() + ' · Total cost: $' + officeData.grandTotal.cost.toFixed(4);
+      }
       document.getElementById('emailStats').innerHTML =
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.8rem;">' +
         '<div><b>' + officeData.email.totalRows + '</b><div style="color:#8a8272;font-size:0.7rem;">total tracked</div></div>' +
@@ -2530,6 +2683,213 @@ loadMilaNote();
 </html>`);
 });
 
+
+
+app.get('/leads', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Leads — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; }
+  .navbar a { color: #6b6558; text-decoration: none; font-size: 0.76rem; font-weight: 700; padding: 6px 12px; border-radius: 6px; }
+  .navbar a:hover { background: #eeece2; color: #1a1a16; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 40px 36px 100px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; }
+  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 28px; }
+  .btn { display: inline-block; padding: 10px 20px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; border: 1.5px solid transparent; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #1a1a16; color: #fff; }
+  .btn.outline { background: #fff; border-color: #d8d2c0; color: #1a1a16; }
+  .add-box { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 20px; margin-bottom: 28px; }
+  .add-box input { padding: 9px 12px; border: 1.5px solid #e6e1d4; border-radius: 7px; font-size: 0.78rem; font-family: inherit; margin-right: 8px; margin-bottom: 8px; }
+  .lead-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; }
+  .lead-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 18px; cursor: pointer; transition: all 0.15s; }
+  .lead-card:hover { border-color: #1a1a16; transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.06); }
+  .lead-card .lname { font-weight: 700; font-size: 0.9rem; margin-bottom: 6px; }
+  .lead-card .lid { font-size: 0.7rem; color: #8a8272; margin-bottom: 2px; }
+  .lead-card .lmeta { font-size: 0.68rem; color: #b0a992; margin-top: 8px; }
+  .detail-overlay { position: fixed; inset: 0; background: rgba(20,18,12,0.4); display: none; align-items: flex-start; justify-content: center; z-index: 1000; overflow-y: auto; padding: 40px 20px; }
+  .detail-overlay.open { display: flex; }
+  .detail-box { background: #fff; border-radius: 14px; max-width: 780px; width: 100%; padding: 30px; }
+  .detail-close { float: right; cursor: pointer; font-size: 1.2rem; color: #8a8272; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 20px 0; }
+  .panel { background: #fbfaf7; border: 1px solid #e6e1d4; border-radius: 10px; padding: 16px; }
+  .panel-title { font-size: 0.78rem; font-weight: 700; margin-bottom: 10px; }
+  .panel-item { font-size: 0.76rem; padding: 8px 0; border-bottom: 1px solid #eeece4; line-height: 1.5; }
+  .panel-item:last-child { border-bottom: none; }
+  .panel-item .pdate { font-size: 0.64rem; color: #b0a992; margin-top: 3px; }
+  .panel input, .panel textarea { width: 100%; padding: 7px 9px; border: 1.5px solid #e6e1d4; border-radius: 6px; font-size: 0.74rem; font-family: inherit; margin-bottom: 6px; }
+  .timeline-item { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid #f0ede3; font-size: 0.76rem; }
+  .timeline-icon { flex-shrink: 0; }
+  .timeline-date { font-size: 0.64rem; color: #b0a992; }
+  .reminder-row { display: flex; align-items: center; gap: 8px; font-size: 0.76rem; padding: 6px 0; }
+  .reminder-row.done { opacity: 0.5; text-decoration: line-through; }
+  .empty { color: #b0a992; font-size: 0.78rem; padding: 30px; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div>👥 Leads</div>
+    <a href="/choose">← Back</a>
+  </div>
+  <div class="wrap">
+    <h1>Leads</h1>
+    <div class="sub">One card per real contact — pulls in their real calls, emails, and Instagram messages automatically.</div>
+
+    <div class="add-box">
+      <input id="newName" placeholder="Name (optional)">
+      <input id="newPhone" placeholder="Phone">
+      <input id="newEmail" placeholder="Email">
+      <input id="newInstagram" placeholder="Instagram handle">
+      <button class="btn primary" onclick="addLead()">+ Add lead</button>
+    </div>
+
+    <div id="leadsArea" class="lead-grid"><div class="empty">Loading…</div></div>
+  </div>
+
+  <div class="detail-overlay" id="detailOverlay" onmousedown="if(event.target===this)closeDetail();">
+    <div class="detail-box" id="detailBox"></div>
+  </div>
+
+<script>
+let leadsCache = [];
+
+async function loadLeads() {
+  try {
+    const res = await fetch('/api/leads', { credentials: 'include' });
+    if (!res.ok) { document.getElementById('leadsArea').innerHTML = '<div class="empty">Not logged in.</div>'; return; }
+    leadsCache = await res.json();
+    renderLeads();
+  } catch (e) { document.getElementById('leadsArea').innerHTML = '<div class="empty">' + e.message + '</div>'; }
+}
+
+function renderLeads() {
+  const area = document.getElementById('leadsArea');
+  if (!leadsCache.length) { area.innerHTML = '<div class="empty">No leads yet — add your first one above.</div>'; return; }
+  area.innerHTML = leadsCache.map(l => {
+    const openReminders = (l.reminders || []).filter(r => !r.done).length;
+    return '<div class="lead-card" data-id="' + l.id + '" onclick="openDetail(this.dataset.id)">' +
+      '<div class="lname">' + esc(l.name || l.email || l.phone || l.instagram || 'Unnamed') + '</div>' +
+      (l.phone ? '<div class="lid">📞 ' + esc(l.phone) + '</div>' : '') +
+      (l.email ? '<div class="lid">✉️ ' + esc(l.email) + '</div>' : '') +
+      (l.instagram ? '<div class="lid">📷 @' + esc(l.instagram) + '</div>' : '') +
+      '<div class="lmeta">' + (l.ownerNotes||[]).length + ' notes · ' + (l.milaThoughts||[]).length + ' Mila thoughts' + (openReminders ? ' · ' + openReminders + ' reminder' + (openReminders===1?'':'s') : '') + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+async function addLead() {
+  const name = document.getElementById('newName').value.trim();
+  const phone = document.getElementById('newPhone').value.trim();
+  const email = document.getElementById('newEmail').value.trim();
+  const instagram = document.getElementById('newInstagram').value.trim();
+  if (!name && !phone && !email && !instagram) { alert('Give at least a name or one identifier.'); return; }
+  const res = await fetch('/api/leads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, phone, email, instagram }) });
+  if (res.ok) {
+    document.getElementById('newName').value = '';
+    document.getElementById('newPhone').value = '';
+    document.getElementById('newEmail').value = '';
+    document.getElementById('newInstagram').value = '';
+    loadLeads();
+  }
+}
+
+const TIMELINE_ICONS = { call: '📞', appointment: '📅', email_sent: '✉️', email_followup: '↩️', email_reply: '✅', instagram_in: '📷', instagram_out: '📷' };
+
+async function openDetail(id) {
+  const overlay = document.getElementById('detailOverlay');
+  const box = document.getElementById('detailBox');
+  box.innerHTML = '<div class="empty">Loading real data…</div>';
+  overlay.classList.add('open');
+  const res = await fetch('/api/leads/' + encodeURIComponent(id), { credentials: 'include' });
+  if (!res.ok) { box.innerHTML = '<div class="empty">Could not load.</div>'; return; }
+  const { lead, timeline } = await res.json();
+  renderDetail(lead, timeline);
+}
+function closeDetail() { document.getElementById('detailOverlay').classList.remove('open'); }
+
+function renderDetail(lead, timeline) {
+  const box = document.getElementById('detailBox');
+  box.innerHTML =
+    '<span class="detail-close" onclick="closeDetail()">✕</span>' +
+    '<h2 style="margin:0 0 4px;">' + esc(lead.name || lead.email || lead.phone || lead.instagram || 'Unnamed') + '</h2>' +
+    '<div style="font-size:0.76rem;color:#8a8272;margin-bottom:16px;">' + [lead.phone, lead.email, lead.instagram ? '@'+lead.instagram : ''].filter(Boolean).map(esc).join(' · ') + '</div>' +
+
+    '<div class="panel-title">📋 Real timeline (auto — calls, emails, Instagram)</div>' +
+    '<div class="panel" style="max-height:200px;overflow-y:auto;margin-bottom:16px;">' +
+      (timeline.length ? timeline.map(e => '<div class="timeline-item"><span class="timeline-icon">' + (TIMELINE_ICONS[e.type]||'•') + '</span><div><div>' + esc(e.summary) + '</div><div class="timeline-date">' + new Date(e.at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) + '</div></div></div>').join('') : '<div class="empty">No real activity yet on any channel.</div>') +
+    '</div>' +
+
+    '<div class="two-col">' +
+      '<div class="panel">' +
+        '<div class="panel-title">📝 My notes — goals, next moves</div>' +
+        '<div id="notesList">' + renderNotesOrThoughts(lead.ownerNotes) + '</div>' +
+        '<textarea id="newNoteText" rows="2" placeholder="What are you thinking for this one?"></textarea>' +
+        '<button class="btn outline" data-id="' + lead.id + '" onclick="addNote(this.dataset.id)" style="font-size:0.7rem;padding:6px 12px;">Add note</button>' +
+      '</div>' +
+      '<div class="panel">' +
+        '<div class="panel-title">💭 Mila\\'s thoughts — her own analysis</div>' +
+        '<div id="milaList">' + renderNotesOrThoughts(lead.milaThoughts) + '</div>' +
+        '<button class="btn primary" data-id="' + lead.id + '" onclick="askMilaAnalyze(this.dataset.id)" style="font-size:0.7rem;padding:6px 12px;">✨ Ask Mila to analyze</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="panel">' +
+      '<div class="panel-title">⏰ Reminders</div>' +
+      '<div id="remindersList">' + renderReminders(lead) + '</div>' +
+      '<input id="newRemText" placeholder="e.g. Call back Friday">' +
+      '<input id="newRemDate" type="date" style="width:auto;">' +
+      '<button class="btn outline" data-id="' + lead.id + '" onclick="addReminder(this.dataset.id)" style="font-size:0.7rem;padding:6px 12px;">Add reminder</button>' +
+    '</div>';
+}
+function renderNotesOrThoughts(items) {
+  if (!items || !items.length) return '<div style="color:#b0a992;font-size:0.72rem;margin-bottom:8px;">Nothing yet.</div>';
+  return items.slice().reverse().map(n => '<div class="panel-item">' + esc(n.text) + '<div class="pdate">' + new Date(n.at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) + '</div></div>').join('');
+}
+function renderReminders(lead) {
+  if (!lead.reminders || !lead.reminders.length) return '<div style="color:#b0a992;font-size:0.72rem;margin-bottom:8px;">No reminders yet.</div>';
+  return lead.reminders.map(r => '<div class="reminder-row' + (r.done?' done':'') + '"><input type="checkbox" ' + (r.done?'checked':'') + ' data-lead="' + lead.id + '" data-rem="' + r.id + '" onchange="toggleReminder(this)"> ' + esc(r.text) + (r.dueAt ? ' <span style="color:#b0a992;">— due ' + r.dueAt + '</span>' : '') + '</div>').join('');
+}
+
+async function addNote(leadId) {
+  const text = document.getElementById('newNoteText').value.trim();
+  if (!text) return;
+  await fetch('/api/leads/' + leadId + '/notes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+  openDetail(leadId);
+  loadLeads();
+}
+async function askMilaAnalyze(leadId) {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Mila is thinking…';
+  const res = await fetch('/api/leads/' + leadId + '/mila-analyze', { method: 'POST', credentials: 'include' });
+  if (!res.ok) { const err = await res.json(); alert(err.error || 'Could not analyze.'); }
+  openDetail(leadId);
+  loadLeads();
+}
+async function addReminder(leadId) {
+  const text = document.getElementById('newRemText').value.trim();
+  const dueAt = document.getElementById('newRemDate').value;
+  if (!text) return;
+  await fetch('/api/leads/' + leadId + '/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text, dueAt }) });
+  openDetail(leadId);
+  loadLeads();
+}
+async function toggleReminder(checkbox) {
+  await fetch('/api/leads/' + checkbox.dataset.lead + '/reminders/' + checkbox.dataset.rem + '/toggle', { method: 'POST', credentials: 'include' });
+  loadLeads();
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+loadLeads();
+</script>
+</body>
+</html>`);
+});
 
 app.get('/email-manager', requireAuth, (req, res) => {
   res.send(`<!DOCTYPE html>

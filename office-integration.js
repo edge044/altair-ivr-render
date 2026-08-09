@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const fs = require('fs');
+let _sharedStore = null; // set once mountOffice finishes initializing storage — index.js reads leads/email/instagram data through this, same process, no HTTP needed
 const path = require('path');
 const crypto = require('crypto');
 
@@ -209,6 +210,7 @@ function mountOffice(app, requireAuth) {
       }
     };
   }
+  _sharedStore = store; // now available to index.js in-process, e.g. for the Leads feature
 
   // ── GeoIP — free lookup (ip-api.com, no key), cached in memory so we
   // don't hammer it. Best-effort: shows "Unknown" if it fails, never
@@ -952,8 +954,17 @@ function mountOffice(app, requireAuth) {
     try {
       const emailRows = (await store.getState('email_manager_rows')) || [];
       const projects = (await store.getState('projects')) || [];
+      const igActivity = (await store.getState('instagram_activity')) || [];
       const now = Date.now();
       const emailSince = (days) => emailRows.filter(r => now - new Date(r.uploadedAt).getTime() <= days * 24 * 60 * 60 * 1000).length;
+
+      const officeTokens = projects.reduce((s, p) => s + (p.tokensUsed || 0), 0);
+      const officeCost = projects.reduce((s, p) => s + (p.costSoFar || 0), 0);
+      const emailTokens = emailRows.reduce((s, r) => s + (r.tokensUsed || 0), 0);
+      const emailCost = emailRows.reduce((s, r) => s + (r.cost || 0), 0);
+      const igTokens = igActivity.reduce((s, a) => s + (a.tokensUsed || 0), 0);
+      const igCost = igActivity.reduce((s, a) => s + (a.cost || 0), 0);
+
       res.json({
         email: {
           totalRows: emailRows.length,
@@ -965,8 +976,13 @@ function mountOffice(app, requireAuth) {
         office: {
           activeProjects: projects.filter(p => p.status !== 'closed').length,
           closedProjects: projects.filter(p => p.status === 'closed').length,
-          totalTokensUsed: projects.reduce((s, p) => s + (p.tokensUsed || 0), 0),
-          totalCost: projects.reduce((s, p) => s + (p.costSoFar || 0), 0)
+          totalTokensUsed: officeTokens,
+          totalCost: officeCost
+        },
+        grandTotal: {
+          tokens: officeTokens + emailTokens + igTokens,
+          cost: officeCost + emailCost + igCost,
+          breakdown: { office: officeTokens, email: emailTokens, instagram: igTokens }
         }
       });
     } catch (e) { res.status(500).json({ error: e.message }); }
@@ -1235,6 +1251,8 @@ function mountOffice(app, requireAuth) {
       r.followupSubject = subjMatch ? subjMatch[1].trim() : `Re: ${r.subject}`;
       r.followupText = result.text.replace(/^Subject:\s*.+$/mi, '').trim();
       r.followupGeneratedAt = new Date().toISOString();
+      r.tokensUsed = (r.tokensUsed || 0) + (result.tokensUsed || 0);
+      r.cost = (r.cost || 0) + (result.cost || 0);
       broadcastSSE('writing-done', { rowId: r.id, followupSubject: r.followupSubject, followupText: r.followupText });
       console.log(`✓ generateFollowupForRow: real follow-up drafted for ${r.email} (streamed live)`);
       return true;
@@ -1379,3 +1397,22 @@ function mountOffice(app, requireAuth) {
 
 module.exports = mountOffice;
 module.exports.hasValidSession = hasValidSession;
+module.exports.getStore = () => _sharedStore;
+module.exports.callRealAI = async (systemPrompt, userPrompt) => {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) return { ok: false, error: 'DEEPSEEK_API_KEY not set on the server.' };
+  try {
+    const res = await fetch('https://api.deepseek.com/anthropic/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({ model: 'deepseek-v4-flash', max_tokens: 700, thinking: { type: 'disabled' }, system: systemPrompt, messages: [{ role: 'user', content: userPrompt }] })
+    });
+    const data = await res.json();
+    if (!res.ok) return { ok: false, error: (data.error && data.error.message) || ('HTTP ' + res.status) };
+    const text = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    if (!text) return { ok: false, error: 'empty response' };
+    const usage = data.usage || {};
+    const inTok = usage.input_tokens || 0, outTok = usage.output_tokens || 0;
+    return { ok: true, text, tokensUsed: inTok + outTok, cost: (inTok / 1e6) * 0.14 + (outTok / 1e6) * 0.28 };
+  } catch (e) { return { ok: false, error: e.message }; }
+};
