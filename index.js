@@ -1291,6 +1291,30 @@ app.get('/summary', requireAuth, (req, res) => {
 });
 
 // ======================================================
+// DASHBOARD STATS — real numbers for the /choose landing page
+// ======================================================
+
+app.get('/api/dashboard/phone-stats', requireAuth, (req, res) => {
+  try {
+    const calls = loadJSON(CALL_LOGS_PATH).filter(c => c.action === 'CALL_RECEIVED');
+    const appointments = loadDB();
+    const now = Date.now();
+    const countSince = (days) => calls.filter(c => now - new Date(c.timestamp).getTime() <= days * 24 * 60 * 60 * 1000).length;
+    const days = [];
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(); d.setDate(d.getDate() - i);
+      const dayStr = d.toISOString().slice(0, 10);
+      const count = calls.filter(c => (c.timestamp || '').slice(0, 10) === dayStr).length;
+      days.push({ label: dayStr.slice(5), value: count });
+    }
+    res.json({
+      last1Day: countSince(1), last7Days: countSince(7), last30Days: countSince(30),
+      totalAllTime: calls.length, totalAppointments: appointments.length, dailySeries: days
+    });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ======================================================
 // ARCHIVE PAGE
 // ======================================================
 
@@ -2341,112 +2365,167 @@ app.get('/choose', requireAuth, (req, res) => {
 <html>
 <head>
 <meta charset="utf-8">
-<title>Manet Creative</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manet Creative — Dashboard</title>
 <style>
-      * { box-sizing: border-box; }
-      body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f2f1ec; color: #161616; -webkit-font-smoothing: antialiased; }
-      a { color: inherit; }
-      /* Navbar */
-      .navbar { background: #fbfaf7; border-bottom: 1px solid #e2ded2; }
-      .navbar-inner { max-width: 1180px; margin: 0 auto; padding: 16px 32px; display: flex; align-items: center; justify-content: space-between; }
-      .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.9rem; }
-      .nav-logo svg { display: block; }
-      .nav-links { display: flex; gap: 30px; font-size: 0.8rem; color: #4a4a44; }
-      .nav-links a { text-decoration: none; }
-      .nav-links a:hover { color: #161616; }
-      .nav-right { display: flex; gap: 10px; align-items: center; }
-      /* Buttons */
-      .btn { display: inline-block; padding: 9px 18px; border-radius: 3px; font-size: 0.78rem; font-weight: 700; text-decoration: none; border: 1.3px solid transparent; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; cursor: pointer; }
-      .btn.primary { background: #14140f; color: #fff; }
-      .btn.primary:hover { opacity: 0.85; }
-      .btn.outline { border-color: #d6d2c4; color: #14140f; background: #fff; }
-      .btn.outline:hover { border-color: #14140f; }
-      /* Hero sections */
-      .wrap { max-width: 1180px; margin: 0 auto; padding: 0 32px; }
-      .announce { max-width: 1180px; margin: 0 auto; padding: 26px 32px 0; font-size: 0.76rem; color: #6b6b64; display: flex; align-items: center; gap: 7px; }
-      .announce .dot3 { width: 6px; height: 6px; border-radius: 50%; background: #14140f; display: inline-block; }
-      .announce a { color: #e8623d; text-decoration: none; font-weight: 700; }
-      .announce a:hover { text-decoration: underline; }
-      .hero-row { display: flex; align-items: flex-start; gap: 60px; padding: 22px 0 70px; flex-wrap: wrap; }
-      .hero-left { flex: 1 1 420px; min-width: 300px; padding-top: 10px; }
-      .hero-right { flex: 1 1 440px; min-width: 320px; position: relative; padding-bottom: 60px; }
-      h1.headline { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; font-size: 2.5rem; line-height: 1.14; font-weight: 700; letter-spacing: -0.8px; margin: 0 0 20px; color: #14140f; }
-      .sub { font-size: 0.86rem; color: #6b6b64; line-height: 1.65; margin: 0 0 16px; max-width: 460px; }
-      .cta-row2 { display: flex; gap: 10px; margin-top: 26px; }
-      /* Light-theme IDE mockup */
-      .ide-mock { background: #ffffff; border: 1px solid #e2ded2; border-radius: 8px; overflow: hidden; box-shadow: 0 24px 60px rgba(0,0,0,0.08); }
-      .ide-bar { display: flex; align-items: center; gap: 6px; padding: 9px 12px; background: #f5f4ef; border-bottom: 1px solid #e2ded2; }
-      .ide-dot { width: 9px; height: 9px; border-radius: 50%; }
-      .ide-body { display: flex; }
-      .ide-tree { width: 130px; background: #fafaf7; padding: 10px 8px; font-size: 0.62rem; color: #8a877a; border-right: 1px solid #eeece4; line-height: 2; }
-      .ide-tree .t1 { color: #4a4a44; font-weight: 700; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; font-size: 0.6rem; }
-      .ide-tree .f { padding-left: 6px; }
-      .ide-tree .f.on { color: #14140f; background: #eeece4; margin-left: -8px; padding-left: 14px; font-weight: 600; }
-      .ide-code { flex: 1; padding: 12px 14px; font-size: 0.66rem; line-height: 1.75; color: #3a3a34; overflow-x: auto; background: #fff; }
-      .ide-code .k { color: #c2185b; } .ide-code .s { color: #2e7d32; } .ide-code .c { color: #9a9488; } .ide-code .f2 { color: #1565c0; }
-      /* Layered terminal box — light theme too */
-      .term-mock { position: absolute; right: -14px; bottom: 0; width: 76%; background: #ffffff; border: 1px solid #e2ded2; border-radius: 7px; box-shadow: 0 20px 50px rgba(0,0,0,0.1); }
-      .term-tabs { display: flex; gap: 0; border-bottom: 1px solid #eeece4; padding: 6px 10px; }
-      .term-tab { padding: 4px 10px; font-size: 0.6rem; color: #9a9488; border-radius: 3px; }
-      .term-tab.on { color: #14140f; background: #f0efe8; font-weight: 700; }
-      .term-line { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; font-size: 0.68rem; color: #3a3a34; }
-      .term-copy { color: #9a9488; cursor: pointer; }
-      /* Bordered grid strip (feature/role grid, honest — not fake client logos) */
-      .grid-strip { border-top: 1px solid #e2ded2; border-bottom: 1px solid #e2ded2; background: #fbfaf7; }
-      .grid-row { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: repeat(4, 1fr); }
-      .grid-cell { padding: 34px 20px; text-align: center; border-right: 1px solid #e2ded2; font-size: 0.8rem; color: #4a4a44; font-weight: 700; }
-      .grid-cell:last-child { border-right: none; }
-      .grid-cell .gi { font-size: 22px; display: block; margin-bottom: 8px; }
-      /* Footer */
-      footer { border-top: 1px solid #e2ded2; padding: 40px 32px 50px; text-align: center; color: #9a9488; font-size: 0.76rem; background: #fbfaf7; }
-      footer a { color: #14140f; text-decoration: none; font-weight: 700; }
-      footer a:hover { text-decoration: underline; }
-      footer .foot-brand { font-weight: 700; font-size: 0.95rem; color: #14140f; margin-bottom: 8px; }
-      @media (max-width: 760px) {
-        h1.headline { font-size: 1.9rem; }
-        .term-mock { display: none; }
-        .nav-links { display: none; }
-        .grid-row { grid-template-columns: repeat(2, 1fr); }
-      }
-    </style>
-<style>
-  .choose-wrap { max-width: 780px; margin: 90px auto; padding: 0 24px; text-align: center; }
-  .choose-wrap h1 { font-size: 1.5rem; margin-bottom: 8px; font-weight: 700; font-family: -apple-system, sans-serif; }
-  .choose-wrap .sub2 { color: #9a9488; margin-bottom: 40px; font-size: 0.82rem; }
-  .choose-row { display: flex; gap: 18px; justify-content: center; }
-  .choose-card { flex: 1; max-width: 220px; padding: 30px 20px; background: #fff; border: 1.4px solid #e2ded2; border-radius: 8px; text-decoration: none; color: #14140f; transition: transform 0.15s ease, box-shadow 0.15s ease; }
-  .choose-card:hover { transform: translateY(-3px); box-shadow: 0 14px 30px rgba(0,0,0,0.1); border-color: #14140f; }
-  .choose-icon { font-size: 28px; margin-bottom: 10px; }
-  .choose-label { font-weight: 700; font-size: 0.88rem; margin-bottom: 4px; }
-  .choose-sub { font-size: 0.7rem; color: #9a9488; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+  .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.92rem; }
+  .nav-buttons { display: flex; gap: 10px; }
+  .nav-btn { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; text-decoration: none; color: #1a1a16; background: #fff; border: 1.5px solid #e6e1d4; font-size: 0.78rem; font-weight: 700; transition: all 0.15s; }
+  .nav-btn:hover { border-color: #1a1a16; transform: translateY(-1px); }
+  .nav-btn .ic { font-size: 15px; }
+  .logout-link { font-size: 0.74rem; color: #9a9488; text-decoration: none; }
+  .wrap { max-width: 1400px; margin: 0 auto; padding: 40px 36px 100px; }
+  h1 { font-size: 1.7rem; margin: 0 0 6px; letter-spacing: -0.4px; }
+  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 36px; }
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .stat-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); }
+  .stat-card .stat-label { font-size: 0.68rem; color: #8a8272; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 6px; }
+  .stat-card .stat-num { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.5px; }
+  .section-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 26px; margin-bottom: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); }
+  .section-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .section-sub { font-size: 0.74rem; color: #8a8272; margin-bottom: 18px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } .nav-buttons { flex-wrap: wrap; } }
+  .mila-note { background: linear-gradient(135deg, #fff8ee, #fbfaf7); border: 1.5px solid #f0e4cc; border-radius: 12px; padding: 24px 26px; display: flex; gap: 16px; align-items: flex-start; }
+  .mila-avatar { width: 40px; height: 40px; border-radius: 50%; background: #1a1a16; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+  .mila-note-text { font-size: 0.86rem; line-height: 1.6; }
+  .mila-note-date { font-size: 0.68rem; color: #b0a992; margin-top: 8px; }
+  .loading-text { color: #b0a992; font-size: 0.78rem; }
 </style>
 </head>
 <body>
   <div class="navbar">
-    <div class="navbar-inner">
-      <div class="nav-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#14140f" stroke-width="1.6"><path d="M3 11l18-8-8 18-2-8-8-2z"/></svg>Manet Creative</div>
-      <div class="nav-links">
-        <a href="/office">Office</a>
-        <a href="/admin">Phone</a>
-        <a href="https://manet.agency">Pricing</a>
-        <a href="https://manet.agency">Company</a>
-        <a href="https://manet.agency">Docs</a>
+    <div class="nav-logo">✳️ Manet Creative</div>
+    <div class="nav-buttons">
+      <a href="/admin" class="nav-btn"><span class="ic">📞</span> Phone System</a>
+      <a href="/office" class="nav-btn"><span class="ic">🏢</span> Our Office</a>
+      <a href="/email-manager" class="nav-btn"><span class="ic">✉️</span> Email Manager</a>
+    </div>
+    <a href="/login" class="logout-link">Switch account</a>
+  </div>
+
+  <div class="wrap">
+    <h1>Dashboard</h1>
+    <div class="sub">Real numbers, pulled live from the phone system, email outreach, and office — nothing here is simulated.</div>
+
+    <div class="stats-grid" id="topStats">
+      <div class="stat-card"><div class="stat-label">Calls (30d)</div><div class="stat-num loading-text">…</div></div>
+      <div class="stat-card"><div class="stat-label">Appointments</div><div class="stat-num loading-text">…</div></div>
+      <div class="stat-card"><div class="stat-label">Emails replied</div><div class="stat-num loading-text">…</div></div>
+      <div class="stat-card"><div class="stat-label">Active projects</div><div class="stat-num loading-text">…</div></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">📞 Call volume</div>
+      <div class="section-sub" id="callRangeLabels">Loading real call data…</div>
+      <div id="callChart"></div>
+    </div>
+
+    <div class="two-col">
+      <div class="section-card">
+        <div class="section-title">✉️ Email outreach</div>
+        <div class="section-sub">Real state of the outreach spreadsheet</div>
+        <div id="emailStats" class="loading-text">Loading…</div>
       </div>
-      <div class="nav-right">
-        <a href="https://manet.agency" class="btn outline">Contact Sales</a>
-        <a href="/login" class="btn primary">Login</a>
+      <div class="section-card">
+        <div class="section-title">🏢 Office</div>
+        <div class="section-sub">Real project and AI spend state</div>
+        <div id="officeStats" class="loading-text">Loading…</div>
+      </div>
+    </div>
+
+    <div class="mila-note" id="milaNoteBox" style="display:none;">
+      <div class="mila-avatar">M</div>
+      <div>
+        <div class="mila-note-text" id="milaNoteText"></div>
+        <div class="mila-note-date" id="milaNoteDate"></div>
       </div>
     </div>
   </div>
-  <div class="choose-wrap">
-    <h1>Welcome back.</h1>
-    <div class="sub2">Where do you want to go?</div>
-    <div class="choose-row">
-      <a href="/admin" class="choose-card"><div class="choose-icon">📞</div><div class="choose-label">Phone System</div><div class="choose-sub">Calls, messages, appointments</div></a>
-      <a href="/office" class="choose-card"><div class="choose-icon">🏢</div><div class="choose-label">Our Office</div><div class="choose-sub">Team, projects, budget</div></a>
-      <a href="/email-manager" class="choose-card"><div class="choose-icon">✉️</div><div class="choose-label">Email Manager</div><div class="choose-sub">Outreach, follow-ups, replies</div></a>
-    </div>
-  </div>
+
+<script>
+function barChart(data, color) {
+  if (!data || !data.length) return '<div class="loading-text">No data yet.</div>';
+  const max = Math.max(...data.map(d => d.value), 1);
+  const barW = Math.max(8, Math.min(24, 1200 / data.length - 4)), gap = 4, h = 110;
+  const totalW = Math.max(600, data.length * (barW + gap));
+  const bars = data.map((d, i) => {
+    const bh = (d.value / max) * h;
+    const x = i * (barW + gap);
+    return '<rect x="' + x + '" y="' + (h - bh) + '" width="' + barW + '" height="' + Math.max(bh, 1) + '" rx="2" fill="' + color + '" opacity="0.85"><title>' + d.label + ': ' + d.value + '</title></rect>' +
+      (d.value > 0 ? '<text x="' + (x + barW/2) + '" y="' + (h - bh - 4) + '" text-anchor="middle" font-size="8" fill="#8a8272">' + d.value + '</text>' : '') +
+      '<text x="' + (x + barW/2) + '" y="' + (h + 14) + '" text-anchor="middle" font-size="7" fill="#b0a992" transform="rotate(45,' + (x+barW/2) + ',' + (h+14) + ')">' + d.label + '</text>';
+  }).join('');
+  return '<svg viewBox="0 0 ' + totalW + ' ' + (h + 30) + '" width="100%" height="' + (h + 40) + '" preserveAspectRatio="xMinYMid meet">' + bars + '</svg>';
+}
+
+async function loadDashboard() {
+  try {
+    const [phoneRes, emailRes] = await Promise.all([
+      fetch('/api/dashboard/phone-stats', { credentials: 'include' }),
+      fetch('/office/api/dashboard-stats', { credentials: 'include' }).catch(() => null)
+    ]);
+    const phone = phoneRes.ok ? await phoneRes.json() : null;
+    const officeData = emailRes && emailRes.ok ? await emailRes.json() : null;
+
+    const stats = document.querySelectorAll('#topStats .stat-num');
+    if (phone) {
+      stats[0].textContent = phone.last30Days;
+      stats[0].classList.remove('loading-text');
+      stats[1].textContent = phone.totalAppointments;
+      stats[1].classList.remove('loading-text');
+      document.getElementById('callRangeLabels').textContent = phone.last1Day + ' today · ' + phone.last7Days + ' this week · ' + phone.last30Days + ' this month · ' + phone.totalAllTime + ' all-time';
+      document.getElementById('callChart').innerHTML = barChart(phone.dailySeries, '#1a1a16');
+    } else {
+      document.getElementById('callChart').innerHTML = '<div class="loading-text">Could not load call data.</div>';
+    }
+
+    if (officeData) {
+      stats[2].textContent = officeData.email.replied;
+      stats[2].classList.remove('loading-text');
+      stats[3].textContent = officeData.office.activeProjects;
+      stats[3].classList.remove('loading-text');
+      document.getElementById('emailStats').innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.8rem;">' +
+        '<div><b>' + officeData.email.totalRows + '</b><div style="color:#8a8272;font-size:0.7rem;">total tracked</div></div>' +
+        '<div><b>' + officeData.email.sent + '</b><div style="color:#8a8272;font-size:0.7rem;">confirmed sent</div></div>' +
+        '<div><b>' + officeData.email.replied + '</b><div style="color:#8a8272;font-size:0.7rem;">replied</div></div>' +
+        '<div><b>' + officeData.email.awaitingFollowup + '</b><div style="color:#8a8272;font-size:0.7rem;">awaiting follow-up</div></div>' +
+        '</div>';
+      document.getElementById('officeStats').innerHTML =
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.8rem;">' +
+        '<div><b>' + officeData.office.activeProjects + '</b><div style="color:#8a8272;font-size:0.7rem;">active projects</div></div>' +
+        '<div><b>' + officeData.office.closedProjects + '</b><div style="color:#8a8272;font-size:0.7rem;">closed</div></div>' +
+        '<div><b>' + officeData.office.totalTokensUsed.toLocaleString() + '</b><div style="color:#8a8272;font-size:0.7rem;">real tokens used</div></div>' +
+        '<div><b>$' + officeData.office.totalCost.toFixed(4) + '</b><div style="color:#8a8272;font-size:0.7rem;">real AI spend</div></div>' +
+        '</div>';
+    } else {
+      document.getElementById('emailStats').innerHTML = '<div class="loading-text">Connect the office system to see this.</div>';
+      document.getElementById('officeStats').innerHTML = '<div class="loading-text">Connect the office system to see this.</div>';
+    }
+  } catch (e) {
+    document.getElementById('callChart').innerHTML = '<div class="loading-text">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadMilaNote() {
+  try {
+    const res = await fetch('/office/api/daily-mila-note', { credentials: 'include' });
+    if (!res.ok) return;
+    const note = await res.json();
+    if (!note || !note.text) return;
+    document.getElementById('milaNoteText').textContent = note.text;
+    document.getElementById('milaNoteDate').textContent = 'Mila · ' + note.date;
+    document.getElementById('milaNoteBox').style.display = 'flex';
+  } catch (e) {}
+}
+
+loadDashboard();
+loadMilaNote();
+</script>
 </body>
 </html>`);
 });
@@ -2515,6 +2594,16 @@ app.get('/email-manager', requireAuth, (req, res) => {
   .modal-box h3 { margin: 0 0 10px; font-size: 1rem; }
   .modal-box p { margin: 0 0 22px; font-size: 0.8rem; color: #6b6558; line-height: 1.55; }
   .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .filter-row { display: flex; gap: 12px; align-items: center; margin-bottom: 20px; flex-wrap: wrap; }
+  .filter-row #searchInput { flex: 1; min-width: 220px; padding: 10px 14px; border: 1.5px solid #e6e1d4; border-radius: 8px; font-size: 0.78rem; font-family: inherit; background: #fff; }
+  .filter-row #searchInput:focus { outline: none; border-color: #1a1a16; }
+  .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+  .filter-tab { padding: 8px 14px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; background: #fff; border: 1.5px solid #e6e1d4; color: #6b6558; cursor: pointer; }
+  .filter-tab.active { background: #1a1a16; color: #fff; border-color: #1a1a16; }
+  tr.new-reply-row { background: #f0fdf4 !important; }
+  tr.new-reply-row td { position: relative; }
+  .new-reply-badge { display: inline-flex; align-items: center; gap: 4px; background: #166534; color: #fff; font-size: 0.62rem; font-weight: 700; padding: 2px 7px; border-radius: 8px; margin-left: 6px; animation: newReplyPop 0.4s ease; }
+  @keyframes newReplyPop { from { transform: scale(0.7); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 </style>
 </head>
 <body>
@@ -2532,6 +2621,11 @@ app.get('/email-manager', requireAuth, (req, res) => {
       <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
       <button class="btn primary" onclick="document.getElementById('fileInput').click()">Choose Excel file</button>
       <div style="margin-top:12px;font-size:0.68rem;color:#9a9488;">Any real sheet works — email column is found automatically by checking the actual addresses, not the column name.</div>
+    </div>
+
+    <div class="filter-row">
+      <input id="searchInput" placeholder="🔍 Search by email or subject…" oninput="applyFilters()">
+      <div class="filter-tabs" id="filterTabs"></div>
     </div>
 
     <div id="batchesArea"><div class="empty">Loading real data…</div></div>
@@ -2585,12 +2679,60 @@ function customConfirm(title, message) {
   });
 }
 
+let allRowsCache = [];
+let activeFilterTab = 'all';
+const LAST_VIEWED_REPLIES_KEY = 'email_manager_last_viewed_replies';
+
+function isNewReply(r) {
+  if (!r.repliedAt) return false;
+  const lastViewed = localStorage.getItem(LAST_VIEWED_REPLIES_KEY);
+  return !lastViewed || new Date(r.repliedAt) > new Date(lastViewed);
+}
+
+const FILTER_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Confirm sent?' },
+  { id: 'waiting', label: 'Waiting' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'sent', label: 'Sent' },
+  { id: 'replied', label: 'Replied' }
+];
+function rowMatchesTab(r, tab) {
+  if (tab === 'all') return true;
+  if (tab === 'replied') return !!r.repliedAt;
+  if (tab === 'sent') return r.followupSentConfirmed;
+  if (tab === 'ready') return r.followupText && !r.followupSentConfirmed;
+  if (tab === 'waiting') return r.sentConfirmed && !r.followupText;
+  if (tab === 'pending') return !r.sentConfirmed;
+  return true;
+}
+function renderFilterTabs() {
+  const el = document.getElementById('filterTabs');
+  if (!el) return;
+  el.innerHTML = FILTER_TABS.map(t => {
+    const count = allRowsCache.filter(r => rowMatchesTab(r, t.id)).length;
+    return '<div class="filter-tab' + (activeFilterTab === t.id ? ' active' : '') + '" data-tab="' + t.id + '" onclick="setFilterTab(this.dataset.tab)">' + t.label + ' (' + count + ')</div>';
+  }).join('');
+}
+function setFilterTab(tab) { activeFilterTab = tab; renderFilterTabs(); applyFilters(); }
+function applyFilters() {
+  const search = (document.getElementById('searchInput').value || '').toLowerCase().trim();
+  const filtered = allRowsCache.filter(r => {
+    if (!rowMatchesTab(r, activeFilterTab)) return false;
+    if (!search) return true;
+    return (r.email || '').toLowerCase().includes(search) || (r.subject || '').toLowerCase().includes(search) || (r.followupSubject || '').toLowerCase().includes(search);
+  });
+  renderBatches(filtered);
+}
+
 async function loadRows() {
   try {
     const res = await fetch('/office/api/email-manager/rows', { credentials: 'include' });
     if (!res.ok) { document.getElementById('batchesArea').innerHTML = '<div class="empty">Not logged in — refresh the page.</div>'; return; }
     const rows = await res.json();
-    renderBatches(rows);
+    allRowsCache = rows;
+    renderFilterTabs();
+    applyFilters();
   } catch (e) {
     document.getElementById('batchesArea').innerHTML = '<div class="empty">Could not load: ' + e.message + '</div>';
   }
@@ -2598,20 +2740,22 @@ async function loadRows() {
 
 function renderBatches(rows) {
   const area = document.getElementById('batchesArea');
-  if (!rows.length) { area.innerHTML = '<div class="empty">Nothing uploaded yet.</div>'; return; }
+  if (!allRowsCache.length) { area.innerHTML = '<div class="empty">Nothing uploaded yet.</div>'; return; }
+  if (!rows.length) { area.innerHTML = '<div class="empty">No rows match your search/filter.</div>'; return; }
   const batchIds = [...new Set(rows.map(r => r.batchId))];
   area.innerHTML = batchIds.map(bid => {
     const batchRows = rows.filter(r => r.batchId === bid);
-    const allSentConfirmed = batchRows.every(r => r.sentConfirmed);
-    const allFollowupsReady = batchRows.every(r => r.followupText);
-    const allFollowupsSent = batchRows.every(r => r.followupSentConfirmed || !r.followupText);
+    const allBatchRows = allRowsCache.filter(r => r.batchId === bid); // use unfiltered set for batch-level action logic
+    const allSentConfirmed = allBatchRows.every(r => r.sentConfirmed);
+    const allFollowupsReady = allBatchRows.every(r => r.followupText);
+    const allFollowupsSent = allBatchRows.every(r => r.followupSentConfirmed || !r.followupText);
     let actionHtml = '';
     if (!allSentConfirmed) {
       actionHtml = '<button class="btn primary" data-batch="' + bid + '" onclick="confirmSent(this.dataset.batch)">Are all these sent? — Confirm</button>';
     } else if (allFollowupsReady && !allFollowupsSent) {
       actionHtml = '<button class="btn primary" data-batch="' + bid + '" onclick="downloadBatch(this.dataset.batch)">⬇ Download follow-ups Excel</button> <button class="btn outline" data-batch="' + bid + '" onclick="confirmFollowupSent(this.dataset.batch)">Mark follow-ups sent</button>';
     } else if (!allFollowupsReady) {
-      const dueDates = batchRows.filter(r => r.followupDueAt && !r.followupText).map(r => new Date(r.followupDueAt));
+      const dueDates = allBatchRows.filter(r => r.followupDueAt && !r.followupText).map(r => new Date(r.followupDueAt));
       const earliestDue = dueDates.length ? new Date(Math.min(...dueDates)) : null;
       const dueLabel = earliestDue ? earliestDue.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
       actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">' + (dueLabel ? 'Real 4-day timer — next one writes ' + dueLabel + ' PT' : 'Waiting on the 4-day timer') + '</span> <button class="btn outline" data-batch="' + bid + '" onclick="generateNow(this.dataset.batch)" style="margin-left:8px;">✍️ Write now instead (skip the wait)</button>';
@@ -2621,13 +2765,14 @@ function renderBatches(rows) {
       batchRows.map(r => {
         const st = statusFor(r);
         const statusIcon = activelyStreaming[r.id] ? '<span class="pulse-dot"></span>' : '';
+        const newReply = isNewReply(r);
         let waitingLabel = 'waiting for its turn…';
         if (r.followupDueAt && !r.followupText) {
           const due = new Date(r.followupDueAt);
           waitingLabel = due.getTime() <= Date.now() ? 'due now — writing shortly…' : ('writes ' + due.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT');
         }
         const cellContent = activelyStreaming[r.id] ? (r._liveText || '') : (r.followupText ? escapeHtmlJs(r.followupText) : (r.sentConfirmed ? '<span style="color:#9a9488;">' + waitingLabel + '</span>' : '—'));
-        return '<tr><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td class="wrap-cell orig-cell">' + originalEmailCell(r) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span></td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
+        return '<tr class="' + (newReply ? 'new-reply-row' : '') + '"><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td class="wrap-cell orig-cell">' + originalEmailCell(r) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span>' + (newReply ? '<span class="new-reply-badge">✨ NEW</span>' : '') + '</td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }).join('');
 }
@@ -2828,6 +2973,9 @@ loadChat();
 connectLiveStream();
 setInterval(loadRows, 8000);
 setInterval(loadChat, 15000);
+// Give the owner a few real seconds to actually see the "new reply"
+// highlights before marking them seen for next time.
+setTimeout(() => { localStorage.setItem(LAST_VIEWED_REPLIES_KEY, new Date().toISOString()); }, 6000);
 </script>
 </body>
 </html>`);

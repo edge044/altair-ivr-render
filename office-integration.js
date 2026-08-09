@@ -948,6 +948,30 @@ function mountOffice(app, requireAuth) {
     finally { autonomousTickRunning = false; }
   }
   // Real, honest status — no guessing whether this is even running.
+  app.get('/office/api/dashboard-stats', requireOfficeAuth, async (req, res) => {
+    try {
+      const emailRows = (await store.getState('email_manager_rows')) || [];
+      const projects = (await store.getState('projects')) || [];
+      const now = Date.now();
+      const emailSince = (days) => emailRows.filter(r => now - new Date(r.uploadedAt).getTime() <= days * 24 * 60 * 60 * 1000).length;
+      res.json({
+        email: {
+          totalRows: emailRows.length,
+          sent: emailRows.filter(r => r.sentConfirmed).length,
+          replied: emailRows.filter(r => r.repliedAt).length,
+          awaitingFollowup: emailRows.filter(r => r.sentConfirmed && !r.followupText).length,
+          last7Days: emailSince(7), last30Days: emailSince(30)
+        },
+        office: {
+          activeProjects: projects.filter(p => p.status !== 'closed').length,
+          closedProjects: projects.filter(p => p.status === 'closed').length,
+          totalTokensUsed: projects.reduce((s, p) => s + (p.tokensUsed || 0), 0),
+          totalCost: projects.reduce((s, p) => s + (p.costSoFar || 0), 0)
+        }
+      });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   app.get('/office/api/autonomous-status', requireOfficeApiKey, (req, res) => {
     res.json({
       deepseekKeySet: !!process.env.DEEPSEEK_API_KEY,
@@ -1313,12 +1337,42 @@ function mountOffice(app, requireAuth) {
     } catch (e) { console.error('✗ emailManagerNudgeTick error:', e.message); }
   }
 
+  // ── Mila's daily note — one real AI generation per real day (not per
+  // page view), a genuine creative suggestion grounded in real data
+  // about the system, not generic filler.
+  function pacificDateStr() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' }); // YYYY-MM-DD
+  }
+  async function dailyMilaNoteTick() {
+    if (!process.env.DEEPSEEK_API_KEY) return;
+    try {
+      const existing = await store.getState('daily_mila_note');
+      const today = pacificDateStr();
+      if (existing && existing.date === today) return; // already wrote today's note, real daily cadence
+      const emailRows = (await store.getState('email_manager_rows')) || [];
+      const projects = (await store.getState('projects')) || [];
+      const igActivity = (await store.getState('instagram_activity')) || [];
+      const summary = `Email outreach: ${emailRows.length} tracked, ${emailRows.filter(r=>r.repliedAt).length} replies. Office projects: ${projects.filter(p=>p.status!=='closed').length} active. Instagram: ${igActivity.length} real interactions handled.`;
+      const sys = `You are Mila, creative director of this real small business system. Write ONE short, genuinely creative daily note (under 70 words) grounded in the real numbers given — either an observation about what's actually happening, or one specific, concrete idea for a new feature or improvement to the server that would genuinely help this business. Be specific, not generic corporate filler — a real idea someone could actually build. Vary your angle from a typical previous note.`;
+      const result = await serverCallAI(sys, `Real current state:\n${summary}`);
+      if (result.ok) {
+        await store.setState('daily_mila_note', { date: today, text: result.text.trim(), generatedAt: new Date().toISOString() });
+        console.log('✓ dailyMilaNoteTick: wrote today\'s real note');
+      }
+    } catch (e) { console.error('✗ dailyMilaNoteTick error:', e.message); }
+  }
+  app.get('/office/api/daily-mila-note', requireOfficeAuth, async (req, res) => {
+    try { res.json((await store.getState('daily_mila_note')) || null); } catch (e) { res.status(500).json({ error: e.message }); }
+  });
+
   setInterval(emailManagerFollowupTick, 60 * 60 * 1000);
   setInterval(emailManagerReplyCheckTick, 30 * 60 * 1000);
   setInterval(emailManagerNudgeTick, 6 * 60 * 60 * 1000);
+  setInterval(dailyMilaNoteTick, 60 * 60 * 1000); // checks hourly, but only actually writes once the real date changes
   setTimeout(emailManagerFollowupTick, 25000);
   setTimeout(emailManagerReplyCheckTick, 30000);
   setTimeout(emailManagerNudgeTick, 35000);
+  setTimeout(dailyMilaNoteTick, 40000);
 
   console.log(`🏢 Office app mounted at /office (storage: ${store.kind}${store.kind === 'json-file' ? ' — NOT persistent, add DATABASE_URL' : ''})`);
 }
