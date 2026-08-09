@@ -280,81 +280,196 @@ app.get('/api/briefing/latest', requireAuth, async (req, res) => {
 // then it actually happens — no need to know which of the 5 pages it
 // belongs on.
 // ======================================================
+async function executeCommand(input) {
+  const s = leadsStore();
+  const leads = (await s.getState('leads')) || [];
+  const leadList = leads.map(l => `${l.id}: ${l.name || ''} ${l.email || ''} ${l.phone || ''} ${l.instagram || ''}`.trim()).join('\n') || '(no leads yet)';
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+
+  const sys = `You are a command router. The owner typed a free-text instruction. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "lookup_lead" | "add_email" | "unclear", "leadId": "<exact id from the list above, or null>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\nPick add_lead_* only if you can match a specific real lead from the list above by name/email/phone — otherwise use add_business_* for general reminders/notes, or "unclear" if you genuinely can't tell what they want.`;
+  const result = await callRealAI(sys, input);
+  if (!result.ok) return { ok: false, error: result.error };
+
+  let parsed;
+  try { parsed = JSON.parse(result.text.trim().replace(/^```json\s*|\s*```$/g, '')); }
+  catch (e) { return { ok: true, action: 'unclear', message: "Couldn't quite parse that — try being more specific." }; }
+
+  let message = '';
+  switch (parsed.action) {
+    case 'add_business_reminder': {
+      let reminders = (await s.getState('business_reminders')) || [];
+      reminders.push({ id: 'BREM-' + Date.now(), text: parsed.content || input, dueAt: parsed.dueAt || null, priority: 'normal', done: false, createdAt: new Date().toISOString() });
+      await s.setState('business_reminders', reminders);
+      message = `Added business reminder: "${parsed.content || input}"` + (parsed.dueAt ? ` (due ${parsed.dueAt})` : '');
+      break;
+    }
+    case 'add_business_note': {
+      let notes = (await s.getState('business_notes')) || [];
+      notes.push({ id: 'BNOTE-' + Date.now(), text: parsed.content || input, category: 'General', priority: 'normal', pinned: false, at: new Date().toISOString(), editedAt: null });
+      await s.setState('business_notes', notes);
+      message = `Added business note: "${parsed.content || input}"`;
+      break;
+    }
+    case 'add_lead_reminder': {
+      const lead = leads.find(l => l.id === parsed.leadId);
+      if (!lead) { message = "Couldn't find that lead — try naming them more specifically."; break; }
+      lead.reminders = lead.reminders || [];
+      lead.reminders.push({ id: 'REM-' + Date.now(), text: parsed.content || input, dueAt: parsed.dueAt || null, done: false, createdAt: new Date().toISOString() });
+      await s.setState('leads', leads);
+      message = `Added reminder for ${lead.name || lead.email || lead.phone}: "${parsed.content || input}"` + (parsed.dueAt ? ` (due ${parsed.dueAt})` : '');
+      break;
+    }
+    case 'add_lead_note': {
+      const lead = leads.find(l => l.id === parsed.leadId);
+      if (!lead) { message = "Couldn't find that lead — try naming them more specifically."; break; }
+      lead.ownerNotes = lead.ownerNotes || [];
+      lead.ownerNotes.push({ id: 'NOTE-' + Date.now(), text: parsed.content || input, at: new Date().toISOString() });
+      await s.setState('leads', leads);
+      message = `Added note for ${lead.name || lead.email || lead.phone}: "${parsed.content || input}"`;
+      break;
+    }
+    case 'lookup_lead': {
+      const lead = leads.find(l => l.id === parsed.leadId);
+      if (!lead) { message = "Couldn't find that lead."; break; }
+      const timeline = await buildLeadTimeline(lead);
+      message = `${lead.name || lead.email || lead.phone}: ${timeline.length} real events on record, ${(lead.ownerNotes||[]).length} notes, ${(lead.reminders||[]).filter(r=>!r.done).length} open reminders.`;
+      parsed.leadIdForLink = lead.id;
+      break;
+    }
+    case 'add_email': {
+      const email = parsed.email || (input.match(/[^\s@]+@[^\s@]+\.[^\s@]+/) || [])[0];
+      if (!email) { message = "Couldn't find a real email address in that."; break; }
+      let all = (await s.getState('email_manager_rows')) || [];
+      const batchId = 'BATCH-' + Date.now() + '-cmd';
+      all.push({ id: 'ROW-' + Date.now(), batchId, uploadedAt: new Date().toISOString(), email, subject: '', body: '', presetFollowupSubject: null, presetFollowupBody: null, sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null, followupSubject: null, followupText: null, followupGeneratedAt: null, followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null });
+      await s.setState('email_manager_rows', all);
+      message = `Added ${email} to the outreach spreadsheet.`;
+      break;
+    }
+    default:
+      message = "Not sure what you want me to do — try something like \"remind me to call X Friday\" or \"note: raise prices next quarter\".";
+  }
+  return { ok: true, action: parsed.action, message, leadId: parsed.leadIdForLink || null };
+}
+
 app.post('/api/command', requireAuth, async (req, res) => {
   const input = safeText(req.body && req.body.text, 500);
   if (!input) return res.status(400).json({ error: 'text required' });
   try {
-    const s = leadsStore();
-    const leads = (await s.getState('leads')) || [];
-    const leadList = leads.map(l => `${l.id}: ${l.name || ''} ${l.email || ''} ${l.phone || ''} ${l.instagram || ''}`.trim()).join('\n') || '(no leads yet)';
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-
-    const sys = `You are a command router. The owner typed a free-text instruction. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "lookup_lead" | "add_email" | "unclear", "leadId": "<exact id from the list above, or null>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\nPick add_lead_* only if you can match a specific real lead from the list above by name/email/phone — otherwise use add_business_* for general reminders/notes, or "unclear" if you genuinely can't tell what they want.`;
-    const result = await callRealAI(sys, input);
-    if (!result.ok) return res.status(502).json({ error: result.error });
-
-    let parsed;
-    try { parsed = JSON.parse(result.text.trim().replace(/^```json\s*|\s*```$/g, '')); }
-    catch (e) { return res.json({ ok: true, action: 'unclear', message: "Couldn't quite parse that — try being more specific." }); }
-
-    let message = '';
-    switch (parsed.action) {
-      case 'add_business_reminder': {
-        let reminders = (await s.getState('business_reminders')) || [];
-        reminders.push({ id: 'BREM-' + Date.now(), text: parsed.content || input, dueAt: parsed.dueAt || null, priority: 'normal', done: false, createdAt: new Date().toISOString() });
-        await s.setState('business_reminders', reminders);
-        message = `Added business reminder: "${parsed.content || input}"` + (parsed.dueAt ? ` (due ${parsed.dueAt})` : '');
-        break;
-      }
-      case 'add_business_note': {
-        let notes = (await s.getState('business_notes')) || [];
-        notes.push({ id: 'BNOTE-' + Date.now(), text: parsed.content || input, category: 'General', priority: 'normal', pinned: false, at: new Date().toISOString(), editedAt: null });
-        await s.setState('business_notes', notes);
-        message = `Added business note: "${parsed.content || input}"`;
-        break;
-      }
-      case 'add_lead_reminder': {
-        const lead = leads.find(l => l.id === parsed.leadId);
-        if (!lead) { message = "Couldn't find that lead — try naming them more specifically."; break; }
-        lead.reminders = lead.reminders || [];
-        lead.reminders.push({ id: 'REM-' + Date.now(), text: parsed.content || input, dueAt: parsed.dueAt || null, done: false, createdAt: new Date().toISOString() });
-        await s.setState('leads', leads);
-        message = `Added reminder for ${lead.name || lead.email || lead.phone}: "${parsed.content || input}"` + (parsed.dueAt ? ` (due ${parsed.dueAt})` : '');
-        break;
-      }
-      case 'add_lead_note': {
-        const lead = leads.find(l => l.id === parsed.leadId);
-        if (!lead) { message = "Couldn't find that lead — try naming them more specifically."; break; }
-        lead.ownerNotes = lead.ownerNotes || [];
-        lead.ownerNotes.push({ id: 'NOTE-' + Date.now(), text: parsed.content || input, at: new Date().toISOString() });
-        await s.setState('leads', leads);
-        message = `Added note for ${lead.name || lead.email || lead.phone}: "${parsed.content || input}"`;
-        break;
-      }
-      case 'lookup_lead': {
-        const lead = leads.find(l => l.id === parsed.leadId);
-        if (!lead) { message = "Couldn't find that lead."; break; }
-        const timeline = await buildLeadTimeline(lead);
-        message = `${lead.name || lead.email || lead.phone}: ${timeline.length} real events on record, ${(lead.ownerNotes||[]).length} notes, ${(lead.reminders||[]).filter(r=>!r.done).length} open reminders.`;
-        parsed.leadIdForLink = lead.id;
-        break;
-      }
-      case 'add_email': {
-        const email = parsed.email || (input.match(/[^\s@]+@[^\s@]+\.[^\s@]+/) || [])[0];
-        if (!email) { message = "Couldn't find a real email address in that."; break; }
-        let all = (await s.getState('email_manager_rows')) || [];
-        const batchId = 'BATCH-' + Date.now() + '-cmd';
-        all.push({ id: 'ROW-' + Date.now(), batchId, uploadedAt: new Date().toISOString(), email, subject: '', body: '', presetFollowupSubject: null, presetFollowupBody: null, sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null, followupSubject: null, followupText: null, followupGeneratedAt: null, followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null });
-        await s.setState('email_manager_rows', all);
-        message = `Added ${email} to the outreach spreadsheet.`;
-        break;
-      }
-      default:
-        message = "Not sure what you want me to do — try something like \"remind me to call X Friday\" or \"note: raise prices next quarter\".";
-    }
-    res.json({ ok: true, action: parsed.action, message, leadId: parsed.leadIdForLink || null });
+    const result = await executeCommand(input);
+    if (!result.ok) return res.status(502).json(result);
+    res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ======================================================
+// TELEGRAM — Mila messages the owner directly, the owner just replies
+// in plain text, real AI routes it through the same command logic as
+// the web command bar. No Twilio/SMS license needed.
+// ======================================================
+async function sendTelegramMessage(chatId, text) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token || !chatId) return { ok: false, error: 'Telegram not configured or no chat id yet.' };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 4000) })
+    });
+    const data = await res.json();
+    if (!data.ok) return { ok: false, error: data.description || 'Telegram API error' };
+    return { ok: true };
+  } catch (e) { return { ok: false, error: e.message }; }
+}
+async function getOwnerTelegramChatId() {
+  try { const s = leadsStore(); return await s.getState('telegram_owner_chat_id'); } catch (e) { return null; }
+}
+
+app.post('/telegram/webhook', async (req, res) => {
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expectedSecret && req.header('X-Telegram-Bot-Api-Secret-Token') !== expectedSecret) return res.status(401).end();
+  res.status(200).end(); // ack immediately — Telegram expects a fast 200, real work happens after
+  try {
+    const msg = req.body && req.body.message;
+    if (!msg || !msg.text) return;
+    const chatId = msg.chat.id;
+    const text = msg.text.trim();
+    const s = leadsStore();
+
+    if (text === '/start') {
+      await s.setState('telegram_owner_chat_id', chatId);
+      await sendTelegramMessage(chatId, "Hey — this is Mila. I'll message you here when something real needs your attention, and you can just reply in plain English (\"remind me to call X Friday\", \"note: raise prices\", etc.) and I'll actually do it.");
+      return;
+    }
+
+    const knownChatId = await s.getState('telegram_owner_chat_id');
+    if (String(chatId) !== String(knownChatId)) {
+      await sendTelegramMessage(chatId, "This bot is set up for one specific owner. If that's you, send /start from your usual Telegram account.");
+      return;
+    }
+
+    const result = await executeCommand(text);
+    await sendTelegramMessage(chatId, result.ok ? result.message : ('Error: ' + result.error));
+  } catch (e) { console.error('telegram webhook error:', e.message); }
+});
+
+app.get('/api/telegram/status', requireAuth, async (req, res) => {
+  const chatId = await getOwnerTelegramChatId();
+  res.json({ botTokenSet: !!process.env.TELEGRAM_BOT_TOKEN, chatConnected: !!chatId });
+});
+
+// Auto-registers the webhook with Telegram on boot, using Render's own
+// public URL — one less manual step.
+async function setupTelegramWebhook() {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  const baseUrl = process.env.RENDER_EXTERNAL_URL || process.env.PUBLIC_URL;
+  if (!baseUrl) { console.warn('⚠ TELEGRAM_BOT_TOKEN is set but no RENDER_EXTERNAL_URL/PUBLIC_URL found — webhook not auto-registered. Set PUBLIC_URL manually if needed.'); return; }
+  try {
+    const body = { url: `${baseUrl}/telegram/webhook` };
+    if (process.env.TELEGRAM_WEBHOOK_SECRET) body.secret_token = process.env.TELEGRAM_WEBHOOK_SECRET;
+    const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data.ok) console.log(`✓ Telegram webhook registered at ${baseUrl}/telegram/webhook`);
+    else console.error('✗ Telegram webhook registration failed:', data.description);
+  } catch (e) { console.error('✗ Telegram webhook setup error:', e.message); }
+}
+setTimeout(setupTelegramWebhook, 5000);
+
+// Real proactive nudges — checks periodically, only messages when there's
+// something genuinely new (tracks what it already told the owner so it
+// doesn't repeat itself every cycle).
+async function telegramProactiveTick() {
+  const chatId = await getOwnerTelegramChatId();
+  if (!chatId || !process.env.TELEGRAM_BOT_TOKEN) return;
+  try {
+    const s = leadsStore();
+    let notified = (await s.getState('telegram_notified_ids')) || [];
+    const notifiedSet = new Set(notified);
+
+    const emailRows = (await s.getState('email_manager_rows')) || [];
+    for (const r of emailRows) {
+      if (r.repliedAt && !notifiedSet.has('email:' + r.id)) {
+        await sendTelegramMessage(chatId, `📬 ${r.email} replied. ${r.followupText ? 'Follow-up was already sent.' : ''}`);
+        notifiedSet.add('email:' + r.id);
+      }
+    }
+    const leads = (await s.getState('leads')) || [];
+    const now = Date.now();
+    for (const l of leads) {
+      (l.reminders || []).forEach(rem => {
+        if (!rem.done && rem.dueAt && new Date(rem.dueAt).getTime() < now && !notifiedSet.has('leadrem:' + rem.id)) {
+          sendTelegramMessage(chatId, `⏰ Overdue: "${rem.text}" for ${l.name || l.email || l.phone}.`);
+          notifiedSet.add('leadrem:' + rem.id);
+        }
+      });
+    }
+    await s.setState('telegram_notified_ids', Array.from(notifiedSet).slice(-2000));
+  } catch (e) { console.error('telegramProactiveTick error:', e.message); }
+}
+setInterval(telegramProactiveTick, 15 * 60 * 1000);
+setTimeout(telegramProactiveTick, 45000);
 
 app.post('/api/leads', requireAuth, async (req, res) => {
   const { name, phone, email, instagram } = req.body || {};
