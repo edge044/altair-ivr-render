@@ -318,11 +318,23 @@ app.post('/api/conversations/:id/messages', requireAuth, requireConversationAcce
 // ======================================================
 app.post('/api/ask-mila', requireAuth, async (req, res) => {
   const identity = getSessionIdentity(req);
-  if (!identity || identity.role !== 'employee') return res.status(403).json({ error: 'Employee accounts only.' });
+  if (!identity) return res.status(401).json({ error: 'Not logged in.' });
   const question = safeText(req.body && req.body.text, 1000);
   if (!question) return res.status(400).json({ error: 'text required' });
   try {
     const s = leadsStore();
+
+    if (identity.role === 'admin') {
+      // Admin preview mode — full real access, clearly marked, just for
+      // checking how the screen looks/feels without needing a real
+      // employee test account.
+      const sys = `You are Mila. The OWNER is previewing this screen (not a real employee) to check how it looks. Answer their real question normally and helpfully. Mention once, briefly, that this is preview mode with full access. Under 80 words.`;
+      const result = await callRealAI(sys, question);
+      if (!result.ok) return res.status(502).json({ error: result.error });
+      return res.json({ ok: true, answer: result.text, preview: true });
+    }
+
+    if (identity.role !== 'employee') return res.status(403).json({ error: 'Employee accounts only.' });
     const users = (await s.getState('employee_users')) || [];
     const me = users.find(u => u.id === identity.userId);
     if (!me) return res.status(404).json({ error: 'Account not found.' });
@@ -3465,31 +3477,33 @@ app.get('/choose', requireAuth, (req, res) => {
 <title>Manet Creative — Dashboard</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
-  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #14140f; background-image: linear-gradient(#1c1c17 1px, transparent 1px), linear-gradient(90deg, #1c1c17 1px, transparent 1px); background-size: 64px 64px; color: #e8e6df; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #1a1a16; border-bottom: 1px solid #2a2a24; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px; }
   .nav-logo { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 0.92rem; }
-  .nav-buttons { display: flex; gap: 10px; }
-  .nav-btn { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; text-decoration: none; color: #1a1a16; background: #fff; border: 1.5px solid #e6e1d4; font-size: 0.78rem; font-weight: 700; transition: all 0.15s; }
-  .nav-btn:hover { border-color: #1a1a16; transform: translateY(-1px); }
+  .nav-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+  .nav-btn { display: flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 8px; text-decoration: none; color: #e8e6df; background: #1f1f1a; border: 1.5px solid #2a2a24; font-size: 0.78rem; font-weight: 700; transition: all 0.15s; }
+  .nav-btn:hover { border-color: #5a5a50; transform: translateY(-1px); }
   .nav-btn .ic { font-size: 15px; }
-  .logout-link { font-size: 0.74rem; color: #9a9488; text-decoration: none; }
+  .logout-link { font-size: 0.74rem; color: #8a8778; text-decoration: none; }
+  .logout-link:hover { color: #e8e6df; }
   .wrap { max-width: 1400px; margin: 0 auto; padding: 40px 36px 100px; }
-  h1 { font-size: 1.7rem; margin: 0 0 6px; letter-spacing: -0.4px; }
-  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 36px; }
+  h1 { font-size: 1.7rem; margin: 0 0 6px; letter-spacing: -0.4px; font-weight: 600; }
+  .sub { color: #8a8778; font-size: 0.82rem; margin-bottom: 36px; }
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
-  .stat-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 20px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); }
-  .stat-card .stat-label { font-size: 0.68rem; color: #8a8272; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 6px; }
-  .stat-card .stat-num { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.5px; }
-  .section-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 26px; margin-bottom: 24px; box-shadow: 0 2px 12px rgba(0,0,0,0.03); }
-  .section-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
-  .section-sub { font-size: 0.74rem; color: #8a8272; margin-bottom: 18px; }
+  .stat-card { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 12px; padding: 20px; }
+  .stat-card .stat-label { font-size: 0.68rem; color: #8a8778; text-transform: uppercase; letter-spacing: 0.4px; font-weight: 700; margin-bottom: 6px; }
+  .stat-card .stat-num { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.5px; color: #fff; }
+  .section-card { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 12px; padding: 26px; margin-bottom: 24px; }
+  .section-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; color: #fff; }
+  .section-sub { font-size: 0.74rem; color: #8a8778; margin-bottom: 18px; }
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
   @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } .nav-buttons { flex-wrap: wrap; } }
-  .mila-note { background: linear-gradient(135deg, #fff8ee, #fbfaf7); border: 1.5px solid #f0e4cc; border-radius: 12px; padding: 24px 26px; display: flex; gap: 16px; align-items: flex-start; }
-  .mila-avatar { width: 40px; height: 40px; border-radius: 50%; background: #1a1a16; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
-  .mila-note-text { font-size: 0.86rem; line-height: 1.6; }
-  .mila-note-date { font-size: 0.68rem; color: #b0a992; margin-top: 8px; }
-  .loading-text { color: #b0a992; font-size: 0.78rem; }
+  .mila-note { background: linear-gradient(135deg, #2a231a, #1a1a16); border: 1.5px solid #3a3024; border-radius: 12px; padding: 24px 26px; display: flex; gap: 16px; align-items: flex-start; }
+  .mila-avatar { width: 40px; height: 40px; border-radius: 50%; background: #e8e6df; color: #14140f; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+  .mila-note-text { font-size: 0.86rem; line-height: 1.6; color: #d5d2c5; }
+  .mila-note-date { font-size: 0.68rem; color: #8a7a5a; margin-top: 8px; }
+  .loading-text { color: #6a6858; font-size: 0.78rem; }
+  a { color: inherit; }
 </style>
 </head>
 <body>
@@ -3501,6 +3515,7 @@ app.get('/choose', requireAuth, (req, res) => {
       <a href="/email-manager" class="nav-btn"><span class="ic">✉️</span> Email Manager</a>
       <a href="/leads" class="nav-btn"><span class="ic">👥</span> Leads</a>
       <a href="/business" class="nav-btn"><span class="ic">📋</span> Business</a>
+      <a href="/discord" class="nav-btn"><span class="ic">💬</span> Team Chat</a>
       <a href="/team" class="nav-btn" id="teamNavBtn" style="display:none;"><span class="ic">👥</span> Team</a>
     </div>
     <a href="/login" class="logout-link">Switch account</a>
@@ -3540,12 +3555,12 @@ app.get('/choose', requireAuth, (req, res) => {
     <div class="two-col">
       <div class="section-card">
         <div class="section-title">📋 Business notes</div>
-        <div class="section-sub">Latest — <a href="/business" style="color:#8a8272;">see all →</a></div>
+        <div class="section-sub">Latest — <a href="/business" style="color:#8a8778;">see all →</a></div>
         <div id="bizNotesPreview" class="loading-text">Loading…</div>
       </div>
       <div class="section-card">
         <div class="section-title">⏰ Open business reminders</div>
-        <div class="section-sub"><a href="/business" style="color:#8a8272;">see all →</a></div>
+        <div class="section-sub"><a href="/business" style="color:#8a8778;">see all →</a></div>
         <div id="bizRemindersPreview" class="loading-text">Loading…</div>
       </div>
     </div>
@@ -3569,8 +3584,8 @@ function barChart(data, color) {
     const bh = (d.value / max) * h;
     const x = i * (barW + gap);
     return '<rect x="' + x + '" y="' + (h - bh) + '" width="' + barW + '" height="' + Math.max(bh, 1) + '" rx="2" fill="' + color + '" opacity="0.85"><title>' + d.label + ': ' + d.value + '</title></rect>' +
-      (d.value > 0 ? '<text x="' + (x + barW/2) + '" y="' + (h - bh - 4) + '" text-anchor="middle" font-size="8" fill="#8a8272">' + d.value + '</text>' : '') +
-      '<text x="' + (x + barW/2) + '" y="' + (h + 14) + '" text-anchor="middle" font-size="7" fill="#b0a992" transform="rotate(45,' + (x+barW/2) + ',' + (h+14) + ')">' + d.label + '</text>';
+      (d.value > 0 ? '<text x="' + (x + barW/2) + '" y="' + (h - bh - 4) + '" text-anchor="middle" font-size="8" fill="#c5c2b5">' + d.value + '</text>' : '') +
+      '<text x="' + (x + barW/2) + '" y="' + (h + 14) + '" text-anchor="middle" font-size="7" fill="#8a8778" transform="rotate(45,' + (x+barW/2) + ',' + (h+14) + ')">' + d.label + '</text>';
   }).join('');
   return '<svg viewBox="0 0 ' + totalW + ' ' + (h + 30) + '" width="100%" height="' + (h + 40) + '" preserveAspectRatio="xMinYMid meet">' + bars + '</svg>';
 }
@@ -3591,7 +3606,7 @@ async function loadDashboard() {
       stats[1].textContent = phone.totalAppointments;
       stats[1].classList.remove('loading-text');
       document.getElementById('callRangeLabels').textContent = phone.last1Day + ' today · ' + phone.last7Days + ' this week · ' + phone.last30Days + ' this month · ' + phone.totalAllTime + ' all-time';
-      document.getElementById('callChart').innerHTML = barChart(phone.dailySeries, '#1a1a16');
+      document.getElementById('callChart').innerHTML = barChart(phone.dailySeries, '#e8e6df');
     } else {
       document.getElementById('callChart').innerHTML = '<div class="loading-text">Could not load call data.</div>';
     }
@@ -3608,17 +3623,17 @@ async function loadDashboard() {
       }
       document.getElementById('emailStats').innerHTML =
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.8rem;">' +
-        '<div><b>' + officeData.email.totalRows + '</b><div style="color:#8a8272;font-size:0.7rem;">total tracked</div></div>' +
-        '<div><b>' + officeData.email.sent + '</b><div style="color:#8a8272;font-size:0.7rem;">confirmed sent</div></div>' +
-        '<div><b>' + officeData.email.replied + '</b><div style="color:#8a8272;font-size:0.7rem;">replied</div></div>' +
-        '<div><b>' + officeData.email.awaitingFollowup + '</b><div style="color:#8a8272;font-size:0.7rem;">awaiting follow-up</div></div>' +
+        '<div><b>' + officeData.email.totalRows + '</b><div style="color:#8a8778;font-size:0.7rem;">total tracked</div></div>' +
+        '<div><b>' + officeData.email.sent + '</b><div style="color:#8a8778;font-size:0.7rem;">confirmed sent</div></div>' +
+        '<div><b>' + officeData.email.replied + '</b><div style="color:#8a8778;font-size:0.7rem;">replied</div></div>' +
+        '<div><b>' + officeData.email.awaitingFollowup + '</b><div style="color:#8a8778;font-size:0.7rem;">awaiting follow-up</div></div>' +
         '</div>';
       document.getElementById('officeStats').innerHTML =
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:0.8rem;">' +
-        '<div><b>' + officeData.office.activeProjects + '</b><div style="color:#8a8272;font-size:0.7rem;">active projects</div></div>' +
-        '<div><b>' + officeData.office.closedProjects + '</b><div style="color:#8a8272;font-size:0.7rem;">closed</div></div>' +
-        '<div><b>' + officeData.office.totalTokensUsed.toLocaleString() + '</b><div style="color:#8a8272;font-size:0.7rem;">real tokens used</div></div>' +
-        '<div><b>$' + officeData.office.totalCost.toFixed(4) + '</b><div style="color:#8a8272;font-size:0.7rem;">real AI spend</div></div>' +
+        '<div><b>' + officeData.office.activeProjects + '</b><div style="color:#8a8778;font-size:0.7rem;">active projects</div></div>' +
+        '<div><b>' + officeData.office.closedProjects + '</b><div style="color:#8a8778;font-size:0.7rem;">closed</div></div>' +
+        '<div><b>' + officeData.office.totalTokensUsed.toLocaleString() + '</b><div style="color:#8a8778;font-size:0.7rem;">real tokens used</div></div>' +
+        '<div><b>$' + officeData.office.totalCost.toFixed(4) + '</b><div style="color:#8a8778;font-size:0.7rem;">real AI spend</div></div>' +
         '</div>';
     } else {
       document.getElementById('emailStats').innerHTML = '<div class="loading-text">Connect the office system to see this.</div>';
@@ -3652,11 +3667,11 @@ async function loadBusinessPreview() {
     const reminders = remRes.ok ? await remRes.json() : [];
     const notesEl = document.getElementById('bizNotesPreview');
     notesEl.classList.remove('loading-text');
-    notesEl.innerHTML = notes.length ? notes.slice(-3).reverse().map(n => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #f0ede3;">' + escDash(n.text) + '</div>').join('') : '<div style="color:#b0a992;font-size:0.78rem;">No business notes yet.</div>';
+    notesEl.innerHTML = notes.length ? notes.slice(-3).reverse().map(n => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #26261f;">' + escDash(n.text) + '</div>').join('') : '<div style="color:#6a6858;font-size:0.78rem;">No business notes yet.</div>';
     const remEl = document.getElementById('bizRemindersPreview');
     remEl.classList.remove('loading-text');
     const openRem = reminders.filter(r => !r.done);
-    remEl.innerHTML = openRem.length ? openRem.slice(0, 4).map(r => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #f0ede3;">⏰ ' + escDash(r.text) + (r.dueAt ? ' <span style="color:#b0a992;">— ' + r.dueAt + '</span>' : '') + '</div>').join('') : '<div style="color:#b0a992;font-size:0.78rem;">Nothing pending.</div>';
+    remEl.innerHTML = openRem.length ? openRem.slice(0, 4).map(r => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #26261f;">⏰ ' + escDash(r.text) + (r.dueAt ? ' <span style="color:#6a6858;">— ' + r.dueAt + '</span>' : '') + '</div>').join('') : '<div style="color:#6a6858;font-size:0.78rem;">Nothing pending.</div>';
   } catch (e) {}
 }
 
@@ -4015,6 +4030,13 @@ app.get('/team', requireAdmin, (req, res) => {
       <div id="suggestionArea"></div>
     </div>
 
+    <div class="panel">
+      <div style="font-weight:700;font-size:0.86rem;margin-bottom:12px;">Preview employee screens</div>
+      <div style="font-size:0.74rem;color:#8a8272;margin-bottom:10px;">Check how these look before rolling out design changes.</div>
+      <a href="/welcome?preview=1" class="btn outline" style="margin-right:8px;text-decoration:none;display:inline-block;">Preview Welcome screen</a>
+      <a href="/ask-mila" class="btn outline" style="text-decoration:none;display:inline-block;">Preview Ask Mila screen</a>
+    </div>
+
     <div id="teamList"><div class="empty">Loading…</div></div>
   </div>
 
@@ -4250,6 +4272,8 @@ document.getElementById('wPhoto').addEventListener('change', (e) => {
   reader.readAsDataURL(file);
 });
 async function finishWelcome() {
+  const isPreview = new URLSearchParams(window.location.search).get('preview') === '1';
+  if (isPreview) { alert('Preview mode — this would save and continue to Ask Mila for a real employee.'); window.location.href = '/ask-mila'; return; }
   const displayName = document.getElementById('wName').value.trim();
   const newPassword = document.getElementById('wPassword').value;
   const body = {};
