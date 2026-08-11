@@ -86,6 +86,13 @@ const DEFAULT_PERMISSIONS = {
   callsVisible: false, leadsVisible: false, emailManagerVisible: false, businessVisible: false
 };
 
+app.get('/api/admin-intro-status', requireAdmin, async (req, res) => {
+  try { const s = leadsStore(); const seen = await s.getState('admin_intro_seen'); res.json({ seen: !!seen }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/admin-intro-seen', requireAdmin, async (req, res) => {
+  try { const s = leadsStore(); await s.setState('admin_intro_seen', true); res.json({ ok: true }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/team', requireAdmin, async (req, res) => {
   try {
     const s = leadsStore();
@@ -188,18 +195,23 @@ app.get('/api/me', requireAuth, async (req, res) => {
 app.post('/api/me/first-login', requireAuth, async (req, res) => {
   const identity = getSessionIdentity(req);
   if (!identity || identity.role !== 'employee') return res.status(403).json({ error: 'Employee accounts only.' });
-  const { displayName, newPassword, photoUrl } = req.body || {};
+  const { displayName, newPassword, photoUrl, email, signatureDataUrl, agreedToPolicy } = req.body || {};
+  if (!agreedToPolicy) return res.status(400).json({ error: 'You must agree to the confidentiality policy to continue.' });
+  if (!signatureDataUrl) return res.status(400).json({ error: 'A real signature is required.' });
   try {
     const s = leadsStore();
     let users = (await s.getState('employee_users')) || [];
     const user = users.find(u => u.id === identity.userId);
     if (!user) return res.status(404).json({ error: 'Account not found.' });
     if (safeText(displayName, 60)) user.displayName = safeText(displayName, 60);
+    if (safeText(email, 120)) user.linkedEmail = safeText(email, 120);
     if (photoUrl) user.photoUrl = String(photoUrl).slice(0, 500000); // real data URL, capped
     if (newPassword && String(newPassword).length >= 6) {
       user.passwordHash = hashPassword(String(newPassword));
       user.passwordChangedByEmployee = true; // admin will see THAT it changed, never the real value
     }
+    user.agreedToPolicyAt = new Date().toISOString();
+    user.signatureDataUrl = String(signatureDataUrl).slice(0, 500000);
     user.firstLoginDone = true;
     await s.setState('employee_users', users);
     res.json({ ok: true });
@@ -3406,7 +3418,11 @@ app.get('/login', (req, res) => {
         });
         if (r.ok) {
           const data = await r.json();
-          if (data.role === 'admin') window.location.href = '/choose';
+          if (data.role === 'admin') {
+            const introRes = await fetch('/api/admin-intro-status', { credentials: 'include' });
+            const introData = introRes.ok ? await introRes.json() : { seen: true };
+            window.location.href = introData.seen ? '/choose' : '/admin-intro';
+          }
           else if (!data.firstLoginDone) window.location.href = '/welcome';
           else window.location.href = '/ask-mila';
         } else {
@@ -4218,6 +4234,52 @@ init();
 </html>`);
 });
 
+
+app.get('/admin-intro', requireAdmin, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #f4f2ec; color: #161616; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; text-align: center; }
+  h1 { font-size: 2.6rem; font-weight: 700; letter-spacing: -1px; margin: 0 0 16px; max-width: 680px; line-height: 1.15; }
+  .sub { color: #77716a; font-size: 1rem; max-width: 560px; margin-bottom: 36px; line-height: 1.6; }
+  .cta-box { background: #14140f; border-radius: 14px; padding: 26px 30px; max-width: 520px; width: 100%; box-shadow: 0 30px 70px rgba(0,0,0,0.18); text-align: left; }
+  .cta-box .item { display: flex; gap: 12px; color: #d5d2c5; font-size: 0.86rem; margin-bottom: 14px; line-height: 1.5; }
+  .cta-box .item b { color: #fff; }
+  .cta-btn { background: #e8e6df; color: #14140f; border: none; border-radius: 8px; padding: 12px 22px; font-size: 0.88rem; font-weight: 700; cursor: pointer; width: 100%; font-family: inherit; margin-top: 8px; }
+  .awards-block { margin-top: 50px; }
+  .awards-block .label { font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; color: #9a9488; margin-bottom: 16px; }
+  .awards-row { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; font-size: 0.9rem; font-weight: 700; color: #4a4a44; }
+</style>
+</head>
+<body>
+  <h1>This is your command center.</h1>
+  <div class="sub">One real system running calls, email outreach, leads, and your team — all live, nothing simulated.</div>
+  <div class="cta-box">
+    <div class="item"><b>📞 Phone &amp; Email</b> — real calls and outreach, tracked automatically.</div>
+    <div class="item"><b>👥 Leads &amp; Team</b> — every contact in one place, real permissions for anyone you add.</div>
+    <div class="item"><b>💬 Mila</b> — asks, answers, and helps run the day-to-day, grounded in your real data.</div>
+    <button class="cta-btn" onclick="finishIntro()">Enter the dashboard &rarr;</button>
+  </div>
+  <div class="awards-block">
+    <div class="label">Recognized by</div>
+    <div class="awards-row"><span>Awwwards</span><span>The DN</span><span>Orpetron</span><span>FP25</span><span>SLO</span><span>GFG</span></div>
+  </div>
+<script>
+async function finishIntro() {
+  await fetch('/api/admin-intro-seen', { method: 'POST', credentials: 'include' });
+  window.location.href = '/choose';
+}
+</script>
+</body>
+</html>`);
+});
+
 app.get('/welcome', requireAuth, (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.send(`<!DOCTYPE html>
@@ -4228,61 +4290,325 @@ app.get('/welcome', requireAuth, (req, res) => {
 <title>Welcome — Manet Creative</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #14140f; color: #e8e6df; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-  .box { max-width: 420px; width: 100%; padding: 40px 32px; }
-  h1 { font-size: 1.6rem; font-weight: 600; margin: 0 0 8px; }
-  .sub { color: #8a8778; font-size: 0.86rem; margin-bottom: 28px; }
-  input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 8px; background: #1a1a16; border: 1px solid #2a2a24; color: #e8e6df; font-size: 0.86rem; margin-bottom: 14px; font-family: inherit; }
-  label { font-size: 0.72rem; color: #8a8778; display: block; margin-bottom: 6px; }
-  .field { margin-bottom: 18px; }
-  .photo-preview { width: 60px; height: 60px; border-radius: 50%; background: #232320; margin-bottom: 10px; object-fit: cover; }
-  .btn { width: 100%; padding: 12px; border-radius: 8px; background: #e8e6df; color: #14140f; border: none; font-size: 0.86rem; font-weight: 700; cursor: pointer; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #161616; }
+
+  /* ---- Screen 0: hero intro (light) ---- */
+  #heroScreen { background: #f4f2ec; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; text-align: center; }
+  #heroScreen h1 { font-size: 2.6rem; font-weight: 700; letter-spacing: -1px; margin: 0 0 16px; max-width: 680px; line-height: 1.15; }
+  #heroScreen .sub { color: #77716a; font-size: 1rem; max-width: 520px; margin-bottom: 36px; line-height: 1.6; }
+  .hero-cta-box { background: #14140f; border-radius: 14px; padding: 22px 26px; max-width: 480px; width: 100%; box-shadow: 0 30px 70px rgba(0,0,0,0.18); }
+  .hero-cta-box p { color: #a8a49a; font-size: 0.92rem; margin: 0 0 18px; text-align: left; }
+  .hero-cta-btn { background: #e8e6df; color: #14140f; border: none; border-radius: 8px; padding: 12px 22px; font-size: 0.88rem; font-weight: 700; cursor: pointer; width: 100%; font-family: inherit; }
+  .awards-block { margin-top: 60px; }
+  .awards-block .label { font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; color: #9a9488; margin-bottom: 16px; }
+  .awards-row { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; font-size: 0.9rem; font-weight: 700; color: #4a4a44; }
+
+  /* ---- Screens 1+: wizard (light gradient, sidebar steps) ---- */
+  #wizardScreen { display: none; min-height: 100vh; background: linear-gradient(135deg, #eef4fb, #fdf1ee, #f4f2ec); }
+  .wizard-layout { display: flex; min-height: 100vh; }
+  .wizard-sidebar { width: 240px; padding: 50px 32px; flex-shrink: 0; }
+  .wizard-brand { font-weight: 700; font-size: 0.95rem; margin-bottom: 50px; }
+  .wizard-steps-label { font-size: 0.7rem; color: #9a9488; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 16px; }
+  .wizard-step { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 0.86rem; color: #9a9488; }
+  .wizard-step.active { color: #161616; font-weight: 700; }
+  .wizard-step.done { color: #4a7a5a; }
+  .wizard-step .dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #c8c2b4; display: flex; align-items: center; justify-content: center; font-size: 0.62rem; flex-shrink: 0; }
+  .wizard-step.active .dot { border-color: #161616; }
+  .wizard-step.done .dot { border-color: #4a7a5a; background: #4a7a5a; color: #fff; }
+  .wizard-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+  .wizard-card { max-width: 440px; width: 100%; }
+  .wizard-card h2 { font-size: 1.5rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.4px; }
+  .wizard-card .wsub { color: #77716a; font-size: 0.86rem; margin-bottom: 28px; }
+  .wfield { margin-bottom: 18px; }
+  .wfield label { font-size: 0.74rem; color: #6b6558; display: block; margin-bottom: 6px; font-weight: 600; }
+  .wfield input[type=text], .wfield input[type=email], .wfield input[type=password] { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 8px; border: 1.5px solid #d6d2c4; background: #fff; font-size: 0.9rem; font-family: inherit; }
+  .wfield input:focus { outline: none; border-color: #14140f; }
+  .photo-preview { width: 64px; height: 64px; border-radius: 50%; background: #eee; margin-bottom: 10px; object-fit: cover; display: block; }
+  .wizard-btn { padding: 12px 26px; border-radius: 8px; font-size: 0.86rem; font-weight: 700; border: none; cursor: pointer; font-family: inherit; }
+  .wizard-btn.primary { background: #14140f; color: #fff; }
+  .wizard-btn.outline { background: transparent; border: 1.5px solid #d6d2c4; color: #161616; margin-right: 10px; }
+  .wizard-actions { display: flex; margin-top: 24px; }
+
+  /* ---- Confidentiality step ---- */
+  .agree-row { display: flex; align-items: flex-start; gap: 10px; background: #fff; border: 1.5px solid #d6d2c4; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+  .agree-row input[type=checkbox] { margin-top: 3px; }
+  .agree-row .agree-text { font-size: 0.84rem; line-height: 1.5; }
+  .read-more-link { color: #14140f; font-weight: 700; text-decoration: underline; cursor: pointer; }
+  .sig-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+  .sig-tab { padding: 7px 14px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; background: #fff; border: 1.5px solid #d6d2c4; cursor: pointer; }
+  .sig-tab.active { background: #14140f; color: #fff; border-color: #14140f; }
+  #sigCanvas { border: 1.5px solid #d6d2c4; border-radius: 8px; background: #fff; width: 100%; height: 140px; touch-action: none; cursor: crosshair; }
+  .sig-clear { font-size: 0.74rem; color: #77716a; text-decoration: underline; cursor: pointer; margin-top: 8px; display: inline-block; }
+  #sigUploadPreview { max-width: 100%; max-height: 100px; margin-top: 10px; display: none; }
+
+  /* ---- Policy modal ---- */
+  .policy-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 30px; }
+  .policy-overlay.open { display: flex; }
+  .policy-box { background: #fff; border-radius: 14px; max-width: 640px; width: 100%; max-height: 82vh; display: flex; flex-direction: column; }
+  .policy-head { padding: 20px 26px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+  .policy-head h3 { margin: 0; font-size: 1.05rem; }
+  .policy-close { cursor: pointer; font-size: 1.2rem; color: #999; }
+  .policy-body { padding: 20px 26px; overflow-y: auto; font-size: 0.84rem; line-height: 1.65; white-space: pre-wrap; color: #3a3a34; }
 </style>
 </head>
 <body>
-  <div class="box">
-    <h1>Welcome.</h1>
-    <div class="sub">Quick setup before you get started.</div>
-    <div class="field">
-      <label>Your name</label>
-      <input id="wName" placeholder="What should we call you?">
-    </div>
-    <div class="field">
-      <label>Photo (optional)</label>
-      <img class="photo-preview" id="photoPreview" style="display:none;">
-      <input type="file" id="wPhoto" accept="image/*">
-    </div>
-    <div class="field">
-      <label>New password (optional — leave blank to keep the one you were given)</label>
-      <input id="wPassword" type="password" placeholder="At least 6 characters">
-    </div>
-    <button class="btn" onclick="finishWelcome()">Get started</button>
+
+<div id="heroScreen">
+  <h1>Welcome to the team.</h1>
+  <div class="sub">Before you dive in, let us get you set up properly — takes about two minutes.</div>
+  <div class="hero-cta-box">
+    <p>A few quick questions, then you are in.</p>
+    <button class="hero-cta-btn" onclick="showWizard()">Get started &rarr;</button>
   </div>
+  <div class="awards-block">
+    <div class="label">Recognized by</div>
+    <div class="awards-row"><span>Awwwards</span><span>The DN</span><span>Orpetron</span><span>FP25</span><span>SLO</span><span>GFG</span></div>
+  </div>
+</div>
+
+<div id="wizardScreen">
+  <div class="wizard-layout">
+    <div class="wizard-sidebar">
+      <div class="wizard-brand">Manet Creative</div>
+      <div class="wizard-steps-label">Setup</div>
+      <div class="wizard-step" data-step="1"><span class="dot">1</span> Your info</div>
+      <div class="wizard-step" data-step="2"><span class="dot">2</span> Photo &amp; password</div>
+      <div class="wizard-step" data-step="3"><span class="dot">3</span> Confidentiality</div>
+    </div>
+    <div class="wizard-main">
+
+      <div class="wizard-card" id="step1">
+        <h2>Your info</h2>
+        <div class="wsub">What should we call you?</div>
+        <div class="wfield">
+          <label>Full name</label>
+          <input type="text" id="wName" placeholder="e.g. Leo Martinez">
+        </div>
+        <div class="wfield">
+          <label>Email (optional — for you, not shared)</label>
+          <input type="email" id="wEmail" placeholder="you@email.com">
+        </div>
+        <div class="wizard-actions">
+          <button class="wizard-btn primary" onclick="goToStep(2)">Continue</button>
+        </div>
+      </div>
+
+      <div class="wizard-card" id="step2" style="display:none;">
+        <h2>Photo &amp; password</h2>
+        <div class="wsub">Both optional — you can skip and set these later.</div>
+        <div class="wfield">
+          <label>Photo</label>
+          <img class="photo-preview" id="photoPreview" style="display:none;">
+          <input type="file" id="wPhoto" accept="image/*">
+        </div>
+        <div class="wfield">
+          <label>New password (leave blank to keep the one you were given)</label>
+          <input type="password" id="wPassword" placeholder="At least 6 characters">
+        </div>
+        <div class="wizard-actions">
+          <button class="wizard-btn outline" onclick="goToStep(1)">Back</button>
+          <button class="wizard-btn primary" onclick="goToStep(3)">Continue</button>
+        </div>
+      </div>
+
+      <div class="wizard-card" id="step3" style="display:none;">
+        <h2>Confidentiality</h2>
+        <div class="wsub">Last step — a real agreement, please actually read it.</div>
+        <div class="agree-row">
+          <input type="checkbox" id="wAgree">
+          <div class="agree-text">I agree not to share, distribute, or disclose any information about this system, its clients, or how it works, outside of Manet Creative. <span class="read-more-link" onclick="openPolicy()">Read the full policy</span></div>
+        </div>
+        <div style="font-size:0.78rem;font-weight:700;margin-bottom:8px;">Your signature</div>
+        <div class="sig-tabs">
+          <div class="sig-tab active" id="sigTabDraw" onclick="switchSigTab('draw')">Draw it</div>
+          <div class="sig-tab" id="sigTabUpload" onclick="switchSigTab('upload')">Upload a photo</div>
+        </div>
+        <div id="sigDrawArea">
+          <canvas id="sigCanvas"></canvas>
+          <span class="sig-clear" onclick="clearSignature()">Clear</span>
+        </div>
+        <div id="sigUploadArea" style="display:none;">
+          <input type="file" id="sigUploadInput" accept="image/*">
+          <img id="sigUploadPreview">
+        </div>
+        <div class="wizard-actions">
+          <button class="wizard-btn outline" onclick="goToStep(2)">Back</button>
+          <button class="wizard-btn primary" onclick="finishWelcome()" id="finishBtn">Finish &amp; enter</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<div class="policy-overlay" id="policyOverlay">
+  <div class="policy-box">
+    <div class="policy-head"><h3>Confidentiality &amp; Non-Disclosure</h3><span class="policy-close" onclick="closePolicy()">&times;</span></div>
+    <div class="policy-body">MANET CREATIVE — CONFIDENTIALITY & NON-DISCLOSURE AGREEMENT
+
+1. Purpose
+
+This agreement exists because you are being given access to a real, live internal system that runs an actual business — Manet Creative. That system contains real client information, real financial data, real communications, real strategy, and real proprietary tools that took significant time and resources to build. Access to this system is a position of trust, not just a login. This document explains, in plain language, what that trust means and what is expected of you in return for it.
+
+By signing below, you are agreeing to the terms in this document. This is a real agreement, not a formality, and it is intended to be enforceable to the fullest extent permitted by applicable law.
+
+2. What Counts as Confidential Information
+
+For the purposes of this agreement, "Confidential Information" includes, but is not limited to:
+
+— Any information about current, past, or prospective clients, including their names, contact details, project details, pricing, contracts, communications, and business needs.
+— Internal business data, including revenue figures, cost structures, pricing strategy, growth plans, hiring plans, and vendor relationships.
+— The internal tools, systems, workflows, source code, prompts, automations, and AI configurations used to run this business, including anything you see, use, or interact with inside this platform (the dashboard, phone system, email tools, CRM, chat systems, and any AI assistant, including "Mila").
+— Screenshots, exports, downloads, or copies of any of the above, in any form.
+— Login credentials, API keys, tokens, or any other access mechanism you are given, whether for yourself or discovered incidentally.
+— Any strategic discussions, plans, or ideas shared with you verbally, in writing, or through any internal communication channel, whether marked "confidential" or not.
+
+If you are ever unsure whether something counts as confidential, the safe assumption is that it does, and you should ask before sharing it outside the company.
+
+3. What You Agree Not To Do
+
+You agree that you will not, during your time working with Manet Creative or at any point afterward:
+
+— Share, forward, screenshot, copy, export, or otherwise disclose any Confidential Information to any person, company, or platform outside of Manet Creative, unless you have received explicit written permission to do so from the owner.
+— Use any Confidential Information for your own benefit, or the benefit of any other person or business, including starting a competing business, soliciting Manet Creative's clients, or building a similar tool elsewhere using what you learned here.
+— Post about, describe, or reference the internal workings of this system on social media, in interviews, in a portfolio, or anywhere else publicly visible, even in a general or vague way, without prior written approval.
+— Discuss specific client names, projects, or figures with anyone who is not also an authorized member of this system.
+— Attempt to access parts of the system that have not been explicitly granted to you, or attempt to determine another team member's login credentials.
+— Retain copies of any Confidential Information after your access to this system ends, for any reason.
+
+4. Why This Matters
+
+This is not about distrust of you personally. It is about the basic reality of running a real business: client relationships depend on discretion, and a small agency's competitive position depends on the tools and processes it has built not being freely available to competitors. A single leak — even an accidental one, even one that felt harmless at the time — can cost a client relationship, damage the company's reputation, or hand a competitor years of work for free. The rules above exist to prevent that, for everyone's benefit, including yours, since the health of this business is what makes your role here possible in the first place.
+
+5. What Is Not Restricted
+
+To be clear about the boundaries of this agreement, it does not restrict you from:
+
+— Discussing your general job responsibilities in normal, non-specific terms (for example, "I do email outreach and lead management for a creative agency" is fine; naming specific clients or sharing specific numbers is not).
+— Using general skills, knowledge, and experience you gain here in future work, as long as you are not using Manet Creative's specific confidential materials, client relationships, or proprietary tools to do so.
+— Reporting illegal activity to the appropriate authorities. Nothing in this agreement is intended to prevent you from complying with the law.
+
+6. Duration
+
+Your obligations under this agreement begin the moment you are given access to this system and continue indefinitely — they do not end when your role here ends. Confidential Information does not become less sensitive just because you are no longer working with Manet Creative. A client's project details, a pricing structure, or the way a specific internal tool works do not stop being confidential on the day you leave; the same care that applied on your first day should still apply years later.
+
+7. A Few Practical Examples
+
+To make this concrete rather than abstract, here are a few examples of what this agreement actually covers in everyday terms:
+
+— If a friend or family member asks "what's it like working there," it is fine to describe your general role. It is not fine to tell them a specific client's name, how much they are paying, or what their project looks like.
+— If you are proud of a system you helped build or a result you helped achieve, it is fine to be proud of it privately or describe it in general terms in a future job interview. It is not fine to show screenshots of the actual internal dashboard, export real data, or explain exactly how the underlying tools or AI prompts work.
+— If you notice a bug, a security issue, or something that looks wrong in the system, the right move is to report it internally, not to discuss it anywhere else, even if your intention is harmless.
+— If you leave on good terms or bad terms, the same rules apply either way. This agreement does not depend on how your time here ends.
+
+8. What Happens If This Is Not Followed
+
+Violating this agreement is treated seriously. Depending on the nature and severity of the violation, consequences may include immediate loss of access to this system, termination of your working relationship with Manet Creative, and, where the violation causes real harm to the business or its clients, legal action to recover damages. This is not intended as a threat — it is intended as an honest statement of what is at stake, so that the seriousness of this agreement is clear before you sign it, not after something has already gone wrong. Most people never come close to violating an agreement like this, simply by using ordinary good judgment: when in doubt, treat information as private, and ask before sharing anything you are not sure about.
+
+9. Your Signature
+
+By signing below (either by drawing your signature or uploading a photo of your handwritten signature), you are confirming that:
+
+— You have actually read this document, not just scrolled past it.
+— You understand what counts as Confidential Information and what you are agreeing not to do with it.
+— You are entering into this agreement voluntarily, as a real condition of being given access to this system.
+— The signature you provide is genuinely yours.
+
+If you have questions about anything in this document before signing, ask the owner directly — that is a normal and expected thing to do, and asking questions now is much better than a misunderstanding later.
+
+Thank you for taking this seriously. It genuinely matters.
+
+— Manet Creative
+</div>
+  </div>
+</div>
+
 <script>
+function showWizard() {
+  document.getElementById('heroScreen').style.display = 'none';
+  document.getElementById('wizardScreen').style.display = 'block';
+  goToStep(1);
+  setTimeout(initSignaturePad, 100);
+}
+function goToStep(n) {
+  [1,2,3].forEach(i => { document.getElementById('step' + i).style.display = i === n ? 'block' : 'none'; });
+  document.querySelectorAll('.wizard-step').forEach(el => {
+    const s = parseInt(el.dataset.step, 10);
+    el.classList.toggle('active', s === n);
+    el.classList.toggle('done', s < n);
+    el.querySelector('.dot').textContent = s < n ? String.fromCharCode(10003) : s;
+  });
+}
+
 let photoDataUrl = null;
 document.getElementById('wPhoto').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
-    photoDataUrl = reader.result;
-    const img = document.getElementById('photoPreview');
-    img.src = photoDataUrl; img.style.display = 'block';
-  };
+  reader.onload = () => { photoDataUrl = reader.result; const img = document.getElementById('photoPreview'); img.src = photoDataUrl; img.style.display = 'block'; };
   reader.readAsDataURL(file);
 });
+
+let sigMode = 'draw';
+let sigCanvasCtx = null, sigDrawing = false, sigHasDrawn = false;
+let sigUploadDataUrl = null;
+function initSignaturePad() {
+  const canvas = document.getElementById('sigCanvas');
+  canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+  sigCanvasCtx = canvas.getContext('2d');
+  sigCanvasCtx.strokeStyle = '#14140f'; sigCanvasCtx.lineWidth = 2; sigCanvasCtx.lineCap = 'round';
+  const getPos = (e) => { const r = canvas.getBoundingClientRect(); const t = e.touches ? e.touches[0] : e; return { x: t.clientX - r.left, y: t.clientY - r.top }; };
+  const start = (e) => { sigDrawing = true; sigHasDrawn = true; const p = getPos(e); sigCanvasCtx.beginPath(); sigCanvasCtx.moveTo(p.x, p.y); };
+  const move = (e) => { if (!sigDrawing) return; e.preventDefault(); const p = getPos(e); sigCanvasCtx.lineTo(p.x, p.y); sigCanvasCtx.stroke(); };
+  const end = () => { sigDrawing = false; };
+  canvas.addEventListener('mousedown', start); canvas.addEventListener('mousemove', move); window.addEventListener('mouseup', end);
+  canvas.addEventListener('touchstart', start); canvas.addEventListener('touchmove', move); canvas.addEventListener('touchend', end);
+}
+function clearSignature() { if (sigCanvasCtx) { sigCanvasCtx.clearRect(0, 0, 2000, 2000); sigHasDrawn = false; } }
+function switchSigTab(mode) {
+  sigMode = mode;
+  document.getElementById('sigTabDraw').classList.toggle('active', mode === 'draw');
+  document.getElementById('sigTabUpload').classList.toggle('active', mode === 'upload');
+  document.getElementById('sigDrawArea').style.display = mode === 'draw' ? 'block' : 'none';
+  document.getElementById('sigUploadArea').style.display = mode === 'upload' ? 'block' : 'none';
+}
+document.getElementById('sigUploadInput').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => { sigUploadDataUrl = reader.result; const img = document.getElementById('sigUploadPreview'); img.src = sigUploadDataUrl; img.style.display = 'block'; };
+  reader.readAsDataURL(file);
+});
+
+function openPolicy() { document.getElementById('policyOverlay').classList.add('open'); }
+function closePolicy() { document.getElementById('policyOverlay').classList.remove('open'); }
+
 async function finishWelcome() {
   const isPreview = new URLSearchParams(window.location.search).get('preview') === '1';
+  if (!document.getElementById('wAgree').checked) { alert('Please agree to the confidentiality policy to continue.'); return; }
+  let signatureDataUrl = sigMode === 'draw' ? (sigHasDrawn ? document.getElementById('sigCanvas').toDataURL() : null) : sigUploadDataUrl;
+  if (!signatureDataUrl) { alert('Please provide a real signature — draw it or upload a photo.'); return; }
   if (isPreview) { alert('Preview mode — this would save and continue to Ask Mila for a real employee.'); window.location.href = '/ask-mila'; return; }
   const displayName = document.getElementById('wName').value.trim();
+  const email = document.getElementById('wEmail').value.trim();
   const newPassword = document.getElementById('wPassword').value;
-  const body = {};
+  const body = { agreedToPolicy: true, signatureDataUrl };
   if (displayName) body.displayName = displayName;
+  if (email) body.email = email;
   if (photoDataUrl) body.photoUrl = photoDataUrl;
   if (newPassword) body.newPassword = newPassword;
-  const res = await fetch('/api/me/first-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
-  if (res.ok) window.location.href = '/ask-mila';
-  else alert('Something went wrong — try again.');
+  const btn = document.getElementById('finishBtn');
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    const res = await fetch('/api/me/first-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+    if (res.ok) window.location.href = '/ask-mila';
+    else { const data = await res.json(); alert(data.error || 'Something went wrong.'); btn.disabled = false; btn.textContent = 'Finish & enter'; }
+  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = 'Finish & enter'; }
+}
+
+if (new URLSearchParams(window.location.search).get('preview') === '1') {
+  document.getElementById('heroScreen').style.display = 'none';
+  showWizard();
 }
 </script>
 </body>
