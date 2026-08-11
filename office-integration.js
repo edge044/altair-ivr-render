@@ -45,9 +45,28 @@ function timingSafeStringEqual(a, b) {
   }
   return crypto.timingSafeEqual(bufA, bufB);
 }
-function makeSessionToken(username) {
+// ── Real password hashing for employee accounts — Node's built-in
+// scrypt, no extra dependency. The owner's own admin login still uses
+// ADMIN_USERNAME/ADMIN_PASSWORD env vars as before; this is for the
+// employee accounts the owner creates.
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+function verifyPassword(password, stored) {
+  try {
+    const [salt, hash] = String(stored || '').split(':');
+    if (!salt || !hash) return false;
+    const check = crypto.scryptSync(password, salt, 64).toString('hex');
+    return timingSafeStringEqual(check, hash);
+  } catch (e) { return false; }
+}
+function makeSessionToken(username, role, userId) {
+  role = role || 'admin';
+  userId = userId || '';
   const expiry = Date.now() + SESSION_MAX_AGE_MS;
-  const payload = `${username}.${expiry}`;
+  const payload = `${username}.${expiry}.${role}.${userId}`;
   const sig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
   return Buffer.from(`${payload}.${sig}`).toString('base64url');
 }
@@ -55,13 +74,13 @@ function verifySessionToken(token) {
   try {
     const decoded = Buffer.from(token, 'base64url').toString('utf8');
     const parts = decoded.split('.');
-    if (parts.length !== 3) return null;
-    const [username, expiry, sig] = parts;
-    const payload = `${username}.${expiry}`;
+    if (parts.length !== 5) return null; // real schema now: username.expiry.role.userId.sig
+    const [username, expiry, role, userId, sig] = parts;
+    const payload = `${username}.${expiry}.${role}.${userId}`;
     const expectedSig = crypto.createHmac('sha256', SESSION_SECRET).update(payload).digest('hex');
     if (!timingSafeStringEqual(sig, expectedSig)) return null;
     if (Date.now() > parseInt(expiry, 10)) return null;
-    return username;
+    return { username, role, userId };
   } catch (e) { return null; }
 }
 function parseCookies(req) {
@@ -78,6 +97,13 @@ function hasValidSession(req) {
   const cookies = parseCookies(req);
   if (!cookies.manet_session) return false;
   return !!verifySessionToken(cookies.manet_session);
+}
+// Real identity behind the session — who exactly is logged in, and as
+// what role, so permission checks have something real to check against.
+function getSessionIdentity(req) {
+  const cookies = parseCookies(req);
+  if (!cookies.manet_session) return null;
+  return verifySessionToken(cookies.manet_session);
 }
 
 // ── Tarpit — "Sasha resists": repeated failed logins from the same
@@ -450,16 +476,26 @@ function mountOffice(app, requireAuth) {
     const { username, password } = req.body || {};
     const realUser = process.env.ADMIN_USERNAME || 'admin';
     const realPass = process.env.ADMIN_PASSWORD || 'ChangeThisPassword123!'; // must match requireAuth's own default in index.js
-    const ok = timingSafeStringEqual(username, realUser) && timingSafeStringEqual(password, realPass);
-    if (!ok) {
+    const isAdmin = timingSafeStringEqual(username, realUser) && timingSafeStringEqual(password, realPass);
+
+    let employee = null;
+    if (!isAdmin) {
+      try {
+        const users = (await store.getState('employee_users')) || [];
+        const candidate = users.find(u => u.username === username);
+        if (candidate && verifyPassword(password, candidate.passwordHash)) employee = candidate;
+      } catch (e) {}
+    }
+
+    if (!isAdmin && !employee) {
       recordTarpitFailure(ip);
       logThreat(ip, 'login-failed', `Sasha slowed this one down ${delay}ms and logged it — username tried: ${(username || '').slice(0, 40)}`);
       return res.status(401).json({ error: 'Invalid username or password.' });
     }
     tarpitFailures.delete(ip);
-    const token = makeSessionToken(username);
+    const token = isAdmin ? makeSessionToken(username, 'admin', '') : makeSessionToken(employee.username, 'employee', employee.id);
     res.setHeader('Set-Cookie', `manet_session=${token}; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_MAX_AGE_MS / 1000}; Path=/`);
-    res.json({ ok: true });
+    res.json({ ok: true, role: isAdmin ? 'admin' : 'employee', firstLoginDone: employee ? !!employee.firstLoginDone : true });
     // Fire-and-forget: real alert with real IP/country/device, so you
     // know the moment anyone (including you) signs in — success is
     // exactly when you'd want to know, not just failures.
@@ -1397,6 +1433,9 @@ function mountOffice(app, requireAuth) {
 
 module.exports = mountOffice;
 module.exports.hasValidSession = hasValidSession;
+module.exports.getSessionIdentity = getSessionIdentity;
+module.exports.hashPassword = hashPassword;
+module.exports.verifyPassword = verifyPassword;
 module.exports.getStore = () => _sharedStore;
 module.exports.callRealAI = async (systemPrompt, userPrompt) => {
   const apiKey = process.env.DEEPSEEK_API_KEY;

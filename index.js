@@ -1,13 +1,14 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const VoiceResponse = require('twilio').twiml.VoiceResponse;
 const twilioClient = require('twilio')(
   process.env.TWILIO_ACCOUNT_SID,
   process.env.TWILIO_AUTH_TOKEN
 );
 const basicAuth = require('basic-auth');
-const { hasValidSession, getStore, callRealAI } = require('./office-integration');
+const { hasValidSession, getStore, callRealAI, getSessionIdentity, hashPassword, verifyPassword } = require('./office-integration');
 
 const app = express();
 app.use(express.urlencoded({ extended: false }));
@@ -52,6 +53,143 @@ function requireAuth(req, res, next) {
 
 const mountOffice = require('./office-integration');
 mountOffice(app, requireAuth);
+
+// ======================================================
+// TEAM / MULTI-USER — the owner is always full admin. Employee accounts
+// are real, separate logins with real hashed passwords and granular
+// permissions. Nobody but the owner ever sees another employee's real
+// username or password — only their chosen display name.
+// ======================================================
+function requireAdmin(req, res, next) {
+  const identity = getSessionIdentity(req);
+  if (identity && identity.role === 'admin') return next();
+  return res.status(403).json({ error: 'Admin only.' });
+}
+const DEFAULT_PERMISSIONS = {
+  officeVisible: true, chatsAccess: 'none', assignedChatIds: [],
+  analysesVisible: false, consoleVisible: false, serverHealthVisible: false,
+  callsVisible: false, leadsVisible: false, emailManagerVisible: false, businessVisible: false
+};
+
+app.get('/api/team', requireAdmin, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const users = (await s.getState('employee_users')) || [];
+    // Real privacy — admin sees usernames (needed to manage accounts) but
+    // never real password values, even if the employee changed it.
+    res.json(users.map(u => ({ id: u.id, username: u.username, displayName: u.displayName, photoUrl: u.photoUrl, permissions: u.permissions, createdAt: u.createdAt, firstLoginDone: u.firstLoginDone, passwordChangedByEmployee: u.passwordChangedByEmployee })));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Real AI-assisted permission setting — the owner describes the new
+// hire in plain language, Mila proposes a real permission set. The
+// owner still confirms/edits before the account is actually created.
+app.post('/api/team/suggest-permissions', requireAdmin, async (req, res) => {
+  const description = safeText(req.body && req.body.description, 1000);
+  if (!description) return res.status(400).json({ error: 'description required' });
+  try {
+    const sys = `You are Mila, helping the owner set up a new team member's access. They just described this person in plain language. Respond with ONLY valid JSON matching exactly this shape: {"displayName": "<a first name for them>", "permissions": {"officeVisible": true|false, "chatsAccess": "none"|"assigned"|"all", "analysesVisible": true|false, "consoleVisible": true|false, "serverHealthVisible": true|false, "callsVisible": true|false, "leadsVisible": true|false, "emailManagerVisible": true|false, "businessVisible": true|false}, "reasoning": "<one short sentence on why you set it this way>"}\nBe conservative — only grant what the description actually implies they need. consoleVisible and serverHealthVisible should almost always be false unless they're explicitly IT/technical staff.`;
+    const result = await callRealAI(sys, description);
+    if (!result.ok) return res.status(502).json({ error: result.error });
+    let parsed;
+    try { parsed = JSON.parse(result.text.trim().replace(/^```json\s*|\s*```$/g, '')); }
+    catch (e) { return res.status(502).json({ error: 'Could not parse a real suggestion — try rephrasing.' }); }
+    res.json({ ok: true, suggestion: parsed });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+function generateTempPassword() {
+  return crypto.randomBytes(6).toString('hex'); // real random, shown once to the admin
+}
+app.post('/api/team/create', requireAdmin, async (req, res) => {
+  const { username, displayName, permissions } = req.body || {};
+  const safeUsername = safeText(username, 60);
+  const safeDisplayName = safeText(displayName, 60);
+  if (!safeUsername || !safeDisplayName) return res.status(400).json({ error: 'username and displayName required' });
+  try {
+    const s = leadsStore();
+    let users = (await s.getState('employee_users')) || [];
+    if (users.some(u => u.username === safeUsername)) return res.status(409).json({ error: 'That username is already taken.' });
+    const tempPassword = generateTempPassword();
+    const user = {
+      id: 'EMP-' + Date.now() + '-' + Math.floor(Math.random() * 10000),
+      username: safeUsername, passwordHash: hashPassword(tempPassword),
+      displayName: safeDisplayName, photoUrl: null,
+      permissions: Object.assign({}, DEFAULT_PERMISSIONS, permissions || {}),
+      createdAt: new Date().toISOString(), firstLoginDone: false, passwordChangedByEmployee: false
+    };
+    users.push(user);
+    await s.setState('employee_users', users);
+    res.json({ ok: true, username: safeUsername, tempPassword }); // only time the real password is ever shown
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/team/:id/permissions', requireAdmin, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let users = (await s.getState('employee_users')) || [];
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'Not found.' });
+    user.permissions = Object.assign({}, DEFAULT_PERMISSIONS, req.body && req.body.permissions || {});
+    await s.setState('employee_users', users);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/team/:id/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let users = (await s.getState('employee_users')) || [];
+    const user = users.find(u => u.id === req.params.id);
+    if (!user) return res.status(404).json({ error: 'Not found.' });
+    const tempPassword = generateTempPassword();
+    user.passwordHash = hashPassword(tempPassword);
+    user.passwordChangedByEmployee = false;
+    await s.setState('employee_users', users);
+    res.json({ ok: true, tempPassword }); // shown once, real password never stored in plaintext
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/team/:id', requireAdmin, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let users = (await s.getState('employee_users')) || [];
+    await s.setState('employee_users', users.filter(u => u.id !== req.params.id));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Employee's own view of themselves + first-login setup ──────────
+app.get('/api/me', requireAuth, async (req, res) => {
+  const identity = getSessionIdentity(req);
+  if (!identity) return res.status(401).json({ error: 'Not logged in.' });
+  if (identity.role === 'admin') return res.json({ role: 'admin', username: identity.username, displayName: 'Owner', permissions: null });
+  try {
+    const s = leadsStore();
+    const users = (await s.getState('employee_users')) || [];
+    const user = users.find(u => u.id === identity.userId);
+    if (!user) return res.status(404).json({ error: 'Account not found.' });
+    res.json({ role: 'employee', username: user.username, displayName: user.displayName, photoUrl: user.photoUrl, permissions: user.permissions, firstLoginDone: user.firstLoginDone });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/me/first-login', requireAuth, async (req, res) => {
+  const identity = getSessionIdentity(req);
+  if (!identity || identity.role !== 'employee') return res.status(403).json({ error: 'Employee accounts only.' });
+  const { displayName, newPassword, photoUrl } = req.body || {};
+  try {
+    const s = leadsStore();
+    let users = (await s.getState('employee_users')) || [];
+    const user = users.find(u => u.id === identity.userId);
+    if (!user) return res.status(404).json({ error: 'Account not found.' });
+    if (safeText(displayName, 60)) user.displayName = safeText(displayName, 60);
+    if (photoUrl) user.photoUrl = String(photoUrl).slice(0, 500000); // real data URL, capped
+    if (newPassword && String(newPassword).length >= 6) {
+      user.passwordHash = hashPassword(String(newPassword));
+      user.passwordChangedByEmployee = true; // admin will see THAT it changed, never the real value
+    }
+    user.firstLoginDone = true;
+    await s.setState('employee_users', users);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 // ======================================================
 // LEADS — one card per real contact, auto-aggregating their real
@@ -3101,6 +3239,7 @@ app.get('/choose', requireAuth, (req, res) => {
       <a href="/email-manager" class="nav-btn"><span class="ic">✉️</span> Email Manager</a>
       <a href="/leads" class="nav-btn"><span class="ic">👥</span> Leads</a>
       <a href="/business" class="nav-btn"><span class="ic">📋</span> Business</a>
+      <a href="/team" class="nav-btn" id="teamNavBtn" style="display:none;"><span class="ic">👥</span> Team</a>
     </div>
     <a href="/login" class="logout-link">Switch account</a>
   </div>
@@ -3262,6 +3401,22 @@ async function loadBusinessPreview() {
 loadDashboard();
 loadMilaNote();
 loadBusinessPreview();
+(async () => {
+  try {
+    const res = await fetch('/api/me', { credentials: 'include' });
+    if (!res.ok) return;
+    const me = await res.json();
+    if (me.role === 'admin') { document.getElementById('teamNavBtn').style.display = ''; return; }
+    // Real employee — only show what their real permissions allow.
+    const p = me.permissions || {};
+    const navMap = { businessVisible: '/business', leadsVisible: '/leads', emailManagerVisible: '/email-manager' };
+    document.querySelectorAll('.nav-btn').forEach(btn => {
+      const href = btn.getAttribute('href');
+      if (href === '/admin' || href === '/office') { if (!p.callsVisible && href === '/admin') btn.style.display = 'none'; if (!p.officeVisible && href === '/office') btn.style.display = 'none'; return; }
+      for (const [permKey, path] of Object.entries(navMap)) { if (href === path && !p[permKey]) btn.style.display = 'none'; }
+    });
+  } catch (e) {}
+})();
 </script>
 ${commandBarHtml()}
 </body>
@@ -3543,6 +3698,148 @@ async function generateBriefing() {
 loadLatest();
 </script>
 ${commandBarHtml()}
+</body>
+</html>`);
+});
+
+
+app.get('/team', requireAdmin, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: 'SF Mono', 'Roboto Mono', 'IBM Plex Mono', Consolas, 'Courier New', monospace; background: #f4f2ec; color: #1a1a16; -webkit-font-smoothing: antialiased; }
+  .navbar { background: #fbfaf7; border-bottom: 1px solid #e6e1d4; padding: 18px 36px; display: flex; align-items: center; justify-content: space-between; }
+  .navbar a { color: #6b6558; text-decoration: none; font-size: 0.76rem; font-weight: 700; padding: 6px 12px; border-radius: 6px; }
+  .navbar a:hover { background: #eeece2; color: #1a1a16; }
+  .wrap { max-width: 900px; margin: 0 auto; padding: 30px 36px 100px; }
+  h1 { font-size: 1.6rem; margin: 0 0 6px; }
+  .sub { color: #8a8272; font-size: 0.82rem; margin-bottom: 24px; }
+  .btn { display: inline-block; padding: 9px 18px; border-radius: 7px; font-size: 0.76rem; font-weight: 700; border: 1.5px solid transparent; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #1a1a16; color: #fff; }
+  .btn.outline { background: #fff; border-color: #d8d2c0; color: #1a1a16; }
+  .btn.danger { background: #fff; border-color: #e0a0a0; color: #b8433a; }
+  .panel { background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; padding: 20px; margin-bottom: 20px; }
+  .emp-card { border: 1px solid #e6e1d4; border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+  .emp-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .emp-name { font-weight: 700; font-size: 0.9rem; }
+  .emp-meta { font-size: 0.7rem; color: #8a8272; }
+  .perm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin: 10px 0; font-size: 0.72rem; }
+  .perm-item { display: flex; align-items: center; gap: 6px; }
+  input, textarea, select { padding: 8px 11px; border: 1.5px solid #e6e1d4; border-radius: 7px; font-size: 0.78rem; font-family: inherit; width: 100%; box-sizing: border-box; margin-bottom: 8px; }
+  .temp-pass-box { background: #fff8ee; border: 1.5px solid #f0e4cc; border-radius: 8px; padding: 14px; font-size: 0.8rem; margin-top: 10px; }
+  .temp-pass-box code { font-size: 0.9rem; font-weight: 700; }
+  .empty { color: #b0a992; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div>👥 Team</div>
+    <a href="/choose">← Back</a>
+  </div>
+  <div class="wrap">
+    <h1>Team</h1>
+    <div class="sub">Real accounts, real permissions. Only you see anyone's real login — everyone else just sees names.</div>
+
+    <div class="panel">
+      <div style="font-weight:700;font-size:0.86rem;margin-bottom:12px;">+ Add a team member</div>
+      <textarea id="empDescription" rows="2" placeholder="Describe them to Mila — e.g. 'This is Leo, he handles email outreach and leads, keep him out of finances and server stuff'"></textarea>
+      <button class="btn outline" onclick="askMilaPermissions()">Ask Mila to suggest access</button>
+      <div id="suggestionArea"></div>
+    </div>
+
+    <div id="teamList"><div class="empty">Loading…</div></div>
+  </div>
+
+<script>
+const PERM_LABELS = {
+  officeVisible: 'Office view', analysesVisible: 'Analyses',
+  consoleVisible: 'Console/logs', serverHealthVisible: 'Server health', callsVisible: 'Calls',
+  leadsVisible: 'Leads', emailManagerVisible: 'Email Manager', businessVisible: 'Business plans'
+};
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function askMilaPermissions() {
+  const description = document.getElementById('empDescription').value.trim();
+  if (!description) return;
+  const area = document.getElementById('suggestionArea');
+  area.innerHTML = '<div class="empty" style="margin-top:10px;">Mila is thinking…</div>';
+  const res = await fetch('/api/team/suggest-permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ description }) });
+  const data = await res.json();
+  if (!res.ok) { area.innerHTML = '<div class="empty" style="margin-top:10px;color:#b8433a;">' + esc(data.error) + '</div>'; return; }
+  const sug = data.suggestion;
+  const permsHtml = Object.keys(PERM_LABELS).map(key => {
+    const checked = sug.permissions[key] ? 'checked' : '';
+    return '<label class="perm-item"><input type="checkbox" data-perm="' + key + '" ' + checked + '> ' + PERM_LABELS[key] + '</label>';
+  }).join('');
+  area.innerHTML =
+    '<div style="margin-top:14px;padding-top:14px;border-top:1px solid #eeece4;">' +
+    '<div style="font-size:0.76rem;color:#8a8272;margin-bottom:8px;">Mila suggests: <b>' + esc(sug.displayName) + '</b> — ' + esc(sug.reasoning) + '</div>' +
+    '<input id="newEmpUsername" placeholder="Login username (they will use this to sign in)">' +
+    '<input id="newEmpDisplayName" value="' + esc(sug.displayName) + '" placeholder="Display name (what others see)">' +
+    '<div class="perm-grid" id="newEmpPerms">' + permsHtml + '</div>' +
+    '<button class="btn primary" onclick="createEmployee()">Create account</button>' +
+    '</div>';
+}
+async function createEmployee() {
+  const username = document.getElementById('newEmpUsername').value.trim();
+  const displayName = document.getElementById('newEmpDisplayName').value.trim();
+  if (!username || !displayName) { alert('Username and display name are required.'); return; }
+  const permissions = {};
+  document.querySelectorAll('#newEmpPerms input[type=checkbox]').forEach(cb => { permissions[cb.dataset.perm] = cb.checked; });
+  const res = await fetch('/api/team/create', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ username, displayName, permissions }) });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Could not create account.'); return; }
+  document.getElementById('suggestionArea').innerHTML =
+    '<div class="temp-pass-box">Account created. Share this with them — it only shows once:<br>Username: <code>' + esc(data.username) + '</code><br>Temporary password: <code>' + esc(data.tempPassword) + '</code></div>';
+  document.getElementById('empDescription').value = '';
+  loadTeam();
+}
+async function loadTeam() {
+  const res = await fetch('/api/team', { credentials: 'include' });
+  const team = res.ok ? await res.json() : [];
+  const listEl = document.getElementById('teamList');
+  if (!team.length) { listEl.innerHTML = '<div class="empty">No team members yet.</div>'; return; }
+  listEl.innerHTML = team.map(u => {
+    const permsHtml = Object.keys(PERM_LABELS).map(key =>
+      '<label class="perm-item"><input type="checkbox" data-id="' + u.id + '" data-perm="' + key + '" ' + (u.permissions[key] ? 'checked' : '') + ' onchange="updatePermission(this)"> ' + PERM_LABELS[key] + '</label>'
+    ).join('');
+    const notLoggedIn = u.firstLoginDone ? '' : ' · hasn' + String.fromCharCode(39) + 't logged in yet';
+    return '<div class="emp-card">' +
+      '<div class="emp-head"><div class="emp-name">' + esc(u.displayName) + '</div><div class="emp-meta">@' + esc(u.username) + (u.passwordChangedByEmployee ? ' · password changed by them' : '') + notLoggedIn + '</div></div>' +
+      '<div class="perm-grid">' + permsHtml + '</div>' +
+      '<button class="btn outline" data-id="' + u.id + '" onclick="resetPassword(this.dataset.id)" style="font-size:0.68rem;padding:5px 10px;margin-right:6px;">Reset password</button>' +
+      '<button class="btn danger" data-id="' + u.id + '" onclick="removeEmployee(this.dataset.id)" style="font-size:0.68rem;padding:5px 10px;">Remove</button>' +
+      '<div id="resetBox-' + u.id + '"></div>' +
+      '</div>';
+  }).join('');
+}
+async function updatePermission(cb) {
+  const id = cb.dataset.id;
+  const card = cb.closest('.emp-card');
+  const permissions = {};
+  card.querySelectorAll('input[type=checkbox]').forEach(c => { permissions[c.dataset.perm] = c.checked; });
+  await fetch('/api/team/' + id + '/permissions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ permissions }) });
+}
+async function resetPassword(id) {
+  const res = await fetch('/api/team/' + id + '/reset-password', { method: 'POST', credentials: 'include' });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || 'Failed.'); return; }
+  document.getElementById('resetBox-' + id).innerHTML = '<div class="temp-pass-box">New temporary password (shown once): <code>' + esc(data.tempPassword) + '</code></div>';
+}
+async function removeEmployee(id) {
+  if (!confirm('Remove this team member? They will lose access immediately.')) return;
+  await fetch('/api/team/' + id, { method: 'DELETE', credentials: 'include' });
+  loadTeam();
+}
+
+loadTeam();
+</script>
 </body>
 </html>`);
 });
