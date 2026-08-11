@@ -192,6 +192,142 @@ app.post('/api/me/first-login', requireAuth, async (req, res) => {
 });
 
 // ======================================================
+// CHAT — real Discord-style conversations. Only the admin creates them
+// and picks exactly who's in each one: the owner, specific employees,
+// and/or Mila herself. If Mila's a participant, she actually replies
+// for real; if it's just people, it's just a real message log.
+// ======================================================
+async function getCurrentUserRef(req) {
+  const identity = getSessionIdentity(req);
+  if (!identity) return null;
+  if (identity.role === 'admin') return { id: 'admin', displayName: 'Owner' };
+  try {
+    const s = leadsStore();
+    const users = (await s.getState('employee_users')) || [];
+    const user = users.find(u => u.id === identity.userId);
+    if (!user) return null;
+    return { id: user.id, displayName: user.displayName };
+  } catch (e) { return null; }
+}
+async function realDisplayNameFor(participantId) {
+  if (participantId === 'admin') return 'Owner';
+  if (participantId === 'mila') return 'Mila';
+  try {
+    const s = leadsStore();
+    const users = (await s.getState('employee_users')) || [];
+    const user = users.find(u => u.id === participantId);
+    return user ? user.displayName : 'Unknown';
+  } catch (e) { return 'Unknown'; }
+}
+
+app.get('/api/conversations', requireAuth, async (req, res) => {
+  const me = await getCurrentUserRef(req);
+  if (!me) return res.status(401).json({ error: 'Not logged in.' });
+  try {
+    const s = leadsStore();
+    let convos = (await s.getState('conversations')) || [];
+    if (me.id !== 'admin') convos = convos.filter(c => c.participants.includes(me.id));
+    const withNames = await Promise.all(convos.map(async c => ({
+      ...c, participantNames: await Promise.all(c.participants.map(realDisplayNameFor))
+    })));
+    res.json(withNames);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/conversations', requireAdmin, async (req, res) => {
+  const name = safeText(req.body && req.body.name, 60);
+  const participants = Array.isArray(req.body && req.body.participants) ? req.body.participants : [];
+  if (!name || !participants.length) return res.status(400).json({ error: 'name and at least one participant required' });
+  try {
+    const s = leadsStore();
+    let convos = (await s.getState('conversations')) || [];
+    const convo = { id: 'CONV-' + Date.now() + '-' + Math.floor(Math.random() * 10000), name, participants: [...new Set(['admin', ...participants])], createdAt: new Date().toISOString() };
+    convos.push(convo);
+    await s.setState('conversations', convos);
+    res.json({ ok: true, conversation: convo });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/conversations/:id', requireAdmin, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let convos = (await s.getState('conversations')) || [];
+    await s.setState('conversations', convos.filter(c => c.id !== req.params.id));
+    await s.setState('messages:' + req.params.id, []);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+async function requireConversationAccess(req, res, next) {
+  const me = await getCurrentUserRef(req);
+  if (!me) return res.status(401).json({ error: 'Not logged in.' });
+  try {
+    const s = leadsStore();
+    const convos = (await s.getState('conversations')) || [];
+    const convo = convos.find(c => c.id === req.params.id);
+    if (!convo) return res.status(404).json({ error: 'Not found.' });
+    if (me.id !== 'admin' && !convo.participants.includes(me.id)) return res.status(403).json({ error: 'Not a participant.' });
+    req._convo = convo; req._me = me;
+    next();
+  } catch (e) { res.status(500).json({ error: e.message }); }
+}
+app.get('/api/conversations/:id/messages', requireAuth, requireConversationAccess, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const messages = (await s.getState('messages:' + req.params.id)) || [];
+    res.json(messages);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/conversations/:id/messages', requireAuth, requireConversationAccess, async (req, res) => {
+  const text = safeText(req.body && req.body.text, 2000);
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    let messages = (await s.getState('messages:' + req.params.id)) || [];
+    messages.push({ id: 'MSG-' + Date.now() + '-' + Math.floor(Math.random() * 10000), from: req._me.id, fromDisplayName: req._me.displayName, text, at: new Date().toISOString() });
+
+    if (req._convo.participants.includes('mila')) {
+      const history = messages.slice(-10).map(m => `${m.fromDisplayName}: ${m.text}`).join('\n');
+      const sys = `You are Mila, in a real group chat called "${req._convo.name}" with: ${req._convo.participants.filter(p => p !== 'mila').join(', ')}. Reply naturally and specifically to what was just said — under 60 words, conversational.`;
+      const result = await callRealAI(sys, `Recent conversation:\n${history}`);
+      if (result.ok) messages.push({ id: 'MSG-' + Date.now() + '-' + Math.floor(Math.random() * 10000), from: 'mila', fromDisplayName: 'Mila', text: result.text, at: new Date().toISOString() });
+    }
+
+    await s.setState('messages:' + req.params.id, messages.slice(-500));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ======================================================
+// ASK MILA (employee landing screen) — real answers, strictly scoped to
+// what THIS employee's real permissions allow. Set once, at account
+// creation, by the owner — Mila never reveals more than that.
+// ======================================================
+app.post('/api/ask-mila', requireAuth, async (req, res) => {
+  const identity = getSessionIdentity(req);
+  if (!identity || identity.role !== 'employee') return res.status(403).json({ error: 'Employee accounts only.' });
+  const question = safeText(req.body && req.body.text, 1000);
+  if (!question) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    const users = (await s.getState('employee_users')) || [];
+    const me = users.find(u => u.id === identity.userId);
+    if (!me) return res.status(404).json({ error: 'Account not found.' });
+    const p = me.permissions || {};
+
+    let contextParts = [];
+    if (p.leadsVisible) { const leads = (await s.getState('leads')) || []; contextParts.push(`Leads: ${leads.length} tracked.`); }
+    if (p.emailManagerVisible) { const rows = (await s.getState('email_manager_rows')) || []; contextParts.push(`Email outreach: ${rows.length} tracked, ${rows.filter(r=>r.repliedAt).length} replied.`); }
+    if (p.businessVisible) { const notes = (await s.getState('business_notes')) || []; contextParts.push(`Business notes: ${notes.length} on file.`); }
+    if (p.callsVisible) { const health = await computeServerHealth(); contextParts.push(`Phone: ${health.phone.totalCalls} total calls, ${health.phone.last24h} in last 24h.`); }
+    if (p.serverHealthVisible) { const health = await computeServerHealth(); contextParts.push(`Server: up ${Math.round(health.server.uptimeSeconds/60)} min, ${health.office.activeProjects} active projects.`); }
+
+    const sys = `You are Mila. A team member named ${me.displayName} just asked you something. You may ONLY discuss and reveal information within these real permitted areas: ${contextParts.length ? contextParts.join(' ') : 'none — they currently have no data access granted.'} If their question needs information outside what's listed above, politely say that's outside what you're able to share with them, and suggest they ask the owner. Never reveal specifics from areas not listed. Under 80 words, friendly and direct. Reply in the same language they asked in (Russian or English).`;
+    const result = await callRealAI(sys, question);
+    if (!result.ok) return res.status(502).json({ error: result.error });
+    res.json({ ok: true, answer: result.text });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ======================================================
 // LEADS — one card per real contact, auto-aggregating their real
 // history across phone/email/Instagram. Two separate spaces: your own
 // notes and goals, and Mila's own analysis — never mixed together.
@@ -3000,7 +3136,10 @@ app.<span class="f2">use</span>((req, res, next) => {
 
 app.get('/login', (req, res) => {
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
-  try { if (typeof hasValidSession === 'function' && hasValidSession(req)) return res.redirect('/choose'); } catch (e) {}
+  try {
+    const identity = getSessionIdentity(req);
+    if (identity) return res.redirect(identity.role === 'admin' ? '/choose' : '/ask-mila');
+  } catch (e) {}
   res.send(`<!DOCTYPE html>
 <html>
 <head>
@@ -3134,7 +3273,10 @@ app.get('/login', (req, res) => {
           body: JSON.stringify({ username: u, password: p })
         });
         if (r.ok) {
-          window.location.href = '/choose';
+          const data = await r.json();
+          if (data.role === 'admin') window.location.href = '/choose';
+          else if (!data.firstLoginDone) window.location.href = '/welcome';
+          else window.location.href = '/ask-mila';
         } else {
           document.getElementById('loginErr').style.display = 'block';
           btn.disabled = false; btn.textContent = 'Sign in';
@@ -3839,6 +3981,329 @@ async function removeEmployee(id) {
 }
 
 loadTeam();
+</script>
+</body>
+</html>`);
+});
+
+
+
+app.get('/ask-mila', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ask Mila — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #14140f; background-image: linear-gradient(#1c1c17 1px, transparent 1px), linear-gradient(90deg, #1c1c17 1px, transparent 1px); background-size: 64px 64px; color: #e8e6df; min-height: 100vh; }
+  .navbar { padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; }
+  .navbar .brand { font-weight: 700; font-size: 0.9rem; letter-spacing: -0.2px; }
+  .navbar a { color: #8a8778; text-decoration: none; font-size: 0.76rem; padding: 8px 14px; border-radius: 7px; border: 1px solid #2a2a24; }
+  .navbar a:hover { border-color: #4a4a40; color: #e8e6df; }
+  .hero { max-width: 720px; margin: 8vh auto 0; padding: 0 24px; text-align: center; }
+  .hero h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.5px; margin: 0 0 12px; }
+  .hero .sub { color: #8a8778; font-size: 0.94rem; margin-bottom: 34px; }
+  .prompt-box { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 14px; padding: 4px; box-shadow: 0 30px 80px rgba(0,0,0,0.4); }
+  .prompt-inner { padding: 18px 20px; min-height: 70px; }
+  .prompt-inner textarea { width: 100%; background: transparent; border: none; outline: none; color: #e8e6df; font-size: 0.96rem; font-family: inherit; resize: none; }
+  .prompt-bar { display: flex; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid #26261f; }
+  .send-btn { background: #e8e6df; color: #14140f; border: none; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; font-size: 0.9rem; }
+  .send-btn:disabled { opacity: 0.4; }
+  .pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 24px; }
+  .pill { border: 1px solid #2a2a24; border-radius: 20px; padding: 8px 16px; font-size: 0.78rem; color: #b5b2a5; cursor: pointer; background: #1a1a16; }
+  .pill:hover { border-color: #4a4a40; color: #e8e6df; }
+  .answer-box { max-width: 720px; margin: 26px auto 0; padding: 0 24px; }
+  .answer { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 12px; padding: 20px 22px; font-size: 0.9rem; line-height: 1.6; color: #d5d2c5; white-space: pre-wrap; }
+  .loading { color: #6a6858; font-size: 0.84rem; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div class="brand" id="brandName">Manet</div>
+    <a href="/discord">Team Chat</a>
+  </div>
+  <div class="hero">
+    <h1 id="greetName">Ask Mila</h1>
+    <div class="sub">Whatever you need to know — ask in plain English or Russian.</div>
+    <div class="prompt-box">
+      <div class="prompt-inner">
+        <textarea id="askInput" rows="2" placeholder="What do you want to know?" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();ask();}"></textarea>
+      </div>
+      <div class="prompt-bar">
+        <button class="send-btn" onclick="ask()">-&gt;</button>
+      </div>
+    </div>
+    <div class="pills">
+      <div class="pill" onclick="askPreset(this)">What can I do here?</div>
+      <div class="pill" onclick="askPreset(this)">How do I use the team chat?</div>
+      <div class="pill" onclick="askPreset(this)">Что мне сейчас нужно знать?</div>
+    </div>
+  </div>
+  <div class="answer-box" id="answerBox"></div>
+
+<script>
+async function init() {
+  const res = await fetch('/api/me', { credentials: 'include' });
+  if (res.ok) {
+    const me = await res.json();
+    document.getElementById('greetName').textContent = 'Hey, ' + me.displayName;
+  }
+}
+function askPreset(el) {
+  document.getElementById('askInput').value = el.textContent;
+  ask();
+}
+async function ask() {
+  const input = document.getElementById('askInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const box = document.getElementById('answerBox');
+  box.innerHTML = '<div class="loading">Mila is thinking…</div>';
+  input.value = '';
+  try {
+    const res = await fetch('/api/ask-mila', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+    const data = await res.json();
+    box.innerHTML = res.ok ? '<div class="answer">' + escAM(data.answer) + '</div>' : '<div class="answer">' + escAM(data.error || 'Something went wrong.') + '</div>';
+  } catch (e) { box.innerHTML = '<div class="answer">' + escAM(e.message) + '</div>'; }
+}
+function escAM(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+init();
+</script>
+</body>
+</html>`);
+});
+
+app.get('/welcome', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Welcome — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #14140f; color: #e8e6df; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .box { max-width: 420px; width: 100%; padding: 40px 32px; }
+  h1 { font-size: 1.6rem; font-weight: 600; margin: 0 0 8px; }
+  .sub { color: #8a8778; font-size: 0.86rem; margin-bottom: 28px; }
+  input { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 8px; background: #1a1a16; border: 1px solid #2a2a24; color: #e8e6df; font-size: 0.86rem; margin-bottom: 14px; font-family: inherit; }
+  label { font-size: 0.72rem; color: #8a8778; display: block; margin-bottom: 6px; }
+  .field { margin-bottom: 18px; }
+  .photo-preview { width: 60px; height: 60px; border-radius: 50%; background: #232320; margin-bottom: 10px; object-fit: cover; }
+  .btn { width: 100%; padding: 12px; border-radius: 8px; background: #e8e6df; color: #14140f; border: none; font-size: 0.86rem; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="box">
+    <h1>Welcome.</h1>
+    <div class="sub">Quick setup before you get started.</div>
+    <div class="field">
+      <label>Your name</label>
+      <input id="wName" placeholder="What should we call you?">
+    </div>
+    <div class="field">
+      <label>Photo (optional)</label>
+      <img class="photo-preview" id="photoPreview" style="display:none;">
+      <input type="file" id="wPhoto" accept="image/*">
+    </div>
+    <div class="field">
+      <label>New password (optional — leave blank to keep the one you were given)</label>
+      <input id="wPassword" type="password" placeholder="At least 6 characters">
+    </div>
+    <button class="btn" onclick="finishWelcome()">Get started</button>
+  </div>
+<script>
+let photoDataUrl = null;
+document.getElementById('wPhoto').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    photoDataUrl = reader.result;
+    const img = document.getElementById('photoPreview');
+    img.src = photoDataUrl; img.style.display = 'block';
+  };
+  reader.readAsDataURL(file);
+});
+async function finishWelcome() {
+  const displayName = document.getElementById('wName').value.trim();
+  const newPassword = document.getElementById('wPassword').value;
+  const body = {};
+  if (displayName) body.displayName = displayName;
+  if (photoDataUrl) body.photoUrl = photoDataUrl;
+  if (newPassword) body.newPassword = newPassword;
+  const res = await fetch('/api/me/first-login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify(body) });
+  if (res.ok) window.location.href = '/ask-mila';
+  else alert('Something went wrong — try again.');
+}
+</script>
+</body>
+</html>`);
+});
+
+app.get('/discord', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Team Chat — Manet Creative</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #14140f; color: #e8e6df; height: 100vh; overflow: hidden; }
+  .layout { display: flex; height: 100vh; }
+  .sidebar { width: 260px; background: #1a1a16; border-right: 1px solid #2a2a24; display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-head { padding: 18px 18px 14px; border-bottom: 1px solid #2a2a24; display: flex; align-items: center; justify-content: space-between; }
+  .sidebar-head a { color: #8a8778; text-decoration: none; font-size: 0.72rem; }
+  .sidebar-title { font-weight: 700; font-size: 0.9rem; letter-spacing: -0.2px; }
+  .convo-list { flex: 1; overflow-y: auto; padding: 10px; }
+  .convo-item { padding: 10px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 3px; font-size: 0.82rem; color: #b5b2a5; display: flex; align-items: center; gap: 8px; }
+  .convo-item:hover { background: #232320; }
+  .convo-item.active { background: #2d2d27; color: #fff; }
+  .convo-hash { color: #6a6858; }
+  .new-convo-btn { margin: 10px; padding: 9px; border-radius: 8px; background: #232320; border: 1px dashed #3a3a34; color: #8a8778; font-size: 0.76rem; text-align: center; cursor: pointer; }
+  .new-convo-btn:hover { border-color: #5a5a50; color: #b5b2a5; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .main-head { padding: 16px 24px; border-bottom: 1px solid #2a2a24; font-weight: 700; font-size: 0.94rem; display: flex; justify-content: space-between; align-items: center; }
+  .main-head .participants { font-size: 0.68rem; color: #8a8778; font-weight: 400; margin-top: 2px; }
+  .msgs { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .msg { display: flex; gap: 12px; margin-bottom: 16px; }
+  .msg-avatar { width: 34px; height: 34px; border-radius: 50%; background: #3a3a34; display: flex; align-items: center; justify-content: center; font-size: 0.76rem; font-weight: 700; flex-shrink: 0; color: #e8e6df; }
+  .msg-avatar.mila { background: #5b4636; color: #f0c896; }
+  .msg-body b { font-size: 0.84rem; }
+  .msg-time { font-size: 0.62rem; color: #6a6858; margin-left: 6px; }
+  .msg-text { font-size: 0.86rem; color: #d5d2c5; line-height: 1.5; margin-top: 2px; white-space: pre-wrap; }
+  .input-row { padding: 16px 24px 22px; }
+  .input-inner { background: #232320; border-radius: 10px; padding: 12px 16px; display: flex; gap: 10px; }
+  .input-inner input { flex: 1; background: transparent; border: none; outline: none; color: #e8e6df; font-size: 0.86rem; font-family: inherit; }
+  .send-btn { background: #e8e6df; color: #14140f; border: none; border-radius: 6px; padding: 6px 14px; font-size: 0.76rem; font-weight: 700; cursor: pointer; }
+  .empty-state { color: #6a6858; font-size: 0.84rem; padding: 40px; text-align: center; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal-box { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 12px; padding: 24px; width: 360px; }
+  .modal-box h3 { margin: 0 0 14px; font-size: 0.94rem; }
+  .modal-box input[type=text] { width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 7px; background: #232320; border: 1px solid #3a3a34; color: #e8e6df; font-size: 0.82rem; margin-bottom: 12px; font-family: inherit; }
+  .participant-check { display: flex; align-items: center; gap: 8px; font-size: 0.82rem; padding: 6px 0; color: #b5b2a5; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .btn { padding: 8px 16px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; border: none; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #e8e6df; color: #14140f; }
+  .btn.outline { background: transparent; border: 1px solid #3a3a34; color: #b5b2a5; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <div class="sidebar-head">
+        <div class="sidebar-title">Team Chat</div>
+        <a href="/choose">Back</a>
+      </div>
+      <div class="convo-list" id="convoList"></div>
+      <div class="new-convo-btn" id="newConvoBtn" style="display:none;" onclick="openNewConvoModal()">+ New conversation</div>
+    </div>
+    <div class="main">
+      <div class="main-head" id="mainHead"><div>Select a conversation</div></div>
+      <div class="msgs" id="msgsArea"><div class="empty-state">Pick a conversation on the left.</div></div>
+      <div class="input-row" id="inputRow" style="display:none;">
+        <div class="input-inner">
+          <input id="msgInput" placeholder="Message…" onkeydown="if(event.key==='Enter')sendMsg();">
+          <button class="send-btn" onclick="sendMsg()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="newConvoOverlay">
+    <div class="modal-box">
+      <h3>New conversation</h3>
+      <input type="text" id="convoName" placeholder="Conversation name">
+      <div id="participantChecks"></div>
+      <div class="modal-actions">
+        <button class="btn outline" onclick="closeNewConvoModal()">Cancel</button>
+        <button class="btn primary" onclick="createConvo()">Create</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+let currentConvoId = null;
+let isAdmin = false;
+let team = [];
+
+async function init() {
+  const meRes = await fetch('/api/me', { credentials: 'include' });
+  const me = await meRes.json();
+  isAdmin = me.role === 'admin';
+  if (isAdmin) {
+    document.getElementById('newConvoBtn').style.display = 'block';
+    const teamRes = await fetch('/api/team', { credentials: 'include' });
+    if (teamRes.ok) team = await teamRes.json();
+  }
+  loadConvos();
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function loadConvos() {
+  const res = await fetch('/api/conversations', { credentials: 'include' });
+  const convos = res.ok ? await res.json() : [];
+  const list = document.getElementById('convoList');
+  if (!convos.length) { list.innerHTML = '<div class="empty-state">No conversations yet.</div>'; return; }
+  list.innerHTML = convos.map(c => '<div class="convo-item' + (c.id === currentConvoId ? ' active' : '') + '" data-id="' + c.id + '" onclick="openConvo(this.dataset.id)"><span class="convo-hash">#</span> ' + esc(c.name) + '</div>').join('');
+  window._convos = convos;
+}
+
+async function openConvo(id) {
+  currentConvoId = id;
+  loadConvos();
+  const convo = (window._convos || []).find(c => c.id === id);
+  document.getElementById('mainHead').innerHTML = '<div><div># ' + esc(convo.name) + '</div><div class="participants">' + convo.participantNames.map(esc).join(', ') + '</div></div>';
+  document.getElementById('inputRow').style.display = 'block';
+  await loadMessages();
+}
+async function loadMessages() {
+  if (!currentConvoId) return;
+  const res = await fetch('/api/conversations/' + currentConvoId + '/messages', { credentials: 'include' });
+  const messages = res.ok ? await res.json() : [];
+  const area = document.getElementById('msgsArea');
+  area.innerHTML = messages.length ? messages.map(m => {
+    const isMila = m.from === 'mila';
+    return '<div class="msg"><div class="msg-avatar' + (isMila ? ' mila' : '') + '">' + esc((m.fromDisplayName || '?')[0]) + '</div><div class="msg-body"><b>' + esc(m.fromDisplayName) + '</b><span class="msg-time">' + new Date(m.at).toLocaleTimeString('en-US',{timeZone:'America/Los_Angeles',hour:'2-digit',minute:'2-digit'}) + '</span><div class="msg-text">' + esc(m.text) + '</div></div></div>';
+  }).join('') : '<div class="empty-state">No messages yet — say something.</div>';
+  area.scrollTop = area.scrollHeight;
+}
+async function sendMsg() {
+  const input = document.getElementById('msgInput');
+  const text = input.value.trim();
+  if (!text || !currentConvoId) return;
+  input.value = '';
+  await fetch('/api/conversations/' + currentConvoId + '/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+  await loadMessages();
+}
+
+function openNewConvoModal() {
+  document.getElementById('convoName').value = '';
+  const checksEl = document.getElementById('participantChecks');
+  let html = '<label class="participant-check"><input type="checkbox" value="mila"> Mila</label>';
+  team.forEach(u => { html += '<label class="participant-check"><input type="checkbox" value="' + u.id + '"> ' + esc(u.displayName) + '</label>'; });
+  checksEl.innerHTML = html;
+  document.getElementById('newConvoOverlay').classList.add('open');
+}
+function closeNewConvoModal() { document.getElementById('newConvoOverlay').classList.remove('open'); }
+async function createConvo() {
+  const name = document.getElementById('convoName').value.trim();
+  if (!name) return;
+  const participants = Array.from(document.querySelectorAll('#participantChecks input:checked')).map(cb => cb.value);
+  const res = await fetch('/api/conversations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, participants }) });
+  if (res.ok) { closeNewConvoModal(); loadConvos(); }
+}
+
+init();
+setInterval(() => { if (currentConvoId) loadMessages(); }, 5000);
 </script>
 </body>
 </html>`);
