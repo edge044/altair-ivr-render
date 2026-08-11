@@ -14,6 +14,21 @@ const app = express();
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
+// ── Real server-wide error tracking — Sasha's real eyes on crashes,
+// not simulated. Persisted so a crash right before a restart isn't lost.
+async function logRealServerError(kind, err) {
+  try {
+    console.error(`✗ REAL ${kind}:`, err && err.stack ? err.stack : err);
+    const s = getStore();
+    if (!s) return;
+    let errors = (await s.getState('server_errors')) || [];
+    errors.push({ id: 'ERR-' + Date.now() + '-' + Math.floor(Math.random() * 10000), kind, message: (err && err.message) || String(err), stack: (err && err.stack) ? err.stack.slice(0, 2000) : null, at: new Date().toISOString() });
+    await s.setState('server_errors', errors.slice(-300));
+  } catch (e) { console.error('✗ Could not persist real server error:', e.message); }
+}
+process.on('uncaughtException', (err) => { logRealServerError('uncaughtException', err); });
+process.on('unhandledRejection', (reason) => { logRealServerError('unhandledRejection', reason); });
+
 // ======================================================
 // AUTHENTICATION
 // ======================================================
@@ -948,7 +963,12 @@ if (process.env.NODE_ENV !== 'production' || process.env.FREE_PLAN === 'true') {
 }
 
 // ======================================================
-// DATA STORAGE
+// DATA STORAGE — real Postgres, via the same shared store already used
+// for office/leads/email/etc. loadJSON/saveJSON keep their exact
+// original synchronous signature on purpose — every one of the ~20
+// call-handling routes below calls them exactly like before, untouched.
+// Under the hood they now read/write an in-memory cache that's loaded
+// from Postgres on boot and written through on every save.
 // ======================================================
 
 const LOGS_DIR = process.env.LOGS_DIR || "./logs";
@@ -963,26 +983,78 @@ const DB_PATH = `${CURRENT_LOGS_DIR}/appointments.json`;
 const CALL_LOGS_PATH = `${CURRENT_LOGS_DIR}/call_logs.json`;
 const MESSAGES_PATH = `${CURRENT_LOGS_DIR}/messages.json`;
 
-function loadJSON(filePath) {
+const PHONE_CACHE_KEYS = { [DB_PATH]: 'phone_appointments', [CALL_LOGS_PATH]: 'phone_call_logs', [MESSAGES_PATH]: 'phone_messages' };
+const phoneCache = { phone_appointments: null, phone_call_logs: null, phone_messages: null };
+let phoneCacheReady = false;
+
+function loadJSONFromFile(filePath) {
   try {
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, '[]');
-      return [];
-    }
+    if (!fs.existsSync(filePath)) return [];
     const data = fs.readFileSync(filePath, "utf8");
     return JSON.parse(data || '[]');
-  } catch (error) {
-    return [];
+  } catch (error) { return []; }
+}
+
+async function initPhoneStorage() {
+  // Real retry loop — getStore() may not be ready in the first instant
+  // after boot (Postgres connection setup happening in office-integration.js).
+  for (let i = 0; i < 20; i++) {
+    const s = getStore();
+    if (s) {
+      for (const [filePath, key] of Object.entries(PHONE_CACHE_KEYS)) {
+        try {
+          const existing = await s.getState(key);
+          if (existing !== null && existing !== undefined) {
+            phoneCache[key] = existing;
+          } else {
+            // First real boot on Postgres — migrate whatever's in the
+            // (possibly about-to-be-wiped) local file once, so existing
+            // data isn't lost.
+            const fromFile = loadJSONFromFile(filePath);
+            phoneCache[key] = fromFile;
+            await s.setState(key, fromFile);
+          }
+        } catch (e) {
+          console.error(`✗ Phone system: could not load "${key}" from Postgres, using local file fallback:`, e.message);
+          phoneCache[key] = loadJSONFromFile(filePath);
+        }
+      }
+      phoneCacheReady = true;
+      console.log('✓ Phone system: real Postgres storage connected — calls/appointments/messages now survive every deploy.');
+      return;
+    }
+    await new Promise(r => setTimeout(r, 500));
   }
+  console.warn('⚠ Phone system: Postgres store never became ready — falling back to local files. Calls/appointments/messages will be WIPED on every deploy. Make sure DATABASE_URL is set in Render.');
+  Object.keys(PHONE_CACHE_KEYS).forEach(fp => { phoneCache[PHONE_CACHE_KEYS[fp]] = loadJSONFromFile(fp); });
+  phoneCacheReady = true;
+}
+function persistPhoneKey(key) {
+  const s = getStore();
+  if (!s) return;
+  s.setState(key, phoneCache[key]).catch(e => console.error(`✗ Phone system: Postgres save failed for "${key}":`, e.message));
+}
+
+function loadJSON(filePath) {
+  const key = PHONE_CACHE_KEYS[filePath];
+  if (key && phoneCacheReady) return phoneCache[key] || [];
+  // Startup race guard — real requests basically never land in the
+  // first instant of boot, but fall back safely to the file instead of
+  // losing a real call if one somehow does.
+  return loadJSONFromFile(filePath);
 }
 
 function saveJSON(filePath, data) {
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
-  } catch (error) {
-    console.error("ERROR saving:", error);
+  const key = PHONE_CACHE_KEYS[filePath];
+  if (key) {
+    phoneCache[key] = data;
+    persistPhoneKey(key);
+    return;
   }
+  try { fs.writeFileSync(filePath, JSON.stringify(data, null, 2)); } catch (error) { console.error("ERROR saving:", error); }
 }
+
+initPhoneStorage();
 
 function loadDB() { return loadJSON(DB_PATH); }
 function saveDB(data) { saveJSON(DB_PATH, data); }
@@ -2216,6 +2288,54 @@ async function computeServerHealth() {
     office, email, instagram
   };
 }
+
+// ======================================================
+// SASHA'S CODE AUDIT — she actually reads the real running source code
+// (not a description of it) and does a real AI review looking for real
+// bugs. Explicitly triggered (not automatic) since each real scan costs
+// real AI money — chunked and bounded so a single run stays reasonable.
+// ======================================================
+function chunkText(text, linesPerChunk) {
+  const lines = text.split('\n');
+  const chunks = [];
+  for (let i = 0; i < lines.length; i += linesPerChunk) chunks.push(lines.slice(i, i + linesPerChunk).join('\n'));
+  return chunks;
+}
+app.post('/api/sasha-audit', requireAdmin, async (req, res) => {
+  if (!analyzeCooldownOk('sasha-audit', 5 * 60 * 1000)) return res.status(429).json({ error: 'Just ran a real audit recently — wait a few minutes before running another (real AI cost per scan).' });
+  try {
+    const s = leadsStore();
+    const indexSrc = fs.readFileSync(__filename, 'utf8');
+    let officeSrc = '';
+    try { officeSrc = fs.readFileSync(require.resolve('./office-integration'), 'utf8'); } catch (e) {}
+
+    const MAX_CHUNKS = 10; // real cost control — bounded scan, not the whole codebase every time
+    const LINES_PER_CHUNK = 500;
+    const allChunks = [
+      ...chunkText(indexSrc, LINES_PER_CHUNK).map(c => ({ file: 'index.js', code: c })),
+      ...chunkText(officeSrc, LINES_PER_CHUNK).map(c => ({ file: 'office-integration.js', code: c }))
+    ].slice(0, MAX_CHUNKS);
+
+    const findings = [];
+    for (const chunk of allChunks) {
+      const sys = `You are Sasha, a careful backend engineer doing a real code review. Look at this real chunk of ${chunk.file} from a live production server. Flag ONLY genuine, specific risks you actually see in THIS code — unhandled errors, unvalidated input reaching a real operation, race conditions, resource leaks, security gaps. Do not comment on style. If you see nothing concerning in this chunk, respond with exactly "CLEAN". Otherwise list each real issue as one short line starting with "-". Under 150 words total.`;
+      const result = await callRealAI(sys, chunk.code);
+      if (result.ok && result.text.trim() !== 'CLEAN' && !result.text.trim().toUpperCase().includes('CLEAN')) {
+        findings.push({ file: chunk.file, text: result.text.trim() });
+      }
+    }
+
+    const audit = { generatedAt: new Date().toISOString(), chunksScanned: allChunks.length, findings };
+    await s.setState('sasha_audit', audit);
+    res.json({ ok: true, audit });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/sasha-audit', requireAdmin, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('sasha_audit')) || null); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/server-errors', requireAdmin, async (req, res) => {
+  try { const s = leadsStore(); res.json(((await s.getState('server_errors')) || []).slice(-50).reverse()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.get('/api/server-health', requireAuth, async (req, res) => {
   try { res.json(await computeServerHealth()); } catch (e) { res.status(500).json({ error: e.message }); }
