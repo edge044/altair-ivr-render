@@ -837,6 +837,141 @@ async function telegramProactiveTick() {
 setInterval(telegramProactiveTick, 15 * 60 * 1000);
 setTimeout(telegramProactiveTick, 45000);
 
+// ======================================================
+// BUSINESS WORKSPACES — separate space to talk to Mila about ANY
+// business (not just the creative agency). Each business gets its own
+// chat, its own collected-info folders, and real timer-based research
+// tasks that produce a real downloadable report.
+// ======================================================
+app.get('/api/businesses', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('businesses')) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/businesses', requireAdmin, async (req, res) => {
+  const name = safeText(req.body && req.body.name, 80);
+  const description = safeText(req.body && req.body.description, 500);
+  if (!name) return res.status(400).json({ error: 'name required' });
+  try {
+    const s = leadsStore();
+    let list = (await s.getState('businesses')) || [];
+    const biz = { id: 'BIZ-' + Date.now() + '-' + Math.floor(Math.random() * 10000), name, description: description || '', createdAt: new Date().toISOString() };
+    list.push(biz);
+    await s.setState('businesses', list);
+    res.json({ ok: true, business: biz });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/api/businesses/:id', requireAdmin, async (req, res) => {
+  try {
+    const s = leadsStore();
+    let list = (await s.getState('businesses')) || [];
+    await s.setState('businesses', list.filter(b => b.id !== req.params.id));
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/businesses/:id/folders', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('biz_folders:' + req.params.id)) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/businesses/:id/folders', requireAuth, async (req, res) => {
+  const title = safeText(req.body && req.body.title, 100);
+  const content = safeText(req.body && req.body.content, 5000);
+  if (!title || !content) return res.status(400).json({ error: 'title and content required' });
+  try {
+    const s = leadsStore();
+    let folders = (await s.getState('biz_folders:' + req.params.id)) || [];
+    folders.push({ id: 'BF-' + Date.now(), title, content, createdAt: new Date().toISOString() });
+    await s.setState('biz_folders:' + req.params.id, folders);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/businesses/:id/messages', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('biz_messages:' + req.params.id)) || []); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/api/businesses/:id/messages', requireAuth, async (req, res) => {
+  const text = safeText(req.body && req.body.text, 2000);
+  if (!text) return res.status(400).json({ error: 'text required' });
+  try {
+    const s = leadsStore();
+    const list = (await s.getState('businesses')) || [];
+    const biz = list.find(b => b.id === req.params.id);
+    if (!biz) return res.status(404).json({ error: 'Business not found.' });
+    const folders = (await s.getState('biz_folders:' + req.params.id)) || [];
+    let messages = (await s.getState('biz_messages:' + req.params.id)) || [];
+    messages.push({ role: 'owner', text, at: new Date().toISOString() });
+
+    const history = messages.slice(-10).map(m => `${m.role === 'owner' ? 'Owner' : 'Mila'}: ${m.text}`).join('\n');
+    const folderContext = folders.length ? `Collected info on file for this business:\n${folders.map(f => `- ${f.title}: ${f.content.slice(0, 200)}`).join('\n')}` : 'No collected info yet.';
+    const sys = `You are Mila, talking with the owner about a specific business: "${biz.name}" — ${biz.description || 'no description given'}. ${folderContext}\n\nNote: you do not have live internet access right now — answer from real knowledge and reasoning, and say so honestly if something needs current/live data you cannot verify. Be genuinely useful and specific, not generic. Under 120 words unless the question needs more.`;
+    const result = await callRealAI(sys, `Recent conversation:\n${history}`);
+    if (result.ok) messages.push({ role: 'mila', text: result.text, at: new Date().toISOString() });
+    await s.setState('biz_messages:' + req.params.id, messages.slice(-300));
+    res.json({ ok: true, reply: result.ok ? result.text : null, error: result.ok ? null : result.error });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Real timer-based tasks — more minutes = more real sequential AI
+// refinement passes (genuinely deeper, not simulated waiting).
+const TIMER_PASSES = { 5: 1, 15: 2, 30: 3 };
+async function runBizTask(bizId, taskId) {
+  try {
+    const s = leadsStore();
+    const list = (await s.getState('businesses')) || [];
+    const biz = list.find(b => b.id === bizId);
+    if (!biz) return;
+    let tasks = (await s.getState('biz_tasks:' + bizId)) || [];
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    const folders = (await s.getState('biz_folders:' + bizId)) || [];
+    const passes = TIMER_PASSES[task.timerMinutes] || 1;
+
+    let workingDraft = '';
+    for (let i = 0; i < passes; i++) {
+      const sys = i === 0
+        ? `You are Mila, doing real focused work for the owner on the business "${biz.name}" (${biz.description || 'no description'}). Task: "${task.prompt}". Collected info on file: ${folders.map(f=>f.title).join(', ') || 'none'}. Produce a genuinely useful first draft — specific, concrete, no filler. You do not have live internet access — reason from real knowledge, and flag anything that would need current data to verify.`
+        : `You are Mila, refining your own real work. Here is your previous draft:\n${workingDraft}\n\nGo deeper — add real specifics, check your own reasoning for gaps, sharpen the recommendations. Do not just restate what you already said.`;
+      const result = await callRealAI(sys, i === 0 ? task.prompt : 'Refine and deepen this.');
+      if (result.ok) workingDraft = result.text;
+      else { workingDraft = workingDraft || `Could not complete: ${result.error}`; break; }
+    }
+
+    task.status = 'done';
+    task.completedAt = new Date().toISOString();
+    task.reportText = workingDraft;
+    await s.setState('biz_tasks:' + bizId, tasks);
+  } catch (e) { console.error('runBizTask error:', e.message); }
+}
+app.post('/api/businesses/:id/tasks', requireAuth, async (req, res) => {
+  const prompt = safeText(req.body && req.body.prompt, 1000);
+  const timerMinutes = [5, 15, 30].includes(Number(req.body && req.body.timerMinutes)) ? Number(req.body.timerMinutes) : 5;
+  if (!prompt) return res.status(400).json({ error: 'prompt required' });
+  try {
+    const s = leadsStore();
+    let tasks = (await s.getState('biz_tasks:' + req.params.id)) || [];
+    const task = { id: 'BTASK-' + Date.now(), prompt, timerMinutes, status: 'running', startedAt: new Date().toISOString(), completedAt: null, reportText: null };
+    tasks.push(task);
+    await s.setState('biz_tasks:' + req.params.id, tasks);
+    runBizTask(req.params.id, task.id); // fire and forget — real work happens in the background
+    res.json({ ok: true, task });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/businesses/:id/tasks', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json(((await s.getState('biz_tasks:' + req.params.id)) || []).reverse()); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/businesses/:id/tasks/:taskId/report.html', requireAuth, async (req, res) => {
+  try {
+    const s = leadsStore();
+    const list = (await s.getState('businesses')) || [];
+    const biz = list.find(b => b.id === req.params.id);
+    const tasks = (await s.getState('biz_tasks:' + req.params.id)) || [];
+    const task = tasks.find(t => t.id === req.params.taskId);
+    if (!task || !task.reportText) return res.status(404).send('Report not ready.');
+    res.set('Content-Type', 'text/html');
+    res.send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${(biz && biz.name) || 'Report'} — ${task.prompt.slice(0,60)}</title>
+<style>body{font-family:Georgia,serif;max-width:700px;margin:60px auto;padding:0 24px;line-height:1.7;color:#222;}h1{font-size:1.5rem;}h2{font-size:0.9rem;color:#888;font-weight:normal;}pre{white-space:pre-wrap;font-family:inherit;}</style>
+</head><body><h1>${(biz && biz.name) || 'Business'}</h1><h2>${task.prompt}</h2><hr><pre>${task.reportText.replace(/</g,'&lt;')}</pre></body></html>`);
+  } catch (e) { res.status(500).send('Error: ' + e.message); }
+});
+
 app.post('/api/leads', requireAuth, async (req, res) => {
   const { name, phone, email, instagram } = req.body || {};
   if (!name && !phone && !email && !instagram) return res.status(400).json({ error: 'Give at least a name or one identifier (phone/email/instagram).' });
@@ -3532,6 +3667,7 @@ app.get('/choose', requireAuth, (req, res) => {
       <a href="/leads" class="nav-btn"><span class="ic">👥</span> Leads</a>
       <a href="/business" class="nav-btn"><span class="ic">📋</span> Business</a>
       <a href="/discord" class="nav-btn"><span class="ic">💬</span> Team Chat</a>
+      <a href="/businesses" class="nav-btn"><span class="ic">🗂️</span> Businesses</a>
       <a href="/team" class="nav-btn" id="teamNavBtn" style="display:none;"><span class="ic">👥</span> Team</a>
     </div>
     <a href="/login" class="logout-link">Switch account</a>
@@ -4610,6 +4746,269 @@ if (new URLSearchParams(window.location.search).get('preview') === '1') {
   document.getElementById('heroScreen').style.display = 'none';
   showWizard();
 }
+</script>
+</body>
+</html>`);
+});
+
+
+app.get('/businesses', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Businesses — Manet</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #f4f2ec; color: #161616; min-height: 100vh; }
+  .navbar { padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e6e1d4; }
+  .navbar a { color: #77716a; text-decoration: none; font-size: 0.76rem; padding: 8px 14px; border-radius: 7px; border: 1px solid #d6d2c4; background: #fff; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 50px 32px 100px; }
+  h1 { font-size: 1.9rem; font-weight: 700; letter-spacing: -0.6px; margin: 0 0 8px; }
+  .sub { color: #77716a; font-size: 0.9rem; margin-bottom: 40px; }
+  .folder-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 20px; margin-bottom: 40px; }
+  .folder-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 14px; padding: 26px 22px; cursor: pointer; transition: transform 0.2s ease, box-shadow 0.2s ease; text-decoration: none; color: inherit; display: block; }
+  .folder-card:hover { transform: translateY(-4px); box-shadow: 0 16px 36px rgba(0,0,0,0.08); }
+  .folder-icon { width: 46px; height: 36px; background: linear-gradient(135deg, #14140f, #3a3a34); border-radius: 6px 6px 3px 3px; position: relative; margin-bottom: 18px; }
+  .folder-icon::before { content: ''; position: absolute; top: -6px; left: 4px; width: 20px; height: 8px; background: inherit; border-radius: 4px 4px 0 0; }
+  .folder-name { font-weight: 700; font-size: 1rem; margin-bottom: 4px; }
+  .folder-desc { font-size: 0.78rem; color: #9a9488; line-height: 1.5; }
+  .add-card { background: #fff; border: 1.5px dashed #d6d2c4; border-radius: 14px; padding: 26px 22px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #9a9488; font-size: 0.86rem; font-weight: 700; min-height: 130px; }
+  .add-card:hover { border-color: #14140f; color: #14140f; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal-box { background: #fff; border-radius: 14px; padding: 26px; width: 380px; }
+  .modal-box h3 { margin: 0 0 14px; font-size: 1rem; }
+  .modal-box input, .modal-box textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 7px; border: 1.5px solid #d6d2c4; font-size: 0.84rem; margin-bottom: 12px; font-family: inherit; }
+  .btn { padding: 9px 18px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; border: none; cursor: pointer; font-family: inherit; }
+  .btn.primary { background: #14140f; color: #fff; }
+  .btn.outline { background: #fff; border: 1.5px solid #d6d2c4; color: #161616; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
+  .empty { color: #9a9488; font-size: 0.84rem; }
+</style>
+</head>
+<body>
+  <div class="navbar">
+    <div style="font-weight:700;">Businesses</div>
+    <a href="/choose">Back</a>
+  </div>
+  <div class="wrap">
+    <h1>Your businesses</h1>
+    <div class="sub">Talk to Mila about any business you run — not just the agency. Each one gets its own chat, notes, and real research tasks.</div>
+    <div class="folder-grid" id="folderGrid"></div>
+  </div>
+
+  <div class="modal-overlay" id="addOverlay">
+    <div class="modal-box">
+      <h3>Add a business</h3>
+      <input id="bizName" placeholder="Business name">
+      <textarea id="bizDesc" rows="3" placeholder="What is it? What do you want next for it?"></textarea>
+      <div class="modal-actions">
+        <button class="btn outline" onclick="closeAddModal()">Cancel</button>
+        <button class="btn primary" onclick="createBusiness()">Create</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+async function loadBusinesses() {
+  const res = await fetch('/api/businesses', { credentials: 'include' });
+  const list = res.ok ? await res.json() : [];
+  const grid = document.getElementById('folderGrid');
+  grid.innerHTML = list.map(b =>
+    '<a class="folder-card" href="/businesses/' + b.id + '"><div class="folder-icon"></div><div class="folder-name">' + esc(b.name) + '</div><div class="folder-desc">' + esc(b.description || 'No description yet.') + '</div></a>'
+  ).join('') + '<div class="add-card" onclick="openAddModal()">+ Add business</div>';
+}
+function openAddModal() { document.getElementById('addOverlay').classList.add('open'); }
+function closeAddModal() { document.getElementById('addOverlay').classList.remove('open'); }
+async function createBusiness() {
+  const name = document.getElementById('bizName').value.trim();
+  const description = document.getElementById('bizDesc').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/businesses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ name, description }) });
+  if (res.ok) { closeAddModal(); document.getElementById('bizName').value = ''; document.getElementById('bizDesc').value = ''; loadBusinesses(); }
+  else { const data = await res.json(); alert(data.error || 'Could not create.'); }
+}
+loadBusinesses();
+</script>
+</body>
+</html>`);
+});
+
+app.get('/businesses/:id', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Business — Manet</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #f4f2ec; color: #161616; height: 100vh; overflow: hidden; }
+  .layout { display: flex; height: 100vh; }
+  .sidebar { width: 260px; background: #fbfaf7; border-right: 1px solid #e6e1d4; display: flex; flex-direction: column; flex-shrink: 0; }
+  .sidebar-head { padding: 18px; border-bottom: 1px solid #e6e1d4; }
+  .sidebar-head a { color: #9a9488; text-decoration: none; font-size: 0.72rem; }
+  .sidebar-title { font-weight: 700; font-size: 0.9rem; margin-top: 6px; }
+  .folders-label { font-size: 0.68rem; color: #9a9488; text-transform: uppercase; letter-spacing: 0.5px; padding: 14px 18px 6px; }
+  .folder-item { padding: 9px 18px; font-size: 0.8rem; color: #4a4a44; cursor: pointer; }
+  .folder-item:hover { background: #f0ede3; }
+  .add-folder-btn { margin: 10px 18px; padding: 8px; border-radius: 7px; background: #fff; border: 1px dashed #d6d2c4; color: #9a9488; font-size: 0.72rem; text-align: center; cursor: pointer; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .tabs { display: flex; gap: 6px; padding: 14px 24px; border-bottom: 1px solid #e6e1d4; }
+  .tab-btn { padding: 8px 16px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; background: #fff; border: 1.5px solid #e6e1d4; cursor: pointer; }
+  .tab-btn.active { background: #14140f; color: #fff; border-color: #14140f; }
+  .tab-content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+  .msg { display: flex; gap: 12px; margin-bottom: 16px; }
+  .msg-avatar { width: 32px; height: 32px; border-radius: 50%; background: #e6e1d4; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 700; flex-shrink: 0; }
+  .msg-avatar.mila { background: #14140f; color: #fff; }
+  .msg-text { font-size: 0.86rem; line-height: 1.5; color: #3a3a34; background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 10px 14px; display: inline-block; max-width: 520px; white-space: pre-wrap; }
+  .chat-input-row { padding: 14px 24px 20px; border-top: 1px solid #e6e1d4; display: flex; gap: 10px; }
+  .chat-input-row input { flex: 1; padding: 11px 14px; border-radius: 8px; border: 1.5px solid #d6d2c4; font-size: 0.86rem; font-family: inherit; }
+  .send-btn { background: #14140f; color: #fff; border: none; border-radius: 8px; padding: 0 18px; font-weight: 700; font-size: 0.8rem; cursor: pointer; }
+  .task-form { background: #fff; border: 1px solid #e6e1d4; border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+  .task-form textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border-radius: 7px; border: 1.5px solid #d6d2c4; font-size: 0.84rem; margin-bottom: 10px; font-family: inherit; }
+  .timer-pick { display: flex; gap: 8px; margin-bottom: 12px; }
+  .timer-opt { padding: 7px 14px; border-radius: 7px; font-size: 0.76rem; font-weight: 700; background: #fff; border: 1.5px solid #d6d2c4; cursor: pointer; }
+  .timer-opt.active { background: #14140f; color: #fff; border-color: #14140f; }
+  .task-card { background: #fff; border: 1px solid #e6e1d4; border-radius: 10px; padding: 16px 18px; margin-bottom: 12px; }
+  .task-card .prompt { font-weight: 700; font-size: 0.86rem; margin-bottom: 6px; }
+  .task-card .status { font-size: 0.7rem; color: #9a9488; margin-bottom: 8px; }
+  .task-card .report { font-size: 0.82rem; color: #3a3a34; white-space: pre-wrap; line-height: 1.5; background: #fbfaf7; border-radius: 8px; padding: 12px; }
+  .empty { color: #9a9488; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <div class="sidebar-head">
+        <a href="/businesses">Back</a>
+        <div class="sidebar-title" id="bizName">Loading…</div>
+      </div>
+      <div class="folders-label">Collected info</div>
+      <div id="foldersList"></div>
+      <div class="add-folder-btn" onclick="addFolder()">+ Add note</div>
+    </div>
+    <div class="main">
+      <div class="tabs">
+        <div class="tab-btn active" data-tab="chat" onclick="switchTab('chat')">Chat</div>
+        <div class="tab-btn" data-tab="tasks" onclick="switchTab('tasks')">Tasks &amp; Reports</div>
+      </div>
+      <div class="tab-content" id="chatTab">
+        <div id="msgsArea"></div>
+      </div>
+      <div class="tab-content" id="tasksTab" style="display:none;">
+        <div class="task-form">
+          <div style="font-weight:700;font-size:0.84rem;margin-bottom:10px;">New research task</div>
+          <textarea id="taskPrompt" rows="2" placeholder="What should Mila work on? e.g. Analyze how to grow revenue this quarter"></textarea>
+          <div class="timer-pick">
+            <div class="timer-opt active" data-min="5" onclick="pickTimer(this)">5 min</div>
+            <div class="timer-opt" data-min="15" onclick="pickTimer(this)">15 min</div>
+            <div class="timer-opt" data-min="30" onclick="pickTimer(this)">30 min</div>
+          </div>
+          <button class="btn primary" onclick="createTask()" style="padding:9px 18px;border-radius:7px;font-size:0.78rem;font-weight:700;background:#14140f;color:#fff;border:none;cursor:pointer;">Start task</button>
+        </div>
+        <div id="tasksList"></div>
+      </div>
+      <div class="chat-input-row" id="chatInputRow">
+        <input id="chatInput" placeholder="Ask Mila about this business…" onkeydown="if(event.key==='Enter')sendMsg();">
+        <button class="send-btn" onclick="sendMsg()">Send</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const bizId = window.location.pathname.split('/').pop();
+let selectedTimer = 5;
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+async function loadBiz() {
+  const res = await fetch('/api/businesses', { credentials: 'include' });
+  const list = res.ok ? await res.json() : [];
+  const biz = list.find(b => b.id === bizId);
+  document.getElementById('bizName').textContent = biz ? biz.name : 'Not found';
+}
+async function loadFolders() {
+  const res = await fetch('/api/businesses/' + bizId + '/folders', { credentials: 'include' });
+  const folders = res.ok ? await res.json() : [];
+  const el = document.getElementById('foldersList');
+  window._folders = folders;
+  el.innerHTML = folders.length ? folders.map((f, i) => '<div class="folder-item" onclick="showFolder(' + i + ')">' + esc(f.title) + '</div>').join('') : '<div class="empty" style="padding:0 18px;">No notes yet.</div>';
+}
+function showFolder(i) {
+  const f = window._folders[i];
+  alert(f.title + String.fromCharCode(10) + String.fromCharCode(10) + f.content);
+}
+async function addFolder() {
+  const title = window.prompt('Title for this note:');
+  if (!title) return;
+  const content = window.prompt('Content:');
+  if (!content) return;
+  await fetch('/api/businesses/' + bizId + '/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ title, content }) });
+  loadFolders();
+}
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  document.getElementById('chatTab').style.display = tab === 'chat' ? 'block' : 'none';
+  document.getElementById('tasksTab').style.display = tab === 'tasks' ? 'block' : 'none';
+  document.getElementById('chatInputRow').style.display = tab === 'chat' ? 'flex' : 'none';
+  if (tab === 'tasks') loadTasks();
+}
+
+async function loadMessages() {
+  const res = await fetch('/api/businesses/' + bizId + '/messages', { credentials: 'include' });
+  const messages = res.ok ? await res.json() : [];
+  const area = document.getElementById('msgsArea');
+  area.innerHTML = messages.length ? messages.map(m => {
+    const isMila = m.role === 'mila';
+    return '<div class="msg"><div class="msg-avatar' + (isMila ? ' mila' : '') + '">' + (isMila ? 'M' : 'O') + '</div><div class="msg-text">' + esc(m.text) + '</div></div>';
+  }).join('') : '<div class="empty">Say something to start — ask about this business, share context, whatever.</div>';
+  area.scrollTop = area.scrollHeight;
+}
+async function sendMsg() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const area = document.getElementById('msgsArea');
+  area.innerHTML += '<div class="msg"><div class="msg-avatar">O</div><div class="msg-text">' + esc(text) + '</div></div><div class="empty" id="thinkingMsg">Mila is thinking…</div>';
+  area.scrollTop = area.scrollHeight;
+  await fetch('/api/businesses/' + bizId + '/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ text }) });
+  loadMessages();
+}
+
+function pickTimer(el) {
+  document.querySelectorAll('.timer-opt').forEach(o => o.classList.remove('active'));
+  el.classList.add('active');
+  selectedTimer = parseInt(el.dataset.min, 10);
+}
+async function createTask() {
+  const promptText = document.getElementById('taskPrompt').value.trim();
+  if (!promptText) return;
+  document.getElementById('taskPrompt').value = '';
+  await fetch('/api/businesses/' + bizId + '/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include', body: JSON.stringify({ prompt: promptText, timerMinutes: selectedTimer }) });
+  loadTasks();
+}
+async function loadTasks() {
+  const res = await fetch('/api/businesses/' + bizId + '/tasks', { credentials: 'include' });
+  const tasks = res.ok ? await res.json() : [];
+  const el = document.getElementById('tasksList');
+  el.innerHTML = tasks.length ? tasks.map(t =>
+    '<div class="task-card"><div class="prompt">' + esc(t.prompt) + '</div><div class="status">' + (t.status === 'running' ? 'Working — ' + t.timerMinutes + ' min budget…' : 'Done') + '</div>' +
+    (t.reportText ? '<div class="report">' + esc(t.reportText) + '</div><a href="/api/businesses/' + bizId + '/tasks/' + t.id + '/report.html" target="_blank" style="font-size:0.74rem;display:inline-block;margin-top:8px;">Download report</a>' : '') +
+    '</div>'
+  ).join('') : '<div class="empty">No tasks yet.</div>';
+}
+
+loadBiz();
+loadFolders();
+loadMessages();
+setInterval(() => { if (document.getElementById('tasksTab').style.display !== 'none') loadTasks(); }, 4000);
 </script>
 </body>
 </html>`);
