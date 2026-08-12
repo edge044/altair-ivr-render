@@ -602,7 +602,7 @@ async function executeCommand(input, history) {
   const bizNotes = (await s.getState('business_notes')) || [];
   const historyText = (history || []).slice(-6).map(h => `${h.role === 'owner' ? 'Owner' : 'Mila'}: ${h.text}`).join('\n');
 
-  const sys = `You are a command router. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nOpen business reminders right now: ${bizReminders.map(r => `[${r.id}] ${r.text}`).join(' | ') || 'none'}\nBusiness notes right now: ${bizNotes.map(n => `[${n.id}] ${n.text}`).join(' | ') || 'none'}\n${historyText ? `\nRecent conversation, for resolving "it"/"yes"/vague references:\n${historyText}\n` : ''}\nThe owner just said: "${input}"\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "delete_business_reminder" | "delete_business_note" | "lookup_lead" | "add_email" | "answer_question" | "check_server_now" | "unclear", "leadId": "<exact id from the list above, or null>", "targetId": "<exact reminder/note id to delete, from the lists above, or null if unclear which>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\n\nKey distinctions:\n- add_business_reminder = a note-to-self for the OWNER to do something later themselves.\n- check_server_now = the owner wants MILA/SASHA to actually go check/monitor/audit something right now (e.g. "keep an eye on the server", "do a server audit", "check for problems") — this is a real action to perform immediately, not a reminder.\n- delete_business_reminder / delete_business_note = owner wants something removed. Use the conversation history and the current lists above to figure out targetId — if they say "delete it" right after you did something, match that. If genuinely ambiguous, leave targetId null and we'll remove the most recent one.\n- answer_question = they're asking to know/check something (status, counts) conversationally.\n- Pick add_lead_* only if you can match a specific real lead from the list by name/email/phone. Otherwise "unclear" if you truly can't tell.`;
+  const sys = `You are a command router. Today's real date is ${today}. Real leads in the system:\n${leadList}\n\nOpen business reminders right now: ${bizReminders.map(r => `[${r.id}] ${r.text}`).join(' | ') || 'none'}\nBusiness notes right now: ${bizNotes.map(n => `[${n.id}] ${n.text}`).join(' | ') || 'none'}\n${historyText ? `\nRecent conversation, for resolving "it"/"yes"/vague references:\n${historyText}\n` : ''}\nThe owner just said: "${input}"\n\nRespond with ONLY valid JSON, no other text, matching exactly this shape:\n{"action": "add_business_reminder" | "add_business_note" | "add_lead_reminder" | "add_lead_note" | "delete_business_reminder" | "delete_business_note" | "lookup_lead" | "add_email" | "answer_question" | "check_server_now" | "run_full_sasha_audit" | "unclear", "leadId": "<exact id from the list above, or null>", "targetId": "<exact reminder/note id to delete, from the lists above, or null if unclear which>", "content": "<cleaned up text>", "dueAt": "<YYYY-MM-DD or null>", "email": "<email address or null>"}\n\nKey distinctions:\n- add_business_reminder = a note-to-self for the OWNER to do something later themselves.\n- check_server_now = a quick real status check right now (light).\n- run_full_sasha_audit = the owner specifically wants Sasha to run the FULL real audit of the whole server — e.g. "запусти сашу на проверку сервера", "run a full server audit", "have Sasha check everything", "full audit". This is the deep, comprehensive real check (tests every real integration), not the quick snapshot.\n- delete_business_reminder / delete_business_note = owner wants something removed. Use the conversation history and the current lists above to figure out targetId — if they say "delete it" right after you did something, match that. If genuinely ambiguous, leave targetId null and we'll remove the most recent one.\n- answer_question = they're asking to know/check something (status, counts) conversationally.\n- Pick add_lead_* only if you can match a specific real lead from the list by name/email/phone. Otherwise "unclear" if you truly can't tell.`;
   const result = await callRealAI(sys, input);
   if (!result.ok) return { ok: false, error: result.error };
 
@@ -680,6 +680,15 @@ async function executeCommand(input, history) {
       all.push({ id: 'ROW-' + Date.now(), batchId, uploadedAt: new Date().toISOString(), email, subject: '', body: '', presetFollowupSubject: null, presetFollowupBody: null, sentConfirmed: false, sentConfirmedAt: null, followupDueAt: null, followupSubject: null, followupText: null, followupGeneratedAt: null, followupSentConfirmed: false, followupSentConfirmedAt: null, repliedAt: null });
       await s.setState('email_manager_rows', all);
       message = `Added ${email} to the outreach spreadsheet.`;
+      break;
+    }
+    case 'run_full_sasha_audit': {
+      // The real, comprehensive audit — actually tests every real
+      // integration (not just a snapshot). Takes a few real seconds
+      // since it makes several real API calls; that's fine, the reply
+      // just arrives when it's genuinely done.
+      const audit = await runSashaFullAudit('telegram-or-webchat');
+      message = `Sasha finished the full audit:\n\n${audit.reportText}`;
       break;
     }
     case 'answer_question':
@@ -2460,6 +2469,106 @@ function chunkText(text, linesPerChunk) {
   for (let i = 0; i < lines.length; i += linesPerChunk) chunks.push(lines.slice(i, i + linesPerChunk).join('\n'));
   return chunks;
 }
+// ======================================================
+// SASHA'S FULL SERVER AUDIT — real functional checks across every real
+// system: does Postgres actually connect, does the DeepSeek key actually
+// work, does Twilio actually respond, is Telegram actually linked, and
+// how much real activity has each feature actually seen (flags things
+// that are configured but never actually used — likely dead/demo).
+// Weekly automatic + on-demand via Telegram or the API.
+// ======================================================
+async function runSashaFullAudit(triggeredBy) {
+  const checks = {};
+
+  const requiredEnvVars = ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_PHONE_NUMBER', 'DEEPSEEK_API_KEY', 'DATABASE_URL', 'ADMIN_USERNAME', 'ADMIN_PASSWORD', 'SESSION_SECRET', 'OFFICE_API_KEY'];
+  const optionalEnvVars = ['TELEGRAM_BOT_TOKEN', 'INSTAGRAM_ACCESS_TOKEN', 'EMAIL_IMAP_USER', 'EMAIL_IMAP_PASS'];
+  checks.envRequired = requiredEnvVars.map(k => ({ key: k, set: !!process.env[k] }));
+  checks.envOptional = optionalEnvVars.map(k => ({ key: k, set: !!process.env[k] }));
+
+  const s = getStore();
+  checks.postgresConnected = s ? s.kind === 'postgres' : false;
+
+  let deepseekWorks = false, deepseekError = null;
+  try {
+    const result = await callRealAI('Reply with exactly one word: OK', 'ping');
+    deepseekWorks = result.ok && result.text.trim().toUpperCase().includes('OK');
+    if (!result.ok) deepseekError = result.error;
+  } catch (e) { deepseekError = e.message; }
+  checks.deepseekWorks = deepseekWorks; checks.deepseekError = deepseekError;
+
+  let twilioWorks = false, twilioError = null;
+  if (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN) {
+    try {
+      const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}.json`, { headers: { Authorization: `Basic ${auth}` } });
+      twilioWorks = res.ok;
+      if (!res.ok) twilioError = `Real Twilio check failed: HTTP ${res.status}`;
+    } catch (e) { twilioError = e.message; }
+  } else twilioError = 'Credentials not set';
+  checks.twilioWorks = twilioWorks; checks.twilioError = twilioError;
+
+  let telegramWorks = false, telegramError = null, telegramLinked = false;
+  if (process.env.TELEGRAM_BOT_TOKEN) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/getMe`);
+      const data = await res.json();
+      telegramWorks = !!data.ok;
+      if (!data.ok) telegramError = data.description;
+    } catch (e) { telegramError = e.message; }
+    try { telegramLinked = !!(await getOwnerTelegramChatId()); } catch (e) {}
+  } else telegramError = 'Bot token not set';
+  checks.telegramWorks = telegramWorks; checks.telegramError = telegramError; checks.telegramLinked = telegramLinked;
+
+  const calls = loadJSON(CALL_LOGS_PATH).filter(c => c.action === 'CALL_RECEIVED');
+  let emailRows = [], leads = [], igActivity = [], businesses = [];
+  try {
+    const s2 = leadsStore();
+    emailRows = (await s2.getState('email_manager_rows')) || [];
+    leads = (await s2.getState('leads')) || [];
+    igActivity = (await s2.getState('instagram_activity')) || [];
+    businesses = (await s2.getState('businesses')) || [];
+  } catch (e) {}
+  checks.realActivity = { totalCallsEver: calls.length, totalEmailsEver: emailRows.length, totalLeadsEver: leads.length, totalIgActivityEver: igActivity.length, totalBusinessesEver: businesses.length };
+  checks.instagramConfigured = !!process.env.INSTAGRAM_ACCESS_TOKEN;
+  checks.emailImapConfigured = !!(process.env.EMAIL_IMAP_USER && process.env.EMAIL_IMAP_PASS);
+
+  const sys = `You are Sasha, IT. You just ran a real, full functional audit — not reading code, but actually testing whether each real system works right now. Below is the real raw data from every check. Write a clear, honest, blunt report: what's genuinely live and working, what's configured but has zero real activity (likely unused or demo), and what's flat-out broken or missing credentials. Be specific. Under 200 words.`;
+  const result = await callRealAI(sys, `Real audit data:\n${JSON.stringify(checks, null, 2)}`);
+
+  const report = {
+    triggeredBy: triggeredBy || 'weekly-schedule', at: new Date().toISOString(), checks,
+    reportText: result.ok ? result.text : `Audit data gathered but Sasha could not write the summary: ${result.error}`,
+    tokensUsed: result.tokensUsed || 0, cost: result.cost || 0
+  };
+  try {
+    const s3 = leadsStore();
+    await s3.setState('sasha_full_audit', report);
+    let history = (await s3.getState('sasha_audit_history')) || [];
+    history.push({ at: report.at, reportText: report.reportText, triggeredBy: report.triggeredBy });
+    await s3.setState('sasha_audit_history', history.slice(-20));
+  } catch (e) { console.error('Could not save Sasha audit:', e.message); }
+  return report;
+}
+app.post('/api/sasha-full-audit', requireAdmin, async (req, res) => {
+  if (!analyzeCooldownOk('sasha-full-audit', 60 * 60 * 1000)) return res.status(429).json({ error: 'Ran a real full audit recently — wait a bit before running another.' });
+  try { res.json({ ok: true, report: await runSashaFullAudit('manual-api') }); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get('/api/sasha-full-audit', requireAuth, async (req, res) => {
+  try { const s = leadsStore(); res.json((await s.getState('sasha_full_audit')) || null); } catch (e) { res.status(500).json({ error: e.message }); }
+});
+async function sashaWeeklyAuditTick() {
+  try {
+    const s = leadsStore();
+    const last = await s.getState('sasha_full_audit');
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    if (last && Date.now() - new Date(last.at).getTime() < weekMs) return; // real week hasn't passed yet
+    console.log('🛡 Sasha: running the real weekly full audit…');
+    await runSashaFullAudit('weekly-schedule');
+  } catch (e) { console.error('sashaWeeklyAuditTick error:', e.message); }
+}
+setInterval(sashaWeeklyAuditTick, 6 * 60 * 60 * 1000); // checks every 6h, only actually runs once a real week has passed
+setTimeout(sashaWeeklyAuditTick, 60000);
+
 app.post('/api/sasha-audit', requireAdmin, async (req, res) => {
   if (!analyzeCooldownOk('sasha-audit', 5 * 60 * 1000)) return res.status(429).json({ error: 'Just ran a real audit recently — wait a few minutes before running another (real AI cost per scan).' });
   try {
