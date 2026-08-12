@@ -817,7 +817,7 @@ async function telegramProactiveTick() {
     const emailRows = (await s.getState('email_manager_rows')) || [];
     for (const r of emailRows) {
       if (r.repliedAt && !notifiedSet.has('email:' + r.id)) {
-        await sendTelegramMessage(chatId, `📬 ${r.email} replied. ${r.followupText ? 'Follow-up was already sent.' : ''}`);
+        await sendTelegramMessage(chatId, `<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg></span> ${r.email} replied. ${r.followupText ? 'Follow-up was already sent.' : ''}`);
         notifiedSet.add('email:' + r.id);
       }
     }
@@ -3320,11 +3320,11 @@ app.get('/', (req, res) => {
           <div class="ide-body">
             <div class="ide-tree">
               <div class="t1">manet-office</div>
-              <div class="f">📁 routes</div>
-              <div class="f">📁 store</div>
-              <div class="f on">📄 office-integration.js</div>
-              <div class="f">📄 index.js</div>
-              <div class="f">📄 package.json</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span> routes</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span> store</div>
+              <div class="f on"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> office-integration.js</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> index.js</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> package.json</div>
             </div>
             <div class="ide-code"><pre style="margin:0;"><span class="c">// real scanner traps — these paths don't</span>
 <span class="c">// exist here, so hitting one is a bot</span>
@@ -3351,10 +3351,10 @@ app.<span class="f2">use</span>((req, res, next) => {
   </div>
   <div class="grid-strip">
     <div class="grid-row">
-      <div class="grid-cell"><span class="gi">📞</span>Phone, answered</div>
-      <div class="grid-cell"><span class="gi">🏢</span>A studio that thinks</div>
-      <div class="grid-cell"><span class="gi">📷</span>Instagram, covered</div>
-      <div class="grid-cell"><span class="gi">🔒</span>Actually secured</div>
+      <div class="grid-cell"><span class="gi"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span></span>Phone, answered</div>
+      <div class="grid-cell"><span class="gi"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg></span></span>A studio that thinks</div>
+      <div class="grid-cell"><span class="gi"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg></span></span>Instagram, covered</div>
+      <div class="grid-cell"><span class="gi"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span></span>Actually secured</div>
     </div>
   </div>
   <div style="background:#ffffff;">
@@ -3364,7 +3364,7 @@ app.<span class="f2">use</span>((req, res, next) => {
         <div class="announce" style="padding:0 0 14px;"><span class="dot3"></span>New feature<a href="https://manet.agency">Read more →</a></div>
         <h1 class="headline" style="font-size:2.1rem;">Your studio, staffed and running.</h1>
         <p class="sub">Six real AI teammates, a real day-rate budget, a real archive of every project — Mila directs, the team executes, you approve.</p>
-        <p class="sub">🚧 This system isn't open to every client yet — we're still finishing the last pieces internally. The full AI-run office will be available to all Manet clients soon.</p>
+        <p class="sub"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3z"/><path d="M12 9v4M12 17h.01"/></svg></span> This system isn't open to every client yet — we're still finishing the last pieces internally. The full AI-run office will be available to all Manet clients soon.</p>
         <div class="cta-row2">
           <a href="/login" class="btn primary">Member Login</a>
           <a href="https://manet.agency" class="btn outline">Manet for Clients</a>
@@ -3376,10 +3376,10 @@ app.<span class="f2">use</span>((req, res, next) => {
           <div class="ide-body">
             <div class="ide-tree">
               <div class="t1">manet-office</div>
-              <div class="f">📁 routes</div>
-              <div class="f on">📄 office.html</div>
-              <div class="f">📄 projects.js</div>
-              <div class="f">📄 team.js</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span> routes</div>
+              <div class="f on"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> office.html</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> projects.js</div>
+              <div class="f"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> team.js</div>
             </div>
             <div class="ide-code"><pre style="margin:0;"><span class="c">// every real job becomes a project</span>
 <span class="c">// with a real, permanent archive</span>
@@ -3659,16 +3659,16 @@ app.get('/choose', requireAuth, (req, res) => {
 </head>
 <body>
   <div class="navbar">
-    <div class="nav-logo">✳️ Manet Creative</div>
+    <div class="nav-logo"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg></span> Manet Creative</div>
     <div class="nav-buttons">
-      <a href="/admin" class="nav-btn"><span class="ic">📞</span> Phone System</a>
-      <a href="/office" class="nav-btn"><span class="ic">🏢</span> Our Office</a>
-      <a href="/email-manager" class="nav-btn"><span class="ic">✉️</span> Email Manager</a>
-      <a href="/leads" class="nav-btn"><span class="ic">👥</span> Leads</a>
-      <a href="/business" class="nav-btn"><span class="ic">📋</span> Business</a>
-      <a href="/discord" class="nav-btn"><span class="ic">💬</span> Team Chat</a>
-      <a href="/businesses" class="nav-btn"><span class="ic">🗂️</span> Businesses</a>
-      <a href="/team" class="nav-btn" id="teamNavBtn" style="display:none;"><span class="ic">👥</span> Team</a>
+      <a href="/admin" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span></span> Phone System</a>
+      <a href="/office" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg></span></span> Our Office</a>
+      <a href="/email-manager" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg></span></span> Email Manager</a>
+      <a href="/leads" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span></span> Leads</a>
+      <a href="/business" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span></span> Business</a>
+      <a href="/discord" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span></span> Team Chat</a>
+      <a href="/businesses" class="nav-btn"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span></span> Businesses</a>
+      <a href="/team" class="nav-btn" id="teamNavBtn" style="display:none;"><span class="ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span></span> Team</a>
     </div>
     <a href="/login" class="logout-link">Switch account</a>
   </div>
@@ -3686,19 +3686,19 @@ app.get('/choose', requireAuth, (req, res) => {
     </div>
 
     <div class="section-card">
-      <div class="section-title">📞 Call volume</div>
+      <div class="section-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span> Call volume</div>
       <div class="section-sub" id="callRangeLabels">Loading real call data…</div>
       <div id="callChart"></div>
     </div>
 
     <div class="two-col">
       <div class="section-card">
-        <div class="section-title">✉️ Email outreach</div>
+        <div class="section-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg></span> Email outreach</div>
         <div class="section-sub">Real state of the outreach spreadsheet</div>
         <div id="emailStats" class="loading-text">Loading…</div>
       </div>
       <div class="section-card">
-        <div class="section-title">🏢 Office</div>
+        <div class="section-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4M8 6h.01M12 6h.01M16 6h.01M8 10h.01M12 10h.01M16 10h.01M8 14h.01M12 14h.01M16 14h.01"/></svg></span> Office</div>
         <div class="section-sub">Real project and AI spend state</div>
         <div id="officeStats" class="loading-text">Loading…</div>
       </div>
@@ -3706,12 +3706,12 @@ app.get('/choose', requireAuth, (req, res) => {
 
     <div class="two-col">
       <div class="section-card">
-        <div class="section-title">📋 Business notes</div>
+        <div class="section-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> Business notes</div>
         <div class="section-sub">Latest — <a href="/business" style="color:#8a8778;">see all →</a></div>
         <div id="bizNotesPreview" class="loading-text">Loading…</div>
       </div>
       <div class="section-card">
-        <div class="section-title">⏰ Open business reminders</div>
+        <div class="section-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> Open business reminders</div>
         <div class="section-sub"><a href="/business" style="color:#8a8778;">see all →</a></div>
         <div id="bizRemindersPreview" class="loading-text">Loading…</div>
       </div>
@@ -3823,7 +3823,7 @@ async function loadBusinessPreview() {
     const remEl = document.getElementById('bizRemindersPreview');
     remEl.classList.remove('loading-text');
     const openRem = reminders.filter(r => !r.done);
-    remEl.innerHTML = openRem.length ? openRem.slice(0, 4).map(r => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #26261f;">⏰ ' + escDash(r.text) + (r.dueAt ? ' <span style="color:#6a6858;">— ' + r.dueAt + '</span>' : '') + '</div>').join('') : '<div style="color:#6a6858;font-size:0.78rem;">Nothing pending.</div>';
+    remEl.innerHTML = openRem.length ? openRem.slice(0, 4).map(r => '<div style="font-size:0.78rem;padding:6px 0;border-bottom:1px solid #26261f;"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> ' + escDash(r.text) + (r.dueAt ? ' <span style="color:#6a6858;">— ' + r.dueAt + '</span>' : '') + '</div>').join('') : '<div style="color:#6a6858;font-size:0.78rem;">Nothing pending.</div>';
   } catch (e) {}
 }
 
@@ -3899,7 +3899,7 @@ app.get('/business', requireAuth, (req, res) => {
 </head>
 <body>
   <div class="navbar">
-    <div>📋 Business</div>
+    <div><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> Business</div>
     <a href="/choose">← Back</a>
   </div>
   <div class="wrap">
@@ -3907,14 +3907,14 @@ app.get('/business', requireAuth, (req, res) => {
     <div class="sub">General plans and whole-server health — not tied to any one client.</div>
 
     <div class="tabs">
-      <div class="tab-btn active" data-tab="plans" onclick="switchTab('plans')">📋 Plans & Notes</div>
-      <div class="tab-btn" data-tab="health" onclick="switchTab('health')">🖥️ Server Health (Sasha)</div>
+      <div class="tab-btn active" data-tab="plans" onclick="switchTab('plans')"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> Plans & Notes</div>
+      <div class="tab-btn" data-tab="health" onclick="switchTab('health')"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg></span> Server Health (Sasha)</div>
     </div>
 
     <div id="tabPlans">
       <div class="two-col">
         <div class="panel">
-          <div class="panel-title">📝 My business notes — goals, next moves</div>
+          <div class="panel-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></span> My business notes — goals, next moves</div>
           <div id="notesList"></div>
           <textarea id="newNoteText" rows="2" placeholder="What's the plan?"></textarea>
           <button class="btn primary" onclick="addBusinessNote()">Add note</button>
@@ -4079,7 +4079,7 @@ app.get('/briefing', requireAuth, (req, res) => {
 </head>
 <body>
   <div class="navbar">
-    <div>☀️ Morning Briefing</div>
+    <div><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span> Morning Briefing</div>
     <a href="/choose">← Back</a>
   </div>
   <div class="wrap">
@@ -4088,7 +4088,7 @@ app.get('/briefing', requireAuth, (req, res) => {
 
     <div id="statsRow" class="stats-row"></div>
     <div id="briefingArea"><div class="empty">Loading…</div></div>
-    <button class="btn primary" onclick="generateBriefing()">🔄 Get today's briefing</button>
+    <button class="btn primary" onclick="generateBriefing()"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span> Get today's briefing</button>
   </div>
 
 <script>
@@ -4119,7 +4119,7 @@ async function generateBriefing() {
   btn.disabled = true; btn.textContent = 'Mila is reading everything…';
   const res = await fetch('/api/briefing/generate', { method: 'POST', credentials: 'include' });
   const data = await res.json();
-  btn.disabled = false; btn.textContent = '🔄 Get today\\'s briefing';
+  btn.disabled = false; btn.textContent = '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></span> Get today\\'s briefing';
   if (!res.ok) { alert(data.error || 'Could not generate briefing.'); return; }
   renderBriefing(data.briefing);
 }
@@ -4168,7 +4168,7 @@ app.get('/team', requireAdmin, (req, res) => {
 </head>
 <body>
   <div class="navbar">
-    <div>👥 Team</div>
+    <div><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> Team</div>
     <a href="/choose">← Back</a>
   </div>
   <div class="wrap">
@@ -4292,34 +4292,45 @@ app.get('/ask-mila', requireAuth, (req, res) => {
 <title>Ask Mila — Manet Creative</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #14140f; background-image: linear-gradient(#1c1c17 1px, transparent 1px), linear-gradient(90deg, #1c1c17 1px, transparent 1px); background-size: 64px 64px; color: #e8e6df; min-height: 100vh; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; background: #f6f4ee; background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120"><rect x="4" y="4" width="112" height="112" rx="10" fill="none" stroke="%23e6e1d4" stroke-width="1.4"/></svg>'); background-size: 120px 120px; color: #161616; min-height: 100vh; -webkit-font-smoothing: antialiased; }
   .navbar { padding: 20px 32px; display: flex; justify-content: space-between; align-items: center; }
-  .navbar .brand { font-weight: 700; font-size: 0.9rem; letter-spacing: -0.2px; }
-  .navbar a { color: #8a8778; text-decoration: none; font-size: 0.76rem; padding: 8px 14px; border-radius: 7px; border: 1px solid #2a2a24; }
-  .navbar a:hover { border-color: #4a4a40; color: #e8e6df; }
-  .hero { max-width: 720px; margin: 8vh auto 0; padding: 0 24px; text-align: center; }
-  .hero h1 { font-size: 2rem; font-weight: 600; letter-spacing: -0.5px; margin: 0 0 12px; }
-  .hero .sub { color: #8a8778; font-size: 0.94rem; margin-bottom: 34px; }
-  .prompt-box { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 14px; padding: 4px; box-shadow: 0 30px 80px rgba(0,0,0,0.4); }
-  .prompt-inner { padding: 18px 20px; min-height: 70px; }
-  .prompt-inner textarea { width: 100%; background: transparent; border: none; outline: none; color: #e8e6df; font-size: 0.96rem; font-family: inherit; resize: none; }
-  .prompt-bar { display: flex; justify-content: flex-end; padding: 10px 14px; border-top: 1px solid #26261f; }
-  .send-btn { background: #e8e6df; color: #14140f; border: none; border-radius: 8px; width: 34px; height: 34px; cursor: pointer; font-size: 0.9rem; }
+  .navbar .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; font-size: 0.92rem; letter-spacing: -0.2px; }
+  .navbar .brand .mark { width: 22px; height: 22px; color: #14140f; flex-shrink: 0; }
+  .navbar a { color: #77716a; text-decoration: none; font-size: 0.76rem; padding: 8px 15px; border-radius: 8px; border: 1px solid #e6e1d4; background: #fff; font-weight: 600; }
+  .navbar a:hover { border-color: #14140f; color: #14140f; }
+  .hero { max-width: 720px; margin: 7vh auto 0; padding: 0 24px; text-align: center; }
+  .badge { display: inline-flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e6e1d4; border-radius: 20px; padding: 6px 8px 6px 14px; font-size: 0.74rem; font-weight: 600; color: #4a4640; margin-bottom: 22px; }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: #4a7a5a; }
+  .badge .pill-inner { background: #14140f; color: #f6f4ee; border-radius: 14px; padding: 4px 11px; font-weight: 700; }
+  .hero h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.8px; margin: 0 0 12px; }
+  .hero .sub { color: #77716a; font-size: 0.96rem; margin-bottom: 38px; }
+  .prompt-box { background: #14140f; border-radius: 16px; padding: 5px; box-shadow: 0 40px 90px -20px rgba(20,20,15,0.3), 0 2px 6px rgba(20,20,15,0.08); }
+  .prompt-inner { padding: 20px 22px; min-height: 70px; }
+  .prompt-inner textarea { width: 100%; background: transparent; border: none; outline: none; color: #e8e6df; font-size: 0.98rem; font-family: inherit; resize: none; }
+  .prompt-bar { display: flex; justify-content: space-between; align-items: center; padding: 11px 15px; border-top: 1px solid #2a2a24; }
+  .prompt-tools { display: flex; gap: 8px; }
+  .prompt-tools .tool-ic { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #6a6858; font-size: 0.86rem; }
+  .send-btn { background: #f6f4ee; color: #14140f; border: none; border-radius: 9px; width: 36px; height: 36px; cursor: pointer; font-size: 0.9rem; font-weight: 700; transition: transform 0.15s ease; }
+  .send-btn:hover { transform: translateY(-1px); }
   .send-btn:disabled { opacity: 0.4; }
-  .pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 24px; }
-  .pill { border: 1px solid #2a2a24; border-radius: 20px; padding: 8px 16px; font-size: 0.78rem; color: #b5b2a5; cursor: pointer; background: #1a1a16; }
-  .pill:hover { border-color: #4a4a40; color: #e8e6df; }
+  .pills { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 26px; }
+  .pill { display: inline-flex; align-items: center; gap: 7px; border: 1.5px solid #e6e1d4; border-radius: 22px; padding: 9px 17px; font-size: 0.79rem; color: #4a4640; cursor: pointer; background: #fff; font-weight: 600; transition: all 0.15s ease; }
+  .pill:hover { border-color: #14140f; color: #14140f; transform: translateY(-1px); }
   .answer-box { max-width: 720px; margin: 26px auto 0; padding: 0 24px; }
-  .answer { background: #1a1a16; border: 1px solid #2a2a24; border-radius: 12px; padding: 20px 22px; font-size: 0.9rem; line-height: 1.6; color: #d5d2c5; white-space: pre-wrap; }
-  .loading { color: #6a6858; font-size: 0.84rem; text-align: center; }
+  .answer { background: #fff; border: 1px solid #e6e1d4; border-radius: 14px; padding: 22px 24px; font-size: 0.92rem; line-height: 1.65; color: #3a3630; white-space: pre-wrap; box-shadow: 0 10px 30px rgba(20,20,15,0.06); }
+  .loading { color: #a39d8f; font-size: 0.85rem; text-align: center; }
+  .awards-block { margin-top: 74px; text-align: center; padding-bottom: 40px; }
+  .awards-block .label { font-size: 0.68rem; letter-spacing: 1.6px; text-transform: uppercase; color: #a39d8f; margin-bottom: 18px; font-weight: 700; }
+  .awards-row { display: flex; gap: 32px; flex-wrap: wrap; justify-content: center; font-size: 0.88rem; font-weight: 700; color: #3a3630; }
 </style>
 </head>
 <body>
   <div class="navbar">
-    <div class="brand" id="brandName">Manet</div>
+    <div class="brand" id="brandName"><span class="mark"><svg viewBox="0 0 24 24" width="100%" height="100%"><circle cx="12" cy="12" r="12" fill="currentColor"/><path d="M12 5.5a6.5 6.5 0 1 0 6.5 6.5" stroke="var(--mark-bg,#f6f4ee)" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></span> Manet</div>
     <a href="/discord">Team Chat</a>
   </div>
   <div class="hero">
+    <div class="badge"><span class="dot"></span> Live, real data <span class="pill-inner">Not simulated</span></div>
     <h1 id="greetName">Ask Mila</h1>
     <div class="sub">Whatever you need to know — ask in plain English or Russian.</div>
     <div class="prompt-box">
@@ -4327,16 +4338,21 @@ app.get('/ask-mila', requireAuth, (req, res) => {
         <textarea id="askInput" rows="2" placeholder="What do you want to know?" onkeydown="if(event.key==='Enter' && !event.shiftKey){event.preventDefault();ask();}"></textarea>
       </div>
       <div class="prompt-bar">
+        <div class="prompt-tools"><span class="tool-ic"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span></span></div>
         <button class="send-btn" onclick="ask()">-&gt;</button>
       </div>
     </div>
     <div class="pills">
-      <div class="pill" onclick="askPreset(this)">What can I do here?</div>
-      <div class="pill" onclick="askPreset(this)">How do I use the team chat?</div>
-      <div class="pill" onclick="askPreset(this)">Что мне сейчас нужно знать?</div>
+      <div class="pill" onclick="askPreset(this)"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span> What can I do here?</div>
+      <div class="pill" onclick="askPreset(this)"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span> How do I use the team chat?</div>
+      <div class="pill" onclick="askPreset(this)"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg></span> Что мне сейчас нужно знать?</div>
     </div>
   </div>
   <div class="answer-box" id="answerBox"></div>
+  <div class="awards-block">
+    <div class="label">Recognized by</div>
+    <div class="awards-row"><span>Awwwards</span><span>The DN</span><span>Orpetron</span><span>FP25</span><span>SLO</span><span>GFG</span></div>
+  </div>
 
 <script>
 async function init() {
@@ -4347,7 +4363,7 @@ async function init() {
   }
 }
 function askPreset(el) {
-  document.getElementById('askInput').value = el.textContent;
+  document.getElementById('askInput').value = el.textContent.replace(/^\S+\s/, '');
   ask();
 }
 async function ask() {
@@ -4397,9 +4413,9 @@ app.get('/admin-intro', requireAdmin, (req, res) => {
   <h1>This is your command center.</h1>
   <div class="sub">One real system running calls, email outreach, leads, and your team — all live, nothing simulated.</div>
   <div class="cta-box">
-    <div class="item"><b>📞 Phone &amp; Email</b> — real calls and outreach, tracked automatically.</div>
-    <div class="item"><b>👥 Leads &amp; Team</b> — every contact in one place, real permissions for anyone you add.</div>
-    <div class="item"><b>💬 Mila</b> — asks, answers, and helps run the day-to-day, grounded in your real data.</div>
+    <div class="item"><b><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span> Phone &amp; Email</b> — real calls and outreach, tracked automatically.</div>
+    <div class="item"><b><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> Leads &amp; Team</b> — every contact in one place, real permissions for anyone you add.</div>
+    <div class="item"><b><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span> Mila</b> — asks, answers, and helps run the day-to-day, grounded in your real data.</div>
     <button class="cta-btn" onclick="finishIntro()">Enter the dashboard &rarr;</button>
   </div>
   <div class="awards-block">
@@ -4430,7 +4446,7 @@ app.get('/welcome', requireAuth, (req, res) => {
 
   /* ---- Screen 0: hero intro ---- */
   #heroScreen { background: #f6f4ee; background-image: radial-gradient(circle at 15% 15%, rgba(20,20,15,0.035), transparent 45%), radial-gradient(circle at 85% 80%, rgba(20,20,15,0.03), transparent 45%); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; text-align: center; }
-  .hero-mark { width: 34px; height: 34px; border-radius: 9px; background: #14140f; display: flex; align-items: center; justify-content: center; color: #f6f4ee; font-weight: 800; font-size: 0.9rem; margin-bottom: 28px; }
+  .hero-mark { width: 40px; height: 40px; color: #14140f; margin-bottom: 28px; }
   #heroScreen h1 { font-size: 3rem; font-weight: 800; letter-spacing: -1.6px; margin: 0 0 18px; max-width: 700px; line-height: 1.08; }
   #heroScreen .sub { color: #6b6558; font-size: 1.05rem; max-width: 480px; margin-bottom: 42px; line-height: 1.6; }
   .hero-cta-box { background: #14140f; border-radius: 16px; padding: 26px 30px; max-width: 460px; width: 100%; box-shadow: 0 40px 90px -20px rgba(20,20,15,0.35), 0 2px 6px rgba(20,20,15,0.08); }
@@ -4446,7 +4462,7 @@ app.get('/welcome', requireAuth, (req, res) => {
   .wizard-layout { display: flex; min-height: 100vh; }
   .wizard-sidebar { width: 260px; padding: 54px 34px; flex-shrink: 0; border-right: 1px solid rgba(20,20,15,0.06); }
   .wizard-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 0.96rem; margin-bottom: 60px; letter-spacing: -0.2px; }
-  .wizard-brand .mark { width: 24px; height: 24px; border-radius: 7px; background: #14140f; flex-shrink: 0; }
+  .wizard-brand .mark { width: 24px; height: 24px; color: #14140f; flex-shrink: 0; }
   .wizard-steps-label { font-size: 0.66rem; color: #a39d8f; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 20px; font-weight: 700; }
   .wizard-step { display: flex; align-items: center; gap: 12px; padding: 11px 0; font-size: 0.88rem; color: #a39d8f; font-weight: 500; position: relative; }
   .wizard-step.active { color: #14140f; font-weight: 700; }
@@ -4497,7 +4513,7 @@ app.get('/welcome', requireAuth, (req, res) => {
 <body>
 
 <div id="heroScreen">
-  <div class="hero-mark">M</div>
+  <div class="hero-mark"><svg viewBox="0 0 24 24" width="100%" height="100%"><circle cx="12" cy="12" r="12" fill="currentColor"/><path d="M12 5.5a6.5 6.5 0 1 0 6.5 6.5" stroke="#f6f4ee" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></div>
   <h1>Welcome to the team.</h1>
   <div class="sub">Before you dive in, let us get you set up properly — takes about two minutes.</div>
   <div class="hero-cta-box">
@@ -4513,7 +4529,7 @@ app.get('/welcome', requireAuth, (req, res) => {
 <div id="wizardScreen">
   <div class="wizard-layout">
     <div class="wizard-sidebar">
-      <div class="wizard-brand"><span class="mark"></span> Manet Creative</div>
+      <div class="wizard-brand"><span class="mark"><svg viewBox="0 0 24 24" width="100%" height="100%"><circle cx="12" cy="12" r="12" fill="currentColor"/><path d="M12 5.5a6.5 6.5 0 1 0 6.5 6.5" stroke="var(--mark-bg,#f6f4ee)" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></span> Manet Creative</div>
       <div class="wizard-steps-label">Setup</div>
       <div class="wizard-step" data-step="1"><span class="dot">1</span> Your info</div>
       <div class="wizard-step" data-step="2"><span class="dot">2</span> Photo &amp; password</div>
@@ -5238,7 +5254,7 @@ app.get('/leads', requireAuth, (req, res) => {
 </head>
 <body>
   <div class="navbar">
-    <div>👥 Leads</div>
+    <div><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg></span> Leads</div>
     <a href="/choose">← Back</a>
   </div>
   <div class="wrap">
@@ -5279,9 +5295,9 @@ function renderLeads() {
     const openReminders = (l.reminders || []).filter(r => !r.done).length;
     return '<div class="lead-card" data-id="' + l.id + '" onclick="openDetail(this.dataset.id)">' +
       '<div class="lname">' + esc(l.name || l.email || l.phone || l.instagram || 'Unnamed') + '</div>' +
-      (l.phone ? '<div class="lid">📞 ' + esc(l.phone) + '</div>' : '') +
-      (l.email ? '<div class="lid">✉️ ' + esc(l.email) + '</div>' : '') +
-      (l.instagram ? '<div class="lid">📷 @' + esc(l.instagram) + '</div>' : '') +
+      (l.phone ? '<div class="lid"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span> ' + esc(l.phone) + '</div>' : '') +
+      (l.email ? '<div class="lid"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg></span> ' + esc(l.email) + '</div>' : '') +
+      (l.instagram ? '<div class="lid"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg></span> @' + esc(l.instagram) + '</div>' : '') +
       '<div class="lmeta">' + (l.ownerNotes||[]).length + ' notes · ' + (l.milaThoughts||[]).length + ' Mila thoughts' + (openReminders ? ' · ' + openReminders + ' reminder' + (openReminders===1?'':'s') : '') + '</div>' +
       '</div>';
   }).join('');
@@ -5303,7 +5319,7 @@ async function addLead() {
   }
 }
 
-const TIMELINE_ICONS = { call: '📞', appointment: '📅', email_sent: '✉️', email_followup: '↩️', email_reply: '✅', instagram_in: '📷', instagram_out: '📷' };
+const TIMELINE_ICONS = { call: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg></span>', appointment: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span>', email_sent: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg></span>', email_followup: '↩️', email_reply: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span>', instagram_in: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg></span>', instagram_out: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2Z"/><circle cx="12" cy="13" r="4"/></svg></span>' };
 
 async function openDetail(id) {
   const overlay = document.getElementById('detailOverlay');
@@ -5320,31 +5336,31 @@ function closeDetail() { document.getElementById('detailOverlay').classList.remo
 function renderDetail(lead, timeline) {
   const box = document.getElementById('detailBox');
   box.innerHTML =
-    '<span class="detail-close" onclick="closeDetail()">✕</span>' +
+    '<span class="detail-close" onclick="closeDetail()"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></span></span>' +
     '<h2 style="margin:0 0 4px;">' + esc(lead.name || lead.email || lead.phone || lead.instagram || 'Unnamed') + '</h2>' +
     '<div style="font-size:0.76rem;color:#8a8272;margin-bottom:16px;">' + [lead.phone, lead.email, lead.instagram ? '@'+lead.instagram : ''].filter(Boolean).map(esc).join(' · ') + '</div>' +
 
-    '<div class="panel-title">📋 Real timeline (auto — calls, emails, Instagram)</div>' +
+    '<div class="panel-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span> Real timeline (auto — calls, emails, Instagram)</div>' +
     '<div class="panel" style="max-height:200px;overflow-y:auto;margin-bottom:16px;">' +
       (timeline.length ? timeline.map(e => '<div class="timeline-item"><span class="timeline-icon">' + (TIMELINE_ICONS[e.type]||'•') + '</span><div><div>' + esc(e.summary) + '</div><div class="timeline-date">' + new Date(e.at).toLocaleString('en-US',{timeZone:'America/Los_Angeles'}) + '</div></div></div>').join('') : '<div class="empty">No real activity yet on any channel.</div>') +
     '</div>' +
 
     '<div class="two-col">' +
       '<div class="panel">' +
-        '<div class="panel-title">📝 My notes — goals, next moves</div>' +
+        '<div class="panel-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></span> My notes — goals, next moves</div>' +
         '<div id="notesList">' + renderNotesOrThoughts(lead.ownerNotes) + '</div>' +
         '<textarea id="newNoteText" rows="2" placeholder="What are you thinking for this one?"></textarea>' +
         '<button class="btn outline" data-id="' + lead.id + '" onclick="addNote(this.dataset.id)" style="font-size:0.7rem;padding:6px 12px;">Add note</button>' +
       '</div>' +
       '<div class="panel">' +
-        '<div class="panel-title">💭 Mila\\'s thoughts — her own analysis</div>' +
+        '<div class="panel-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.8A7.5 7.5 0 1 0 4.2 8.2M12 8v4l3 3"/></svg></span> Mila\\'s thoughts — her own analysis</div>' +
         '<div id="milaList">' + renderNotesOrThoughts(lead.milaThoughts) + '</div>' +
-        '<button class="btn primary" data-id="' + lead.id + '" onclick="askMilaAnalyze(this.dataset.id)" style="font-size:0.7rem;padding:6px 12px;">✨ Ask Mila to analyze</button>' +
+        '<button class="btn primary" data-id="' + lead.id + '" onclick="askMilaAnalyze(this.dataset.id)" style="font-size:0.7rem;padding:6px 12px;"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg></span> Ask Mila to analyze</button>' +
       '</div>' +
     '</div>' +
 
     '<div class="panel">' +
-      '<div class="panel-title">⏰ Reminders</div>' +
+      '<div class="panel-title"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></span> Reminders</div>' +
       '<div id="remindersList">' + renderReminders(lead) + '</div>' +
       '<input id="newRemText" placeholder="e.g. Call back Friday">' +
       '<input id="newRemDate" type="date" style="width:auto;">' +
@@ -5473,7 +5489,7 @@ app.get('/email-manager', requireAuth, (req, res) => {
 </head>
 <body>
   <div class="navbar">
-    <div>✉️ Email Manager</div>
+    <div><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg></span> Email Manager</div>
     <a href="/choose">← Back</a>
   </div>
   <div class="wrap">
@@ -5481,7 +5497,7 @@ app.get('/email-manager', requireAuth, (req, res) => {
     <div class="sub">Real, growing database — new uploads add rows below, nothing here ever gets deleted or overwritten.</div>
 
     <div class="upload-box" id="uploadBox">
-      <div class="upload-icon">📥</div>
+      <div class="upload-icon"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></span></div>
       <div style="margin-bottom:14px;font-size:0.84rem;">Drop an Excel file here, or</div>
       <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none;">
       <button class="btn primary" onclick="document.getElementById('fileInput').click()">Choose Excel file</button>
@@ -5489,7 +5505,7 @@ app.get('/email-manager', requireAuth, (req, res) => {
     </div>
 
     <div class="filter-row">
-      <input id="searchInput" placeholder="🔍 Search by email or subject…" oninput="applyFilters()">
+      <input id="searchInput" placeholder="<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></span> Search by email or subject…" oninput="applyFilters()">
       <div class="filter-tabs" id="filterTabs"></div>
     </div>
 
@@ -5497,7 +5513,7 @@ app.get('/email-manager', requireAuth, (req, res) => {
   </div>
 
   <div class="chat-box">
-    <div class="chat-head">💬 Mila</div>
+    <div class="chat-head"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></span> Mila</div>
     <div class="chat-msgs" id="chatMsgs"></div>
     <div class="chat-input-row">
       <input id="chatInput" placeholder="Ask Mila about this data…" onkeydown="if(event.key==='Enter')sendChat();">
@@ -5520,12 +5536,12 @@ app.get('/email-manager', requireAuth, (req, res) => {
 const activelyStreaming = {}; // rowId -> true while real tokens are arriving live
 
 function statusFor(r) {
-  if (r.repliedAt) return { cls: 'status-replied', label: '✅ Replied' };
-  if (r.followupSentConfirmed) return { cls: 'status-sent', label: '📤 Follow-up sent — watching' };
-  if (activelyStreaming[r.id]) return { cls: 'status-writing', label: '✍️ Mila is writing…' };
-  if (r.followupText) return { cls: 'status-ready', label: '✍️ Follow-up ready' };
-  if (r.sentConfirmed) return { cls: 'status-waiting', label: '⏳ Waiting (4-day timer)' };
-  return { cls: 'status-pending', label: '❓ Confirm sent?' };
+  if (r.repliedAt) return { cls: 'status-replied', label: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></span> Replied' };
+  if (r.followupSentConfirmed) return { cls: 'status-sent', label: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></span> Follow-up sent — watching' };
+  if (activelyStreaming[r.id]) return { cls: 'status-writing', label: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></span> Mila is writing…' };
+  if (r.followupText) return { cls: 'status-ready', label: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></span> Follow-up ready' };
+  if (r.sentConfirmed) return { cls: 'status-waiting', label: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14M5 2h14M5 22v-4.17a2 2 0 0 1 .59-1.42L9 13l-3.41-3.41A2 2 0 0 1 5 8.17V4M19 22v-4.17a2 2 0 0 0-.59-1.42L15 13l3.41-3.41A2 2 0 0 0 19 8.17V4"/></svg></span> Waiting (4-day timer)' };
+  return { cls: 'status-pending', label: '<span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg></span> Confirm sent?' };
 }
 
 // ── Custom modal — replaces the native browser confirm() popup with
@@ -5623,7 +5639,7 @@ function renderBatches(rows) {
       const dueDates = allBatchRows.filter(r => r.followupDueAt && !r.followupText).map(r => new Date(r.followupDueAt));
       const earliestDue = dueDates.length ? new Date(Math.min(...dueDates)) : null;
       const dueLabel = earliestDue ? earliestDue.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
-      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">' + (dueLabel ? 'Real 4-day timer — next one writes ' + dueLabel + ' PT' : 'Waiting on the 4-day timer') + '</span> <button class="btn outline" data-batch="' + bid + '" onclick="generateNow(this.dataset.batch)" style="margin-left:8px;">✍️ Write now instead (skip the wait)</button>';
+      actionHtml = '<span style="font-size:0.72rem;color:#9a9488;">' + (dueLabel ? 'Real 4-day timer — next one writes ' + dueLabel + ' PT' : 'Waiting on the 4-day timer') + '</span> <button class="btn outline" data-batch="' + bid + '" onclick="generateNow(this.dataset.batch)" style="margin-left:8px;"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></span> Write now instead (skip the wait)</button>';
     }
     return '<div class="batch"><div class="batch-head"><div><b>Batch — ' + batchRows.length + ' email' + (batchRows.length===1?'':'s') + '</b> <span class="meta">uploaded ' + new Date(batchRows[0].uploadedAt).toLocaleDateString('en-US',{timeZone:'America/Los_Angeles',month:'short',day:'numeric'}) + '</span></div><div>' + actionHtml + '</div></div>' +
       '<table><thead><tr><th>Email</th><th>Subject</th><th>Original email</th><th>Status</th><th>Follow-up subject</th><th>Follow-up</th></tr></thead><tbody>' +
@@ -5637,7 +5653,7 @@ function renderBatches(rows) {
           waitingLabel = due.getTime() <= Date.now() ? 'due now — writing shortly…' : ('writes ' + due.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' PT');
         }
         const cellContent = activelyStreaming[r.id] ? (r._liveText || '') : (r.followupText ? escapeHtmlJs(r.followupText) : (r.sentConfirmed ? '<span style="color:#9a9488;">' + waitingLabel + '</span>' : '—'));
-        return '<tr class="' + (newReply ? 'new-reply-row' : '') + '"><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td class="wrap-cell orig-cell">' + originalEmailCell(r) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span>' + (newReply ? '<span class="new-reply-badge">✨ NEW</span>' : '') + '</td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
+        return '<tr class="' + (newReply ? 'new-reply-row' : '') + '"><td>' + escapeHtmlJs(r.email) + '</td><td class="wrap-cell">' + escapeHtmlJs(r.subject) + '</td><td class="wrap-cell orig-cell">' + originalEmailCell(r) + '</td><td><span class="status-pill ' + st.cls + '">' + statusIcon + st.label + '</span>' + (newReply ? '<span class="new-reply-badge"><span style="display:inline-flex;vertical-align:-2px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/></svg></span> NEW</span>' : '') + '</td><td class="wrap-cell">' + escapeHtmlJs(r.followupSubject || '') + '</td><td class="wrap-cell' + (activelyStreaming[r.id] ? ' live-cursor' : '') + '" id="fu-' + r.id + '">' + cellContent + '</td></tr>';
       }).join('') + '</tbody></table></div>';
   }).join('');
 }
