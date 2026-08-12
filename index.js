@@ -4426,70 +4426,78 @@ app.get('/welcome', requireAuth, (req, res) => {
 <title>Welcome — Manet Creative</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #161616; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; color: #161616; -webkit-font-smoothing: antialiased; }
 
-  /* ---- Screen 0: hero intro (light) ---- */
-  #heroScreen { background: #f4f2ec; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; text-align: center; }
-  #heroScreen h1 { font-size: 2.6rem; font-weight: 700; letter-spacing: -1px; margin: 0 0 16px; max-width: 680px; line-height: 1.15; }
-  #heroScreen .sub { color: #77716a; font-size: 1rem; max-width: 520px; margin-bottom: 36px; line-height: 1.6; }
-  .hero-cta-box { background: #14140f; border-radius: 14px; padding: 22px 26px; max-width: 480px; width: 100%; box-shadow: 0 30px 70px rgba(0,0,0,0.18); }
-  .hero-cta-box p { color: #a8a49a; font-size: 0.92rem; margin: 0 0 18px; text-align: left; }
-  .hero-cta-btn { background: #e8e6df; color: #14140f; border: none; border-radius: 8px; padding: 12px 22px; font-size: 0.88rem; font-weight: 700; cursor: pointer; width: 100%; font-family: inherit; }
-  .awards-block { margin-top: 60px; }
-  .awards-block .label { font-size: 0.72rem; letter-spacing: 1px; text-transform: uppercase; color: #9a9488; margin-bottom: 16px; }
-  .awards-row { display: flex; gap: 28px; flex-wrap: wrap; justify-content: center; font-size: 0.9rem; font-weight: 700; color: #4a4a44; }
+  /* ---- Screen 0: hero intro ---- */
+  #heroScreen { background: #f6f4ee; background-image: radial-gradient(circle at 15% 15%, rgba(20,20,15,0.035), transparent 45%), radial-gradient(circle at 85% 80%, rgba(20,20,15,0.03), transparent 45%); min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; text-align: center; }
+  .hero-mark { width: 34px; height: 34px; border-radius: 9px; background: #14140f; display: flex; align-items: center; justify-content: center; color: #f6f4ee; font-weight: 800; font-size: 0.9rem; margin-bottom: 28px; }
+  #heroScreen h1 { font-size: 3rem; font-weight: 800; letter-spacing: -1.6px; margin: 0 0 18px; max-width: 700px; line-height: 1.08; }
+  #heroScreen .sub { color: #6b6558; font-size: 1.05rem; max-width: 480px; margin-bottom: 42px; line-height: 1.6; }
+  .hero-cta-box { background: #14140f; border-radius: 16px; padding: 26px 30px; max-width: 460px; width: 100%; box-shadow: 0 40px 90px -20px rgba(20,20,15,0.35), 0 2px 6px rgba(20,20,15,0.08); }
+  .hero-cta-box p { color: #b5b0a0; font-size: 0.9rem; margin: 0 0 20px; text-align: left; letter-spacing: 0.1px; }
+  .hero-cta-btn { background: #f6f4ee; color: #14140f; border: none; border-radius: 10px; padding: 14px 22px; font-size: 0.9rem; font-weight: 700; cursor: pointer; width: 100%; font-family: inherit; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .hero-cta-btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(0,0,0,0.15); }
+  .awards-block { margin-top: 68px; }
+  .awards-block .label { font-size: 0.68rem; letter-spacing: 1.6px; text-transform: uppercase; color: #a39d8f; margin-bottom: 18px; font-weight: 600; }
+  .awards-row { display: flex; gap: 32px; flex-wrap: wrap; justify-content: center; font-size: 0.88rem; font-weight: 700; color: #3a3630; letter-spacing: -0.1px; }
 
-  /* ---- Screens 1+: wizard (light gradient, sidebar steps) ---- */
-  #wizardScreen { display: none; min-height: 100vh; background: linear-gradient(135deg, #eef4fb, #fdf1ee, #f4f2ec); }
+  /* ---- Screens 1+: wizard ---- */
+  #wizardScreen { display: none; min-height: 100vh; background: #f6f4ee; background-image: radial-gradient(circle at 80% 10%, rgba(226,196,166,0.25), transparent 40%), radial-gradient(circle at 10% 90%, rgba(166,196,226,0.2), transparent 40%); }
   .wizard-layout { display: flex; min-height: 100vh; }
-  .wizard-sidebar { width: 240px; padding: 50px 32px; flex-shrink: 0; }
-  .wizard-brand { font-weight: 700; font-size: 0.95rem; margin-bottom: 50px; }
-  .wizard-steps-label { font-size: 0.7rem; color: #9a9488; text-transform: uppercase; letter-spacing: 0.6px; margin-bottom: 16px; }
-  .wizard-step { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 0.86rem; color: #9a9488; }
-  .wizard-step.active { color: #161616; font-weight: 700; }
+  .wizard-sidebar { width: 260px; padding: 54px 34px; flex-shrink: 0; border-right: 1px solid rgba(20,20,15,0.06); }
+  .wizard-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 0.96rem; margin-bottom: 60px; letter-spacing: -0.2px; }
+  .wizard-brand .mark { width: 24px; height: 24px; border-radius: 7px; background: #14140f; flex-shrink: 0; }
+  .wizard-steps-label { font-size: 0.66rem; color: #a39d8f; text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 20px; font-weight: 700; }
+  .wizard-step { display: flex; align-items: center; gap: 12px; padding: 11px 0; font-size: 0.88rem; color: #a39d8f; font-weight: 500; position: relative; }
+  .wizard-step.active { color: #14140f; font-weight: 700; }
   .wizard-step.done { color: #4a7a5a; }
-  .wizard-step .dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #c8c2b4; display: flex; align-items: center; justify-content: center; font-size: 0.62rem; flex-shrink: 0; }
-  .wizard-step.active .dot { border-color: #161616; }
+  .wizard-step .dot { width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid #d6d0c0; display: flex; align-items: center; justify-content: center; font-size: 0.64rem; flex-shrink: 0; background: #f6f4ee; font-weight: 700; }
+  .wizard-step.active .dot { border-color: #14140f; background: #14140f; color: #f6f4ee; }
   .wizard-step.done .dot { border-color: #4a7a5a; background: #4a7a5a; color: #fff; }
   .wizard-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
-  .wizard-card { max-width: 440px; width: 100%; }
-  .wizard-card h2 { font-size: 1.5rem; font-weight: 700; margin: 0 0 8px; letter-spacing: -0.4px; }
-  .wizard-card .wsub { color: #77716a; font-size: 0.86rem; margin-bottom: 28px; }
-  .wfield { margin-bottom: 18px; }
-  .wfield label { font-size: 0.74rem; color: #6b6558; display: block; margin-bottom: 6px; font-weight: 600; }
-  .wfield input[type=text], .wfield input[type=email], .wfield input[type=password] { width: 100%; box-sizing: border-box; padding: 12px 14px; border-radius: 8px; border: 1.5px solid #d6d2c4; background: #fff; font-size: 0.9rem; font-family: inherit; }
-  .wfield input:focus { outline: none; border-color: #14140f; }
-  .photo-preview { width: 64px; height: 64px; border-radius: 50%; background: #eee; margin-bottom: 10px; object-fit: cover; display: block; }
-  .wizard-btn { padding: 12px 26px; border-radius: 8px; font-size: 0.86rem; font-weight: 700; border: none; cursor: pointer; font-family: inherit; }
+  .wizard-card { max-width: 460px; width: 100%; background: #fff; border-radius: 18px; padding: 42px 40px; box-shadow: 0 30px 70px -20px rgba(20,20,15,0.14), 0 1px 3px rgba(20,20,15,0.04); }
+  .wizard-card h2 { font-size: 1.65rem; font-weight: 800; margin: 0 0 8px; letter-spacing: -0.6px; }
+  .wizard-card .wsub { color: #77716a; font-size: 0.88rem; margin-bottom: 30px; }
+  .wfield { margin-bottom: 20px; }
+  .wfield label { font-size: 0.72rem; color: #6b6558; display: block; margin-bottom: 7px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+  .wfield input[type=text], .wfield input[type=email], .wfield input[type=password] { width: 100%; box-sizing: border-box; padding: 13px 15px; border-radius: 9px; border: 1.5px solid #e6e1d4; background: #fbfaf7; font-size: 0.92rem; font-family: inherit; transition: border-color 0.15s ease, background 0.15s ease; }
+  .wfield input:focus { outline: none; border-color: #14140f; background: #fff; }
+  .photo-preview { width: 68px; height: 68px; border-radius: 50%; background: #eee; margin-bottom: 12px; object-fit: cover; display: block; border: 3px solid #fff; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+  .wizard-btn { padding: 13px 28px; border-radius: 9px; font-size: 0.88rem; font-weight: 700; border: none; cursor: pointer; font-family: inherit; transition: transform 0.15s ease, opacity 0.15s ease; }
   .wizard-btn.primary { background: #14140f; color: #fff; }
-  .wizard-btn.outline { background: transparent; border: 1.5px solid #d6d2c4; color: #161616; margin-right: 10px; }
-  .wizard-actions { display: flex; margin-top: 24px; }
+  .wizard-btn.primary:hover { transform: translateY(-1px); }
+  .wizard-btn.outline { background: transparent; border: 1.5px solid #e6e1d4; color: #161616; margin-right: 10px; }
+  .wizard-btn.outline:hover { border-color: #14140f; }
+  .wizard-actions { display: flex; margin-top: 28px; }
 
   /* ---- Confidentiality step ---- */
-  .agree-row { display: flex; align-items: flex-start; gap: 10px; background: #fff; border: 1.5px solid #d6d2c4; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
-  .agree-row input[type=checkbox] { margin-top: 3px; }
-  .agree-row .agree-text { font-size: 0.84rem; line-height: 1.5; }
-  .read-more-link { color: #14140f; font-weight: 700; text-decoration: underline; cursor: pointer; }
+  .agree-row { display: flex; align-items: flex-start; gap: 12px; background: #fbfaf7; border: 1.5px solid #e6e1d4; border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+  .agree-row input[type=checkbox] { margin-top: 3px; width: 16px; height: 16px; accent-color: #14140f; }
+  .agree-row .agree-text { font-size: 0.85rem; line-height: 1.55; color: #3a3630; }
+  .read-more-link { color: #14140f; font-weight: 700; text-decoration: underline; cursor: pointer; text-underline-offset: 2px; }
+  .sig-label { font-size: 0.72rem; color: #6b6558; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 10px; }
   .sig-tabs { display: flex; gap: 8px; margin-bottom: 12px; }
-  .sig-tab { padding: 7px 14px; border-radius: 7px; font-size: 0.78rem; font-weight: 700; background: #fff; border: 1.5px solid #d6d2c4; cursor: pointer; }
+  .sig-tab { padding: 8px 15px; border-radius: 8px; font-size: 0.78rem; font-weight: 700; background: #fbfaf7; border: 1.5px solid #e6e1d4; cursor: pointer; transition: all 0.15s ease; }
   .sig-tab.active { background: #14140f; color: #fff; border-color: #14140f; }
-  #sigCanvas { border: 1.5px solid #d6d2c4; border-radius: 8px; background: #fff; width: 100%; height: 140px; touch-action: none; cursor: crosshair; }
-  .sig-clear { font-size: 0.74rem; color: #77716a; text-decoration: underline; cursor: pointer; margin-top: 8px; display: inline-block; }
-  #sigUploadPreview { max-width: 100%; max-height: 100px; margin-top: 10px; display: none; }
+  #sigCanvas { border: 1.5px solid #e6e1d4; border-radius: 10px; background: #fbfaf7; width: 100%; height: 140px; touch-action: none; cursor: crosshair; }
+  .sig-clear { font-size: 0.74rem; color: #9a9488; text-decoration: underline; cursor: pointer; margin-top: 8px; display: inline-block; }
+  #sigUploadPreview { max-width: 100%; max-height: 100px; margin-top: 10px; display: none; border-radius: 8px; }
 
   /* ---- Policy modal ---- */
-  .policy-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 30px; }
+  .policy-overlay { position: fixed; inset: 0; background: rgba(20,20,15,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; padding: 30px; backdrop-filter: blur(2px); }
   .policy-overlay.open { display: flex; }
-  .policy-box { background: #fff; border-radius: 14px; max-width: 640px; width: 100%; max-height: 82vh; display: flex; flex-direction: column; }
-  .policy-head { padding: 20px 26px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
-  .policy-head h3 { margin: 0; font-size: 1.05rem; }
-  .policy-close { cursor: pointer; font-size: 1.2rem; color: #999; }
-  .policy-body { padding: 20px 26px; overflow-y: auto; font-size: 0.84rem; line-height: 1.65; white-space: pre-wrap; color: #3a3a34; }
+  .policy-box { background: #fff; border-radius: 16px; max-width: 640px; width: 100%; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 40px 90px rgba(0,0,0,0.25); }
+  .policy-head { padding: 22px 28px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+  .policy-head h3 { margin: 0; font-size: 1.08rem; font-weight: 800; letter-spacing: -0.3px; }
+  .policy-close { cursor: pointer; font-size: 1.3rem; color: #9a9488; line-height: 1; }
+  .policy-close:hover { color: #14140f; }
+  .policy-body { padding: 22px 28px; overflow-y: auto; font-size: 0.85rem; line-height: 1.7; white-space: pre-wrap; color: #3a3630; }
 </style>
 </head>
 <body>
 
 <div id="heroScreen">
+  <div class="hero-mark">M</div>
   <h1>Welcome to the team.</h1>
   <div class="sub">Before you dive in, let us get you set up properly — takes about two minutes.</div>
   <div class="hero-cta-box">
@@ -4505,7 +4513,7 @@ app.get('/welcome', requireAuth, (req, res) => {
 <div id="wizardScreen">
   <div class="wizard-layout">
     <div class="wizard-sidebar">
-      <div class="wizard-brand">Manet Creative</div>
+      <div class="wizard-brand"><span class="mark"></span> Manet Creative</div>
       <div class="wizard-steps-label">Setup</div>
       <div class="wizard-step" data-step="1"><span class="dot">1</span> Your info</div>
       <div class="wizard-step" data-step="2"><span class="dot">2</span> Photo &amp; password</div>
@@ -4554,7 +4562,7 @@ app.get('/welcome', requireAuth, (req, res) => {
           <input type="checkbox" id="wAgree">
           <div class="agree-text">I agree not to share, distribute, or disclose any information about this system, its clients, or how it works, outside of Manet Creative. <span class="read-more-link" onclick="openPolicy()">Read the full policy</span></div>
         </div>
-        <div style="font-size:0.78rem;font-weight:700;margin-bottom:8px;">Your signature</div>
+        <div class="sig-label">Your signature</div>
         <div class="sig-tabs">
           <div class="sig-tab active" id="sigTabDraw" onclick="switchSigTab('draw')">Draw it</div>
           <div class="sig-tab" id="sigTabUpload" onclick="switchSigTab('upload')">Upload a photo</div>
@@ -4664,7 +4672,6 @@ function showWizard() {
   document.getElementById('heroScreen').style.display = 'none';
   document.getElementById('wizardScreen').style.display = 'block';
   goToStep(1);
-  setTimeout(initSignaturePad, 100);
 }
 function goToStep(n) {
   [1,2,3].forEach(i => { document.getElementById('step' + i).style.display = i === n ? 'block' : 'none'; });
@@ -4674,6 +4681,7 @@ function goToStep(n) {
     el.classList.toggle('done', s < n);
     el.querySelector('.dot').textContent = s < n ? String.fromCharCode(10003) : s;
   });
+  if (n === 3) setTimeout(initSignaturePad, 30); // canvas is only real-sized once its container is actually visible
 }
 
 let photoDataUrl = null;
@@ -4686,10 +4694,13 @@ document.getElementById('wPhoto').addEventListener('change', (e) => {
 });
 
 let sigMode = 'draw';
-let sigCanvasCtx = null, sigDrawing = false, sigHasDrawn = false;
+let sigCanvasCtx = null, sigDrawing = false, sigHasDrawn = false, sigInitialized = false;
 let sigUploadDataUrl = null;
 function initSignaturePad() {
+  if (sigInitialized) return;
   const canvas = document.getElementById('sigCanvas');
+  if (!canvas.offsetWidth) return; // not actually visible yet — bail, will retry next time step 3 opens
+  sigInitialized = true;
   canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
   sigCanvasCtx = canvas.getContext('2d');
   sigCanvasCtx.strokeStyle = '#14140f'; sigCanvasCtx.lineWidth = 2; sigCanvasCtx.lineCap = 'round';
